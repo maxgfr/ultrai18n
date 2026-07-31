@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@maxgfr/codeindex':
+        specifier: ^2.22.1
+        version: 2.22.1
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -20,6 +23,9 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.1)
+      web-tree-sitter:
+        specifier: ^0.26.11
+        version: 0.26.11
 
 packages:
 
@@ -329,6 +335,11 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@maxgfr/codeindex@2.22.1':
+    resolution: {integrity: sha512-WstpbWc4FqPDZ0+WaVYJ0cdrAYVsVc1zLOem/8bMdMCuGcsKHTHpaIrmZEXeFnegjBVwRI5LNdpUKMWwB/1vzQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@rollup/rollup-android-arm-eabi@4.62.3':
     resolution: {integrity: sha512-c0wdcekXtQvvn5Tsrk/+op/gUArrbWaFduBnTLP2l1cKLSQs4diMWjJw3m6A0DdzT8dAAX95KpkJ3qynCePbmw==}
@@ -845,6 +856,9 @@ packages:
       jsdom:
         optional: true
 
+  web-tree-sitter@0.26.11:
+    resolution: {integrity: sha512-Q5Dm3YTIXSXuH6FxX6RuzX2Qwpc4DPGiYMU87Wg5Z8OIStiQFiUex4zMDc0vBTw78EphaYJacncJghCHzbZptg==}
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -1012,6 +1026,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@maxgfr/codeindex@2.22.1': {}
 
   '@rollup/rollup-android-arm-eabi@4.62.3':
     optional: true
@@ -1489,6 +1505,8 @@ snapshots:
       - sugarss
       - supports-color
       - terser
+
+  web-tree-sitter@0.26.11: {}
 
   why-is-node-running@2.3.0:
     dependencies:
