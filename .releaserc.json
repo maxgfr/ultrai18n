@@ -1,0 +1,26 @@
+{
+  "branches": ["main"],
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    "@semantic-release/changelog",
+    [
+      "@semantic-release/exec",
+      {
+        "prepareCmd": "node scripts/stamp-version.mjs ${nextRelease.version} && pnpm build"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": [
+          "CHANGELOG.md",
+          "package.json",
+          "skills/ultrai18n/SKILL.md",
+          "skills/ultrai18n/scripts/ultrai18n.mjs"
+        ]
+      }
+    ],
+    "@semantic-release/github"
+  ]
+}

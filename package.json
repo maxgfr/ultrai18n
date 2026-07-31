@@ -1,0 +1,46 @@
+{
+  "name": "@maxgfr/ultrai18n",
+  "version": "0.0.0-development",
+  "description": "Find every human-readable string in a repository, classify it, translate it with cheap models, and prove nothing was missed.",
+  "keywords": [
+    "i18n",
+    "l10n",
+    "internationalization",
+    "localization",
+    "translation",
+    "agent-skill",
+    "static-analysis",
+    "codemod"
+  ],
+  "license": "MIT",
+  "author": "maxgfr",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maxgfr/ultrai18n.git"
+  },
+  "type": "module",
+  "bin": {
+    "ultrai18n": "./skills/ultrai18n/scripts/ultrai18n.mjs"
+  },
+  "files": [
+    "skills"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "eval": "vitest run evals"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

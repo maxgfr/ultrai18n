@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # The gitignore parity test shells out to `git check-ignore`, and the
+        # eval fixture needs real history.
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+
+      # The shipped engine is a committed artifact. If a build from this commit
+      # differs from what was committed, the skill someone installs is not the
+      # code that was reviewed here.
+      - name: The committed bundle matches its source
+        run: git diff --exit-code -- skills/ultrai18n/scripts/ultrai18n.mjs
+
+      # The skill has to run with no install step, from the bundle alone.
+      - name: The engine runs standalone
+        run: |
+          node skills/ultrai18n/scripts/ultrai18n.mjs version
+          node skills/ultrai18n/scripts/ultrai18n.mjs census --repo . --json > /dev/null
