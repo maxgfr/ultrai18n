@@ -87,7 +87,16 @@ and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework inte
 
 ## Status
 
-Early development. Implemented today: `census` (gate G1) and the vendored discovery substrate.
-Every other command exits 1 naming what it still needs, rather than printing an empty result — a
-command that succeeds with no findings is indistinguishable from a clean repo, and that confusion is
-what this tool exists to remove.
+**Working today:** `scan` (the full inventory), `census` (gate G1), `catalog` and
+`catalog --explain`. Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML,
+Markdown, HTML, SVG, CSS and plain text through hand-written byte-indexed lexers. Classification,
+language detection and the surface catalog all run.
+
+**Not built yet:** `plan`, `translate`, `apply`, `verify`, the six-gate `check`, `sync`, `glossary`,
+`orchestrate` and `init`. Each exits 1 naming what it still needs. A command that succeeds with no
+findings is indistinguishable from a clean repository, and removing that confusion is the point.
+
+On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
+`scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed
+back for judgment, and one locale marker to retarget. Among them are the four French comments in a
+stylesheet that two separate human translation passes both left behind.

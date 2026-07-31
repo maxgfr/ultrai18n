@@ -45,9 +45,24 @@ engine  →  writes apps/web/.../DataSection.tsx at bytes 4187-4204
 The model never opens a source file. That keeps the cost proportional to the text rather than the
 codebase, and removes any opportunity to reformat, drop or "improve" surrounding code.
 
+## Install
+
+```sh
+npx skills add maxgfr/ultrai18n            # this project
+npx skills add maxgfr/ultrai18n --global   # every project
+```
+
+No build step, no API key, no network. The tree-sitter grammars ship with the engine.
+
 ## Status
 
-Early development. Not yet released.
+`scan`, `census` and `catalog` work. The mutation half — `plan`, `translate`, `apply`, `verify`,
+`check` — is not built yet, and each of those commands exits 1 naming what it still needs.
+
+On a fully French reference repository, `scan` finds 2956 text sites across 91 files and separates
+them into what to translate, what is an identifier and must not be touched, and what it refuses to
+decide. Among the finds are four French comments in a stylesheet that two separate human translation
+passes both missed.
 
 ## License
 
