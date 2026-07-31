@@ -117,6 +117,8 @@ export type NeedsJudgmentReason =
   | 'discovery-token'
   /** A `label`-named key whose value has no word — do not "helpfully" expand it. */
   | 'label-without-prose'
+  /** A plural or agreement rule baked into the expression — needs a code edit, not a string. */
+  | 'grammar-hole'
   /** 7 or 12 short strings: calendar vocabulary, locale-dependent despite looking symbolic. */
   | 'symbol-set'
   | 'manifest-shaped-object'

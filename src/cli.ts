@@ -1,6 +1,11 @@
-import { resolve } from 'node:path'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { VERSION } from './version'
 import { runCensus, formatCensus } from './census'
+import { scan } from './scan'
+import { formatScan } from './report'
+import { checkCatalog, matchRules } from './catalog/match'
+import { RULES } from './catalog/rules'
 
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
@@ -54,7 +59,7 @@ const VALUE_FLAGS = new Set([
 const BOOL_FLAGS = new Set([
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
   'ci', 'hook', 'baseline', 'quiet', 'no-sweep', 'allow-dirty', 'no-git', 'backup',
-  'strict', 'help',
+  'strict', 'help', 'no-ast',
 ])
 
 interface Parsed {
@@ -103,23 +108,21 @@ export function parseArgs(argv: string[]): Parsed {
 
 /** Commands the design specifies but this build does not yet implement. */
 const PENDING: Record<string, string> = {
-  scan: 'the extractors (ts-ast, json, yaml) are not built yet',
   sites: 'requires `scan`',
-  catalog: 'the surface catalog is not built yet',
-  lang: 'the language detector is not built yet',
+  lang: 'wired into `scan`; a standalone command is not built yet',
   adjudicate: 'requires `scan`',
   plan: 'requires `scan`',
   translate: 'requires `plan`',
   apply: 'requires `translate`',
   verify: 'requires `apply`',
-  check: 'requires `scan` — run `census` for gate G1 alone',
+  check: 'the six gates are not wired yet — run `census` for gate G1 and `scan` for the inventory',
   sync: 'requires the catalog extractors',
   glossary: 'requires `plan`',
   orchestrate: 'requires `plan`',
   init: 'requires `check`',
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const p = parseArgs(process.argv.slice(2))
 
   if (p.flags.help || (!p.command && p.positional.length === 0)) {
@@ -147,6 +150,54 @@ function main(): void {
       return
     }
 
+    case 'catalog': {
+      const problems = checkCatalog(RULES)
+      const explain = p.flags.explain
+      if (typeof explain === 'string') {
+        const applicable = RULES.filter((r) =>
+          matchRules([r], { file: explain, path: '', value: '' }).length > 0 ||
+          matchRules([r], { file: explain, path: '/description', value: '', key: 'description' }).length > 0,
+        )
+        const payload = applicable.map((r) => ({ id: r.id, title: r.title, docs: r.docs, notes: r.notes }))
+        if (json) process.stdout.write(JSON.stringify({ file: explain, rules: payload }, null, 2) + '\n')
+        else {
+          process.stdout.write(`ultrai18n catalog — rules that apply to ${explain}\n\n`)
+          if (payload.length === 0) process.stdout.write('  none\n')
+          for (const r of payload) {
+            process.stdout.write(`  ${r.id}\n    ${r.title}\n${r.docs ? `    ${r.docs}\n` : ''}`)
+          }
+        }
+        return
+      }
+      if (json) process.stdout.write(JSON.stringify({ rules: RULES.length, problems }, null, 2) + '\n')
+      else {
+        process.stdout.write(`ultrai18n catalog: ${RULES.length} rules, ${problems.length} problem(s)\n`)
+        for (const p of problems) process.stdout.write(`  ${p.rule}: ${p.problem}\n`)
+      }
+      if (problems.length) process.exit(1)
+      return
+    }
+
+    case 'scan': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inv = await scan({
+        repo,
+        from: p.flags.from === undefined ? 'auto' : String(p.flags.from),
+        to: String(p.flags.to ?? 'en'),
+        noAst: p.flags['no-ast'] === true,
+      })
+      mkdirSync(out, { recursive: true })
+      // Sorted keys and no timestamp: an unchanged repo must produce a
+      // byte-identical inventory, or "nothing changed" is unprovable.
+      writeFileSync(join(out, 'inventory.json'), JSON.stringify(inv, null, 2) + '\n')
+      if (json) process.stdout.write(JSON.stringify(inv, null, 2) + '\n')
+      else {
+        process.stdout.write(formatScan(inv) + '\n')
+        process.stderr.write(`\nwrote ${join(out, 'inventory.json')}\n`)
+      }
+      return
+    }
+
     default: {
       const why = PENDING[p.command]
       // Say what is missing rather than printing an empty result. A command that
@@ -157,4 +208,7 @@ function main(): void {
   }
 }
 
-main()
+main().catch((err: unknown) => {
+  process.stderr.write(`ultrai18n: ${(err as Error).message}\n`)
+  process.exit(1)
+})

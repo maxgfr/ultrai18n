@@ -7,7 +7,9 @@
 // its own visitor looks for declarations, its string handling drops positions
 // and the original text, and its STRING_NODE regex does not match `jsx_text` at
 // all. So: its parser, our visitor.
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { Parser, Language, type Node, type Tree } from 'web-tree-sitter'
 import { ensureGrammars, grammarKeyForExt, resolveGrammarsDir } from '@maxgfr/codeindex'
 
@@ -22,7 +24,7 @@ let initialized = false
 const cache = new Map<string, Parser | null>()
 
 export interface GrammarStatus {
-  tier: 'adjacent' | 'cache' | 'pulled' | 'none'
+  tier: 'shipped' | 'adjacent' | 'cache' | 'pulled' | 'none'
   dir: string | null
   /** Why the AST tier is unavailable, when it is. Surfaced in the census. */
   reason?: string
@@ -32,6 +34,25 @@ let status: GrammarStatus = { tier: 'none', dir: null }
 
 export function grammarStatus(): GrammarStatus {
   return status
+}
+
+/**
+ * Grammars shipped beside the engine.
+ *
+ * The four JS/TS wasm files are ~3.3 MB and they are committed, rather than
+ * pulled on first use. The alternative — resolving through codeindex's shared
+ * cache, and downloading ~17 MB when it misses — makes the AST tier depend on
+ * network access at the moment of first use. That turns a strong guarantee
+ * ("this repo is parsed properly") into a conditional one, and the difference
+ * only ever shows up as a quietly weaker result on someone else's machine.
+ */
+function shippedGrammarsDir(): string | null {
+  try {
+    const dir = join(dirname(fileURLToPath(import.meta.url)), 'grammars')
+    return existsSync(join(dir, 'tsx.wasm')) ? dir : null
+  } catch {
+    return null
+  }
 }
 
 /**
@@ -53,6 +74,15 @@ export async function prepareGrammars(exts: Iterable<string>): Promise<GrammarSt
     status = { tier: 'none', dir: null, reason: 'no AST-eligible files in this repo' }
     return status
   }
+
+  const shipped = shippedGrammarsDir()
+  if (shipped) {
+    status = { tier: 'shipped', dir: shipped }
+    return status
+  }
+
+  // Development, or a future language whose grammar is not shipped: fall back
+  // to codeindex's provisioning, which may reach the network.
   try {
     await ensureGrammars([...keys])
     const dir = resolveGrammarsDir()
@@ -85,7 +115,12 @@ export async function parserForExt(ext: string): Promise<Parser | null> {
   }
   try {
     if (!initialized) {
-      await Parser.init()
+      // web-tree-sitter loads its own runtime wasm by relative path, which is
+      // wrong once the engine is a single file somewhere else entirely. Point
+      // it at the copy sitting beside the grammars.
+      await Parser.init({
+        locateFile: (name: string) => join(dir, name),
+      })
       initialized = true
     }
     const language = await Language.load(join(dir, `${key}.wasm`))

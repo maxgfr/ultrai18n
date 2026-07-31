@@ -23,7 +23,17 @@ export default defineConfig({
     options.legalComments = 'inline'
   },
   async onSuccess() {
-    const { chmodSync } = await import('node:fs')
+    const { chmodSync, mkdirSync, copyFileSync } = await import('node:fs')
     chmodSync('skills/ultrai18n/scripts/ultrai18n.mjs', 0o755)
+    // Ship the JS/TS grammars beside the engine. Committed on purpose: pulling
+    // them on first use would make the AST tier depend on network access, and a
+    // silently weaker parse on someone else's machine is exactly the class of
+    // difference this tool exists to eliminate.
+    const from = 'node_modules/@maxgfr/codeindex/scripts/grammars'
+    const to = 'skills/ultrai18n/scripts/grammars'
+    mkdirSync(to, { recursive: true })
+    for (const name of ['tsx', 'typescript', 'javascript', 'web-tree-sitter']) {
+      copyFileSync(`${from}/${name}.wasm`, `${to}/${name}.wasm`)
+    }
   },
 })
