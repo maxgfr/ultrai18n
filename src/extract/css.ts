@@ -36,7 +36,13 @@ export function extractCss(file: string, text: string, map: OffsetMap): CssExtra
       .join('\n')
       .trim()
     if (!/\p{L}{2,}/u.test(value)) continue
-    sites.push(site(file, `comment[${index++}]`, 'comment', at, at + raw.length, value, null, map, text))
+    const s0 = site(file, `comment[${index++}]`, 'comment', at, at + raw.length, value, null, map, text)
+    const lines = raw.split('\n')
+    const gutter = lines.length > 1 ? (/^(\s*\*+ ?)/.exec(lines[1] ?? '')?.[1] ?? '') : ''
+    s0.prefix = lines.length > 1 ? '/*\n' + gutter : '/* '
+    s0.suffix = lines.length > 1 ? '\n' + gutter.replace(/\*+ ?$/, '') + '*/' : ' */'
+    s0.linePrefix = gutter
+    sites.push(s0)
   }
 
   // `content:` values. Only quoted ones: `content: counter(x)` is a function.

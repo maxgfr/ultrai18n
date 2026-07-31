@@ -23,6 +23,17 @@ export interface RawSite {
   quote: string | null
   escapes: boolean
   holes: Hole[]
+  /**
+   * How to rebuild a delimited site around a new value.
+   *
+   * A comment's `//` or slash-star is not part of its text but IS part of its
+   * span, so writing the text alone over the span deletes the marker and turns
+   * a comment into a syntax error. These carry the marker back.
+   */
+  prefix?: string
+  suffix?: string
+  /** Re-applied to every line but the first, for multi-line block comments. */
+  linePrefix?: string
   line: number
   col: number
   endLine: number

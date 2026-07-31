@@ -198,6 +198,10 @@ export interface Site {
   /** The host file uses only ASCII, so writing a literal `é` would break its style. */
   asciiOnlyFile: boolean
   holes: Hole[]
+  /** Delimiters to rebuild around a new value — a comment's marker, chiefly. */
+  prefix?: string
+  suffix?: string
+  linePrefix?: string
 
   kind: SiteKind
   surface: Surface

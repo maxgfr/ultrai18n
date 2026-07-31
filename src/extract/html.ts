@@ -44,6 +44,8 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
     value: string,
     quote: string | null,
     container: Container,
+    prefix?: string,
+    suffix?: string,
   ): void => {
     const span: Span = { start: map.byteOf(startChar), end: map.byteOf(endChar) }
     const valueSpan: Span = quote
@@ -69,6 +71,7 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
       extractor: 'html',
       tier: 'structural',
       container,
+      ...(prefix !== undefined ? { prefix, suffix: suffix ?? '', linePrefix: '' } : {}),
     })
   }
 
@@ -87,7 +90,7 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
       const stop = end === -1 ? n : end + 3
       const value = text.slice(lt + 4, end === -1 ? n : end).trim()
       if (/\p{L}{2,}/u.test(value)) {
-        push(`comment[${index++}]`, 'comment', lt, stop, value, null, { isKey: false })
+        push(`comment[${index++}]`, 'comment', lt, stop, value, null, { isKey: false }, '<!-- ', ' -->')
       }
       i = stop
       continue

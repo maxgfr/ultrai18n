@@ -1,0 +1,301 @@
+// translate: hand groups out, fold results back.
+//
+// The model sees `{id, text}` and a typed envelope. Nothing else, ever. It does
+// not receive the file, the line, the surrounding source, or the component
+// name — a model translating "Yes, erase it all" gains nothing from knowing
+// which file it lives in, and giving it the file both multiplies the cost and
+// hands it the opportunity to rewrite code.
+//
+// `role` is the one context lever, and it carries its weight: one token in
+// place of a paragraph of register instructions, with the instructions
+// themselves living once, in the agent contract.
+import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import type { Group } from './plan'
+import { validate, rejects, type Violation } from './validate'
+
+export interface BatchItem {
+  id: string
+  text: string
+  role: string
+  /** Present only when the host constrains the length. */
+  max?: number
+  /** Gloss per placeholder, so a translator with no file access can reorder them. */
+  holes?: Record<string, string>
+  /** How many places this text appears — a hint to translate conservatively. */
+  sites?: number
+}
+
+export interface Batch {
+  schemaVersion: 1
+  batchId: string
+  /** Digest of the canonical batch bytes; a result computed against a stale batch is rejected. */
+  batchDigest: string
+  sourceLang: string
+  targetLang: string
+  project: { name: string; domain?: string; tone?: string }
+  glossary: { src: string; tgt: string; pin: boolean }[]
+  items: BatchItem[]
+}
+
+export interface BatchResult {
+  batchId: string
+  batchDigest?: string
+  items: { id: string; text?: string; refuse?: string }[]
+}
+
+export const BATCH_SIZE = 8
+
+export interface BuildBatchesOptions {
+  sourceLang: string
+  targetLang: string
+  project: Batch['project']
+  glossary?: Map<string, { text: string; pin: boolean }>
+  batchSize?: number
+}
+
+export function buildBatches(groups: Group[], opts: BuildBatchesOptions): Batch[] {
+  const pending = groups.filter((g) => g.status === 'pending')
+  const size = opts.batchSize ?? BATCH_SIZE
+  const batches: Batch[] = []
+
+  for (let i = 0; i < pending.length; i += size) {
+    const slice = pending.slice(i, i + size)
+    const items: BatchItem[] = slice.map((g) => ({
+      id: g.id,
+      text: g.text,
+      role: g.role,
+      ...(g.max !== null ? { max: g.max } : {}),
+      ...(Object.keys(g.holeGloss).length ? { holes: g.holeGloss } : {}),
+      ...(g.sites.length + g.mirrors.length > 1 ? { sites: g.sites.length + g.mirrors.length } : {}),
+    }))
+
+    // Only the glossary entries this batch can actually use, so the envelope
+    // stays proportional to the work rather than to the term store.
+    const glossary = sliceGlossary(opts.glossary, items)
+
+    const batch: Batch = {
+      schemaVersion: 1,
+      batchId: String(batches.length).padStart(3, '0'),
+      batchDigest: '',
+      sourceLang: opts.sourceLang,
+      targetLang: opts.targetLang,
+      project: opts.project,
+      glossary,
+      items,
+    }
+    batch.batchDigest = digestOf(batch)
+    batches.push(batch)
+  }
+  return batches
+}
+
+function sliceGlossary(
+  glossary: Map<string, { text: string; pin: boolean }> | undefined,
+  items: BatchItem[],
+): Batch['glossary'] {
+  if (!glossary) return []
+  const haystack = items.map((i) => i.text).join('\n')
+  const out: Batch['glossary'] = []
+  for (const [src, entry] of glossary) {
+    const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const used = new RegExp(`(^|\\P{L})${escaped}(\\P{L}|$)`, 'iu').test(haystack)
+    if (used || entry.pin) out.push({ src, tgt: entry.text, pin: entry.pin })
+    if (out.length >= 25) break
+  }
+  return out.sort((a, b) => (a.src < b.src ? -1 : 1))
+}
+
+function digestOf(batch: Batch): string {
+  const canonical = JSON.stringify({
+    sourceLang: batch.sourceLang,
+    targetLang: batch.targetLang,
+    items: batch.items,
+    glossary: batch.glossary,
+  })
+  // A stable digest over the INPUT lets `translate --apply` reject a result
+  // that was computed against a batch which has since changed — the same
+  // re-read-before-trusting reflex the verification gate uses, applied to the
+  // input side.
+  return createHash('sha256').update(canonical).digest('hex').slice(0, 16)
+}
+
+// ---------------------------------------------------------------------------
+// Folding results
+// ---------------------------------------------------------------------------
+
+export interface FoldOptions {
+  groups: Group[]
+  glossary?: Map<string, { text: string; pin: boolean }>
+  /** Reject a result whose digest does not match the batch it claims to answer. */
+  batches?: Batch[]
+}
+
+export interface FoldedTranslation {
+  groupId: string
+  text: string
+  violations: Violation[]
+}
+
+export interface FoldReport {
+  accepted: FoldedTranslation[]
+  /** Rejected items, with why — these go into a repair batch, not the bin. */
+  rejected: { groupId: string; text: string; violations: Violation[] }[]
+  /** The model declined, which is a legitimate answer for a structural case. */
+  refused: { groupId: string; why: string }[]
+  /** Ids in the result that no batch asked for: the model invented them. */
+  unknown: string[]
+  /** Ids the batch asked for and the result omitted. */
+  missing: string[]
+}
+
+export function foldResults(results: BatchResult[], opts: FoldOptions): FoldReport {
+  const byId = new Map(opts.groups.map((g) => [g.id, g]))
+  const report: FoldReport = { accepted: [], rejected: [], refused: [], unknown: [], missing: [] }
+
+  const answered = new Set<string>()
+  for (const result of results) {
+    const batch = opts.batches?.find((b) => b.batchId === result.batchId)
+    if (batch && result.batchDigest && result.batchDigest !== batch.batchDigest) {
+      throw new Error(
+        `batch ${result.batchId}: the result was computed against a different batch (digest ${result.batchDigest} ≠ ${batch.batchDigest}) — re-run translate`,
+      )
+    }
+
+    for (const item of result.items) {
+      const group = byId.get(item.id)
+      if (!group) {
+        report.unknown.push(item.id)
+        continue
+      }
+      answered.add(item.id)
+      if (item.refuse) {
+        report.refused.push({ groupId: item.id, why: item.refuse })
+        continue
+      }
+      if (item.text === undefined) {
+        report.rejected.push({
+          groupId: item.id,
+          text: '',
+          violations: [{ validator: 'V6', severity: 'reject', message: 'no text and no refusal' }],
+        })
+        continue
+      }
+      const violations = validate(group, item.text, { glossary: opts.glossary })
+      if (rejects(violations)) report.rejected.push({ groupId: item.id, text: item.text, violations })
+      else report.accepted.push({ groupId: item.id, text: item.text, violations })
+    }
+  }
+
+  if (opts.batches) {
+    for (const batch of opts.batches) {
+      for (const item of batch.items) {
+        if (!answered.has(item.id)) report.missing.push(item.id)
+      }
+    }
+  }
+  return report
+}
+
+// ---------------------------------------------------------------------------
+// Backends
+// ---------------------------------------------------------------------------
+
+export type BackendKind = 'subagent' | 'cli' | 'api' | 'manual'
+
+export interface CliBackendOptions {
+  command: string
+  cwd: string
+  timeoutMs?: number
+  retries?: number
+  sourceLang: string
+  targetLang: string
+}
+
+/**
+ * The generic escape hatch: batch JSON on stdin, result JSON on stdout.
+ *
+ * Tolerances are narrow and enumerated on purpose. Trimming whitespace and
+ * stripping one fenced block covers how real CLIs actually behave; "find the
+ * JSON somewhere in the prose" would make a malformed answer look like a good
+ * one, which is the failure this whole design is built to avoid.
+ */
+export function runCliBackend(batch: Batch, opts: CliBackendOptions): BatchResult {
+  const retries = opts.retries ?? 2
+  let lastError = ''
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = spawnSync('sh', ['-c', opts.command], {
+      cwd: opts.cwd,
+      input: JSON.stringify(batch, null, 2),
+      timeout: opts.timeoutMs ?? 120_000,
+      maxBuffer: 1 << 26,
+      env: {
+        ...process.env,
+        ULTRAI18N_SOURCE_LANG: opts.sourceLang,
+        ULTRAI18N_TARGET_LANG: opts.targetLang,
+        ULTRAI18N_BATCH_ID: batch.batchId,
+        ULTRAI18N_ROLE: 'translate',
+      },
+    })
+
+    if (r.error) {
+      lastError = r.error.message
+    } else if (r.status !== 0) {
+      lastError = `exit ${r.status}: ${(r.stderr?.toString() ?? '').slice(0, 200)}`
+    } else {
+      const parsed = parseResult(r.stdout?.toString() ?? '', batch.batchId)
+      if (parsed) return parsed
+      lastError = 'stdout was not the expected JSON'
+    }
+    if (attempt < retries) {
+      // Fixed backoff, not jittered: a reproducible run is worth more here than
+      // a marginally kinder retry curve.
+      spawnSync('sh', ['-c', `sleep ${attempt === 0 ? 1 : 4}`])
+    }
+  }
+  throw new Error(`translator failed for batch ${batch.batchId} after ${retries + 1} attempt(s): ${lastError}`)
+}
+
+export function parseResult(stdout: string, batchId: string): BatchResult | null {
+  let body = stdout.trim()
+  const fence = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(body)
+  if (fence) body = fence[1]!.trim()
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (Array.isArray(parsed)) return { batchId, items: parsed as BatchResult['items'] }
+    const obj = parsed as BatchResult
+    if (Array.isArray(obj.items)) return { ...obj, batchId: obj.batchId ?? batchId }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/** The contract handed to a translating agent. The register rules live here, once. */
+export const TRANSLATOR_CONTRACT = `# Contract: translator
+
+You translate short user-interface strings. Handle ONLY the batch files named in
+your prompt.
+
+For each batch, read its JSON and return one \`{id, text}\` per item — the same
+ids, nothing else.
+
+- Keep every \`{0}\`-style placeholder: the same set, in any order. Never drop,
+  duplicate or invent one.
+- Never emit \`\${\`, a backtick, or \`{{\`.
+- Respect \`max\` as a hard character limit when it is present.
+- Use each glossary entry's \`tgt\` verbatim.
+- \`role\` sets the register:
+  - \`button\`, \`tab\`, \`menu-item\`, \`label\` — imperative and terse, no final period
+  - \`paragraph\`, \`list-item\`, \`doc-prose\` — full sentences
+  - \`aria-label\`, \`alt\` — descriptive; never begin with "button" or "image"
+  - \`error\`, \`status\` — plain, no blame
+  - \`heading\`, \`doc-heading\` — noun phrase, no final period
+- If a string cannot be translated without restructuring the surrounding code,
+  return \`{id, refuse: "<one line why>"}\` rather than guessing.
+
+**Do not open any repository file. Do not write, edit or delete anything.** The
+batch is the whole context you need and the whole context you get: the
+orchestrator folds your results and the engine writes the files by byte offset.
+`

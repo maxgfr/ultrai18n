@@ -58,6 +58,7 @@ export function extractYaml(
     quote: string | null,
     path: string,
     container: Container = { isKey: false },
+    prefix?: string,
   ): void => {
     const span: Span = { start: map.byteOf(startChar), end: map.byteOf(endChar) }
     const valueSpan: Span = quote
@@ -83,6 +84,7 @@ export function extractYaml(
       extractor: 'yaml',
       tier: 'structural',
       container,
+      ...(prefix !== undefined ? { prefix, suffix: '', linePrefix: '' } : {}),
     })
   }
 
@@ -101,7 +103,9 @@ export function extractYaml(
     if (body.startsWith('#')) {
       const value = body.replace(/^#+\s?/, '').trim()
       if (/\p{L}{2,}/u.test(value)) {
-        push('comment', lineStart + indent, lineStart + line.length, value, null, currentPath())
+        push('comment', lineStart + indent, lineStart + line.length, value, null, currentPath(), {
+          isKey: false,
+        }, /^#+\s?/.exec(body)![0])
       }
       continue
     }

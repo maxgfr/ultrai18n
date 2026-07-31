@@ -6,6 +6,9 @@ import { scan } from './scan'
 import { formatScan } from './report'
 import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
+import { formatPlan } from './plan'
+import { formatApply } from './apply'
+import { cmdPlan, cmdTranslate, cmdTranslateApply, cmdApply, runDir } from './commands'
 
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
@@ -59,7 +62,7 @@ const VALUE_FLAGS = new Set([
 const BOOL_FLAGS = new Set([
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
   'ci', 'hook', 'baseline', 'quiet', 'no-sweep', 'allow-dirty', 'no-git', 'backup',
-  'strict', 'help', 'no-ast',
+  'strict', 'help', 'no-ast', 'no-recover',
 ])
 
 interface Parsed {
@@ -111,9 +114,6 @@ const PENDING: Record<string, string> = {
   sites: 'requires `scan`',
   lang: 'wired into `scan`; a standalone command is not built yet',
   adjudicate: 'requires `scan`',
-  plan: 'requires `scan`',
-  translate: 'requires `plan`',
-  apply: 'requires `translate`',
   verify: 'requires `apply`',
   check: 'the six gates are not wired yet — run `census` for gate G1 and `scan` for the inventory',
   sync: 'requires the catalog extractors',
@@ -195,6 +195,63 @@ async function main(): Promise<void> {
         process.stdout.write(formatScan(inv) + '\n')
         process.stderr.write(`\nwrote ${join(out, 'inventory.json')}\n`)
       }
+      return
+    }
+
+    case 'plan': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const mode = String(p.flags.mode ?? 'swap') as 'audit' | 'swap' | 'i18n' | 'sync'
+      const { plan: result, batches } = cmdPlan(out, mode)
+      if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + '\n')
+      else {
+        process.stdout.write(formatPlan(result) + '\n')
+        process.stderr.write(`\nwrote ${batches.length} batch(es) to ${runDir(out).batches}\n`)
+      }
+      // A hazard or an unlinked assertion is a decision the engine will not
+      // make. Exiting 0 here would let a pipeline sail past it.
+      if (result.hazards.length || result.unlinked.length) process.exit(1)
+      return
+    }
+
+    case 'translate': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      if (p.flags.apply !== undefined) {
+        const folded = cmdTranslateApply(out)
+        if (json) process.stdout.write(JSON.stringify(folded, null, 2) + '\n')
+        else {
+          process.stdout.write(
+            `ultrai18n translate --apply: ${folded.accepted} accepted, ${folded.rejected} rejected, ` +
+              `${folded.refused} refused, ${folded.missing} missing → ${folded.translations.length} site patches\n`,
+          )
+        }
+        if (folded.rejected || folded.missing) process.exit(1)
+        return
+      }
+      const backend = String(p.flags.backend ?? (p.flags.translator ? 'cli' : 'subagent')) as
+        'subagent' | 'cli' | 'api' | 'manual'
+      if (backend === 'api') fail('the api backend is not built yet — use --translator or --backend manual')
+      const outcome = cmdTranslate({
+        out,
+        backend,
+        repo,
+        ...(p.flags.translator ? { translator: String(p.flags.translator) } : {}),
+        ...(p.flags['translator-timeout'] ? { timeoutMs: Number(p.flags['translator-timeout']) * 1000 } : {}),
+      })
+      if (json) process.stdout.write(JSON.stringify(outcome, null, 2) + '\n')
+      else {
+        process.stdout.write(`ultrai18n translate: backend ${outcome.backend}, ${outcome.batches} batch(es)\n`)
+        if (outcome.handoff) process.stdout.write(`  ${outcome.handoff}\n`)
+        for (const w of outcome.wrote) process.stdout.write(`  wrote ${w}\n`)
+      }
+      return
+    }
+
+    case 'apply': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const report = cmdApply(repo, out, p.flags.write === true, p.flags['no-recover'] !== true)
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+      else process.stdout.write(formatApply(report) + '\n')
+      if (!report.ok) process.exit(1)
       return
     }
 

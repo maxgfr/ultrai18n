@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { mkdirSync as mkdirSync4, writeFileSync as writeFileSync5 } from "fs";
-import { join as join23, resolve as resolve3 } from "path";
+import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "fs";
+import { join as join25, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -20025,14 +20025,14 @@ async function runCli(rawArgv) {
       process.stderr.write(`codeindex: ${index.records.length} embedding records \u2192 ${flags2.out}/embeddings.bin (model ${model.modelId})
 `);
     } else if (sub === "pull") {
-      const { url, sha256 } = resolveEmbedPullUrl();
+      const { url, sha256: sha2562 } = resolveEmbedPullUrl();
       const destDir = process.env.CODEINDEX_EMBED_DIR ?? join20(flags2.repo, ".codeindex", "models");
       mkdirSync3(destDir, { recursive: true });
       process.stderr.write(`codeindex: fetching model from ${url} \u2192 ${join20(destDir, "model.json")}
 `);
       let body2;
       try {
-        body2 = await fetchEmbedModel(url, sha256);
+        body2 = await fetchEmbedModel(url, sha2562);
       } catch (e) {
         process.stderr.write(`codeindex: pull failed \u2014 ${e instanceof Error ? e.message : String(e)} (nothing written)
 `);
@@ -20336,7 +20336,33 @@ function extractTs(file, text, tree, map) {
         identifiers.add(node.text);
         return;
       case "comment": {
-        push(node, "comment", stripCommentMarkers2(node.text), null, null, [], { isKey: false }, false);
+        const shape = commentShape(node.text);
+        const path = anchorPath(node);
+        const span = byteSpan(node, map);
+        const start2 = map.lineColOf(node.startIndex);
+        const end = map.lineColOf(node.endIndex);
+        sites.push({
+          file,
+          path,
+          kind: "comment",
+          span,
+          valueSpan: span,
+          raw: node.text,
+          value: shape.body,
+          quote: null,
+          escapes: false,
+          holes: [],
+          prefix: shape.prefix,
+          suffix: shape.suffix,
+          linePrefix: shape.linePrefix,
+          line: start2.line,
+          col: start2.col,
+          endLine: end.line,
+          endCol: end.col,
+          extractor: "ts-ast",
+          tier: "ast",
+          container: { isKey: false, inTest }
+        });
         return false;
       }
       case "jsx_text": {
@@ -20504,6 +20530,36 @@ function decodeEscape(seq) {
       if (seq.startsWith("\\x")) return String.fromCharCode(parseInt(seq.slice(2), 16));
       return seq.slice(1);
   }
+}
+function commentShape(raw) {
+  if (raw.startsWith("//")) {
+    const m = /^(\/\/+!?\s*)/.exec(raw);
+    return { prefix: m[1], suffix: "", linePrefix: "", body: raw.slice(m[1].length) };
+  }
+  if (raw.startsWith("/*")) {
+    const inner = raw.replace(/^\/\*+!?/, "").replace(/\*+\/$/, "");
+    const lines = inner.split("\n");
+    const openMatch = /^(\/\*+!?)/.exec(raw);
+    if (lines.length === 1) {
+      const lead = /^(\s*)/.exec(inner)[1];
+      const trail = /(\s*)$/.exec(inner)[1];
+      return {
+        prefix: openMatch[1] + lead,
+        suffix: trail + "*/",
+        linePrefix: "",
+        body: inner.trim()
+      };
+    }
+    const gutter = /^(\s*\*+ ?)/.exec(lines[1] ?? "")?.[1] ?? "";
+    const body2 = lines.map((l, i2) => i2 === 0 ? l.trim() : l.startsWith(gutter) ? l.slice(gutter.length) : l.trim()).join("\n").replace(/^\n+|\n+$/g, "");
+    return {
+      prefix: openMatch[1] + "\n" + gutter,
+      suffix: "\n" + gutter.replace(/\*+ ?$/, "") + "*/",
+      linePrefix: gutter,
+      body: body2
+    };
+  }
+  return { prefix: "", suffix: "", linePrefix: "", body: raw };
 }
 function stripCommentMarkers2(raw) {
   return raw.replace(/^\/\*+!?/, "").replace(/\*+\/$/, "").replace(/^\/\/+!?/, "").replace(/^#+/, "").split("\n").map((l) => l.replace(/^\s*\*+ ?/, "").trim()).join("\n").trim();
@@ -20731,6 +20787,9 @@ function siteId(siteKey) {
 function sha12(s) {
   return createHash4("sha1").update(s, "utf8").digest("hex");
 }
+function sha256(s) {
+  return createHash4("sha256").update(s, "utf8").digest("hex");
+}
 function contentHash(value) {
   return sha12(value.normalize("NFC")).slice(0, 8);
 }
@@ -20777,11 +20836,12 @@ function extractJson(file, text, map) {
       const raw = text.slice(i2, Math.min(end, n));
       const value = block ? raw.slice(2, -2).trim() : raw.slice(2).trim();
       if (new RegExp("\\p{L}{2,}", "u").test(value)) {
-        sites.push(
-          site(file, currentPath(), "comment", i2, Math.min(end, n), value, null, [], map, text, {
-            isKey: false
-          })
-        );
+        const s0 = site(file, currentPath(), "comment", i2, Math.min(end, n), value, null, [], map, text, {
+          isKey: false
+        });
+        s0.prefix = block ? "/* " : raw.slice(0, raw.length - raw.replace(/^\/\/+\s*/, "").length);
+        s0.suffix = block ? " */" : "";
+        sites.push(s0);
       }
       claimed += Math.min(end, n) - i2;
       i2 = Math.min(end, n);
@@ -20979,7 +21039,7 @@ function extractYaml(file, text, map, nested) {
   const lines = splitLines(text);
   const pathSegments = () => stack.map((f) => f.type === "map" ? f.key : f.index).filter((s) => s !== null);
   const currentPath = () => pointer(pathSegments());
-  const push = (kind, startChar, endChar, value, quote, path, container = { isKey: false }) => {
+  const push = (kind, startChar, endChar, value, quote, path, container = { isKey: false }, prefix) => {
     const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
     const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
     const s = map.lineColOf(startChar);
@@ -21001,7 +21061,8 @@ function extractYaml(file, text, map, nested) {
       endCol: e.col,
       extractor: "yaml",
       tier: "structural",
-      container
+      container,
+      ...prefix !== void 0 ? { prefix, suffix: "", linePrefix: "" } : {}
     });
   };
   for (let li = 0; li < lines.length; li++) {
@@ -21014,7 +21075,9 @@ function extractYaml(file, text, map, nested) {
     if (body2.startsWith("#")) {
       const value = body2.replace(/^#+\s?/, "").trim();
       if (new RegExp("\\p{L}{2,}", "u").test(value)) {
-        push("comment", lineStart + indent, lineStart + line.length, value, null, currentPath());
+        push("comment", lineStart + indent, lineStart + line.length, value, null, currentPath(), {
+          isKey: false
+        }, /^#+\s?/.exec(body2)[0]);
       }
       continue;
     }
@@ -21359,7 +21422,13 @@ function extractCss(file, text, map) {
     const raw = match[0];
     const value = raw.slice(2, -2).split("\n").map((l) => l.replace(/^\s*\*+ ?/, "").trim()).join("\n").trim();
     if (!new RegExp("\\p{L}{2,}", "u").test(value)) continue;
-    sites.push(site2(file, `comment[${index++}]`, "comment", at, at + raw.length, value, null, map, text));
+    const s0 = site2(file, `comment[${index++}]`, "comment", at, at + raw.length, value, null, map, text);
+    const lines = raw.split("\n");
+    const gutter = lines.length > 1 ? /^(\s*\*+ ?)/.exec(lines[1] ?? "")?.[1] ?? "" : "";
+    s0.prefix = lines.length > 1 ? "/*\n" + gutter : "/* ";
+    s0.suffix = lines.length > 1 ? "\n" + gutter.replace(/\*+ ?$/, "") + "*/" : " */";
+    s0.linePrefix = gutter;
+    sites.push(s0);
   }
   for (const match of text.matchAll(/content\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)) {
     const at = match.index ?? 0;
@@ -21412,7 +21481,7 @@ function extractHtml(file, text, map) {
   let i2 = 0;
   const n = text.length;
   const openStack = [];
-  const push = (path, kind, startChar, endChar, value, quote, container) => {
+  const push = (path, kind, startChar, endChar, value, quote, container, prefix, suffix) => {
     const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
     const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
     const s = map.lineColOf(startChar);
@@ -21434,7 +21503,8 @@ function extractHtml(file, text, map) {
       endCol: e.col,
       extractor: "html",
       tier: "structural",
-      container
+      container,
+      ...prefix !== void 0 ? { prefix, suffix: suffix ?? "", linePrefix: "" } : {}
     });
   };
   while (i2 < n) {
@@ -21449,7 +21519,7 @@ function extractHtml(file, text, map) {
       const stop2 = end === -1 ? n : end + 3;
       const value = text.slice(lt + 4, end === -1 ? n : end).trim();
       if (new RegExp("\\p{L}{2,}", "u").test(value)) {
-        push(`comment[${index++}]`, "comment", lt, stop2, value, null, { isKey: false });
+        push(`comment[${index++}]`, "comment", lt, stop2, value, null, { isKey: false }, "<!-- ", " -->");
       }
       i2 = stop2;
       continue;
@@ -22948,6 +23018,9 @@ function classify2(raw, opts) {
     escapes: raw.escapes,
     asciiOnlyFile: false,
     holes: raw.holes,
+    ...raw.prefix !== void 0 ? { prefix: raw.prefix } : {},
+    ...raw.suffix !== void 0 ? { suffix: raw.suffix } : {},
+    ...raw.linePrefix !== void 0 ? { linePrefix: raw.linePrefix } : {},
     kind: raw.kind,
     surface: decided.surface,
     verdict: decided.verdict,
@@ -23446,6 +23519,1058 @@ function clip2(s, n = 64) {
   return flat.length > n ? JSON.stringify(flat.slice(0, n - 1) + "\u2026") : JSON.stringify(flat);
 }
 
+// src/plan.ts
+var TEST_FILE3 = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//;
+function plan(inv, opts = {}) {
+  const mode = opts.mode ?? "swap";
+  const glossary = opts.glossary ?? /* @__PURE__ */ new Map();
+  const tm = opts.tm ?? /* @__PURE__ */ new Map();
+  const translatable = inv.sites.filter((s) => s.verdict === "translate");
+  const excluded = inv.sites.filter((s) => s.verdict === "do-not-translate");
+  const CONFLICTING = /* @__PURE__ */ new Set([
+    "identifier",
+    "module-specifier",
+    "enum-member",
+    "persisted-value",
+    "api-contract",
+    "interop-format"
+  ]);
+  const conflicting = excluded.filter((s) => s.reason !== null && CONFLICTING.has(s.reason));
+  const excludedText = new Set(conflicting.map((s) => normalizeForGrouping(s.value)));
+  const byKey2 = /* @__PURE__ */ new Map();
+  for (const site3 of translatable) {
+    const key = groupKey(site3);
+    const list = byKey2.get(key);
+    if (list) list.push(site3);
+    else byKey2.set(key, [site3]);
+  }
+  const groups = [];
+  for (const [key, sites] of [...byKey2.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+    const first = sites[0];
+    const normalized = normalizeForGrouping(first.value);
+    const role = roleOf(first);
+    const group = {
+      id: "g_" + key.slice(0, 12),
+      text: first.value,
+      role,
+      roleClass: classOf(role),
+      status: "pending",
+      max: first.constraints.maxLength ?? maxFor(role, first.value),
+      holes: first.constraints.mustKeepHoles,
+      holeGloss: glossFor(sites),
+      sites: sites.map((s) => s.id),
+      mirrors: []
+    };
+    if (first.holes.some((h) => h.grammar)) {
+      group.status = "structural";
+      group.blocked = "a plural or agreement rule is baked into the interpolation; the target language may need a different number of agreement sites, so this needs a code edit rather than a translated string";
+    } else if (excludedText.has(normalized)) {
+      group.status = "hazard";
+      group.blocked = `the same text is an identifier elsewhere (${conflicting.filter((s) => normalizeForGrouping(s.value) === normalized).slice(0, 3).map((s) => `${s.file}:${s.line}`).join(", ")}); translating both would break the identifier, translating neither leaves the label untranslated`;
+    } else {
+      const hit = glossary.get(first.value) ?? tm.get(memoKey(first.value, group.roleClass));
+      if (hit !== void 0) {
+        group.status = "memo";
+        group.memo = {
+          text: hit,
+          origin: glossary.has(first.value) ? "glossary" : "tm"
+        };
+      }
+    }
+    groups.push(group);
+  }
+  attachMirrors(groups, inv);
+  const unlinked = findUnlinked(inv, groups);
+  const pending = groups.filter((g) => g.status === "pending");
+  return {
+    schemaVersion: 1,
+    sourceLang: inv.sourceLanguage ?? "unknown",
+    targetLang: inv.targetLanguage,
+    mode,
+    groups,
+    hazards: groups.filter((g) => g.status === "hazard"),
+    structural: groups.filter((g) => g.status === "structural"),
+    unlinked,
+    counts: {
+      sites: inv.sites.length,
+      groups: groups.length,
+      toTranslate: pending.length,
+      memo: groups.filter((g) => g.status === "memo").length,
+      hazard: groups.filter((g) => g.status === "hazard").length,
+      structural: groups.filter((g) => g.status === "structural").length,
+      skipped: inv.sites.length - groups.reduce((n, g) => n + g.sites.length, 0)
+    }
+  };
+}
+function groupKey(site3) {
+  const role = classOf(roleOf(site3));
+  const translatability = site3.holes.length > 0 ? "holes" : "plain";
+  return sha256(`${normalizeForGrouping(site3.value)}\0${role}\0${translatability}`);
+}
+function memoKey(text, roleClass) {
+  return sha256(`${normalizeForGrouping(text)}\0${roleClass}`);
+}
+function roleOf(site3) {
+  const attr = site3.evidence.siblingKeys;
+  void attr;
+  switch (site3.surface) {
+    case "doc.markdown-prose":
+    case "doc.changelog":
+      return site3.kind === "prose-run" && /^#/.test(site3.raw) ? "doc-heading" : "doc-prose";
+    case "ui.release-notes":
+      return "doc-prose";
+    case "meta.head":
+    case "meta.package.description":
+    case "meta.webmanifest":
+    case "meta.extension-manifest":
+    case "meta.oci-label":
+    case "meta.store-listing":
+      return "paragraph";
+    case "comment.line":
+    case "comment.block":
+    case "comment.docstring":
+      return "doc-prose";
+    case "error.message":
+      return "error";
+    case "log.message":
+      return "status";
+    case "ui.issue-form":
+      return "label";
+    case "ui.attribute-text":
+      return "aria-label";
+    case "ui.jsx-text":
+      return site3.value.length > 48 ? "paragraph" : "button";
+    default:
+      return site3.value.length > 48 ? "paragraph" : "label";
+  }
+}
+function classOf(role) {
+  switch (role) {
+    case "button":
+    case "link":
+    case "tab":
+    case "menu-item":
+    case "label":
+    case "heading":
+      return "ui-short";
+    case "aria-label":
+    case "alt":
+    case "title-attr":
+      return "a11y";
+    case "doc-prose":
+    case "doc-heading":
+      return "doc";
+    default:
+      return "ui-long";
+  }
+}
+function maxFor(role, source) {
+  const roleClass = classOf(role);
+  if (roleClass !== "ui-short") return null;
+  return Math.ceil(source.length * 1.35) + 4;
+}
+function glossFor(sites) {
+  const gloss = {};
+  for (const site3 of sites) {
+    for (const hole of site3.holes) {
+      if (gloss[hole.index] !== void 0) continue;
+      gloss[hole.index] = hole.expr.replace(/[.[\]]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().trim().split(/\s+/).slice(-4).join(" ");
+    }
+  }
+  return gloss;
+}
+function attachMirrors(groups, inv) {
+  const byText = /* @__PURE__ */ new Map();
+  for (const g of groups) byText.set(normalizeForGrouping(g.text), g);
+  for (const site3 of inv.sites) {
+    if (site3.reason !== "test-fixture") continue;
+    const group = byText.get(normalizeForGrouping(site3.value));
+    if (group) group.mirrors.push(site3.id);
+  }
+}
+function findUnlinked(inv, groups) {
+  const known = new Set(groups.map((g) => normalizeForGrouping(g.text)));
+  const out2 = [];
+  for (const site3 of inv.sites) {
+    if (!TEST_FILE3.test(site3.file)) continue;
+    if (site3.reason !== "test-fixture") continue;
+    const normalized = normalizeForGrouping(site3.value);
+    if (known.has(normalized)) continue;
+    if (!new RegExp("\\p{L}{2,}\\s+\\p{L}{2,}", "u").test(site3.value) && site3.value.length < 8) continue;
+    out2.push({ file: site3.file, line: site3.line, value: site3.value });
+  }
+  return out2;
+}
+function formatPlan(p) {
+  const lines = [];
+  lines.push(`ultrai18n plan  ${p.sourceLang} \u2192 ${p.targetLang}  (${p.mode})`);
+  lines.push("");
+  lines.push(
+    `  ${p.counts.sites} sites \u2192 ${p.counts.groups} groups: ${p.counts.toTranslate} to translate, ${p.counts.memo} already known`
+  );
+  if (p.hazards.length) {
+    lines.push("");
+    lines.push(`HAZARDS (${p.hazards.length}) \u2014 not planned; the engine will not guess these`);
+    for (const g of p.hazards) lines.push(`  ${JSON.stringify(g.text)}
+      ${g.blocked}`);
+  }
+  if (p.structural.length) {
+    lines.push("");
+    lines.push(`STRUCTURAL (${p.structural.length}) \u2014 needs a code edit, not a translation`);
+    for (const g of p.structural) lines.push(`  ${JSON.stringify(g.text)}
+      ${g.blocked}`);
+  }
+  if (p.unlinked.length) {
+    lines.push("");
+    lines.push(`UNLINKED TEST LITERALS (${p.unlinked.length}) \u2014 assert copy but match no group`);
+    for (const u of p.unlinked.slice(0, 10)) lines.push(`  ${u.file}:${u.line}  ${JSON.stringify(u.value)}`);
+  }
+  return lines.join("\n");
+}
+
+// src/apply.ts
+import { readFileSync as readFileSync11, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
+import { join as join23, dirname as dirname6 } from "path";
+import { createHash as createHash5 } from "crypto";
+
+// src/escape.ts
+var UnknownSyntaxError = class extends Error {
+  constructor(detail) {
+    super(detail);
+    this.detail = detail;
+    this.name = "UnknownSyntaxError";
+  }
+  detail;
+};
+function syntaxFor(site3) {
+  switch (site3.extractor) {
+    case "ts-ast":
+      if (site3.kind === "jsx-text") return "jsx-text";
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
+      if (site3.quote === "`") return "js-template";
+      if (site3.quote === '"') return site3.kind === "attr" ? "jsx-attr-string" : "js-double";
+      if (site3.quote === "'") return "js-single";
+      return "js-single";
+    case "json":
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
+      return "json-string";
+    case "yaml":
+      if (site3.kind === "comment") return "line-comment";
+      if (site3.kind === "block-scalar") return "yaml-block";
+      return "yaml-scalar";
+    case "markdown":
+      return "md-text";
+    case "html":
+      if (site3.kind === "attr") return "html-attr";
+      if (site3.kind === "comment") return "block-comment";
+      return "html-text";
+    case "css":
+      return site3.kind === "comment" ? "css-comment" : "js-double";
+    case "text":
+      return "plain";
+    default:
+      throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
+  }
+}
+function escapeFor(syntax, text, opts = {}) {
+  const out2 = escapeRaw(syntax, text, opts);
+  return opts.asciiOnly ? toAscii(out2, syntax) : out2;
+}
+function escapeRaw(syntax, text, opts) {
+  switch (syntax) {
+    case "js-single":
+      return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+    case "js-double":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+    case "jsx-attr-string":
+      return opts.quote === "'" ? text.replace(/'/g, "&apos;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : text.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "js-template":
+      return text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+    case "jsx-text":
+      return text.replace(/[{}]/g, (c2) => c2 === "{" ? "&#123;" : "&#125;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "json-string":
+      return JSON.stringify(text).slice(1, -1);
+    case "yaml-scalar":
+      if (opts.quote === '"') return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      if (opts.quote === "'") return text.replace(/'/g, "''");
+      return needsYamlQuoting(text) ? `'${text.replace(/'/g, "''")}'` : text;
+    case "yaml-block":
+      return opts.blockIndent ? text.split("\n").map((l) => l === "" ? l : opts.blockIndent + l).join("\n") : text;
+    case "md-text":
+      return text.replace(/^(\s*)([#>*+-]|\d+[.)])/, "$1\\$2");
+    case "html-text":
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "html-attr":
+      return opts.quote === "'" ? text.replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/</g, "&lt;") : text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    case "css-comment":
+    case "block-comment":
+      return text.replace(/\*\//g, "*\\/");
+    case "line-comment":
+      return text.replace(/\r?\n/g, " ");
+    case "plain":
+      return text;
+  }
+}
+function needsYamlQuoting(text) {
+  if (text === "") return true;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(text)) return true;
+  if (/:\s|\s#/.test(text)) return true;
+  if (/^(y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|null|Null|NULL|~)$/.test(text)) return true;
+  if (/^[\d.+-]/.test(text) && !Number.isNaN(Number(text))) return true;
+  if (/^\s|\s$/.test(text)) return true;
+  return false;
+}
+function toAscii(text, syntax) {
+  if (!/[^\x00-\x7F]/.test(text)) return text;
+  switch (syntax) {
+    case "js-single":
+    case "js-double":
+    case "js-template":
+    case "json-string":
+      return [...text].map((c2) => {
+        const code = c2.codePointAt(0);
+        if (code < 128) return c2;
+        return code > 65535 ? [...c2].map((u) => "\\u" + u.charCodeAt(0).toString(16).padStart(4, "0")).join("") : "\\u" + code.toString(16).padStart(4, "0");
+      }).join("");
+    case "html-text":
+    case "html-attr":
+    case "jsx-text":
+      return [...text].map((c2) => c2.codePointAt(0) < 128 ? c2 : `&#${c2.codePointAt(0)};`).join("");
+    default:
+      return text;
+  }
+}
+function unescapeFor(syntax, text, opts = {}) {
+  switch (syntax) {
+    case "js-single":
+    case "js-double":
+    case "js-template":
+      return text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\(['"`$\\])/g, "$1");
+    case "json-string":
+      try {
+        return JSON.parse(`"${text}"`);
+      } catch {
+        return text;
+      }
+    case "jsx-attr-string":
+    case "html-attr":
+    case "html-text":
+    case "jsx-text":
+      return text.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&#123;/g, "{").replace(/&#125;/g, "}").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    case "yaml-scalar":
+      if (opts.quote === '"') return text.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      if (opts.quote === "'") return text.replace(/''/g, "'");
+      return text.startsWith("'") && text.endsWith("'") ? text.slice(1, -1).replace(/''/g, "'") : text;
+    case "yaml-block":
+      return opts.blockIndent ? text.split("\n").map((l) => l.startsWith(opts.blockIndent) ? l.slice(opts.blockIndent.length) : l).join("\n") : text;
+    case "md-text":
+      return text.replace(/^(\s*)\\([#>*+-]|\d+[.)])/, "$1$2");
+    case "css-comment":
+    case "block-comment":
+      return text.replace(/\*\\\//g, "*/");
+    case "line-comment":
+    case "plain":
+      return text;
+  }
+}
+
+// src/apply.ts
+function apply(opts) {
+  const { repo, inventory } = opts;
+  const write = opts.write ?? false;
+  const recover = opts.recover !== false;
+  const byId = new Map(inventory.sites.map((s) => [s.id, s]));
+  const outcomes = [];
+  const byFile = /* @__PURE__ */ new Map();
+  const refusedFiles = /* @__PURE__ */ new Set();
+  let recoveredCount = 0;
+  for (const t of opts.translations) {
+    const site3 = byId.get(t.id);
+    if (!site3) {
+      outcomes.push({ id: t.id, status: "refused", file: "?", why: "no such site in the inventory" });
+      continue;
+    }
+    try {
+      const patch = buildPatch(repo, site3, t.text, recover);
+      if (patch.recovered) recoveredCount++;
+      const list = byFile.get(site3.file);
+      if (list) list.push(patch);
+      else byFile.set(site3.file, [patch]);
+    } catch (err2) {
+      const why = err2.message;
+      outcomes.push({ id: t.id, status: "refused", file: site3.file, why });
+      refusedFiles.add(site3.file);
+    }
+  }
+  for (const [file, patches] of byFile) {
+    patches.sort((a, b) => a.start - b.start);
+    for (let i2 = 0; i2 + 1 < patches.length; i2++) {
+      if (patches[i2].end > patches[i2 + 1].start) {
+        refusedFiles.add(file);
+        outcomes.push({
+          id: patches[i2].site.id,
+          status: "refused",
+          file,
+          why: `overlaps the next site at byte ${patches[i2 + 1].start} \u2014 the inventory is inconsistent`
+        });
+      }
+    }
+  }
+  const groups = opts.groups ?? [];
+  let incompleteGroups = 0;
+  for (const group of groups) {
+    const files = /* @__PURE__ */ new Set();
+    for (const id of group) {
+      const site3 = byId.get(id);
+      if (site3) files.add(site3.file);
+    }
+    if ([...files].some((f) => refusedFiles.has(f))) {
+      incompleteGroups++;
+      for (const f of files) refusedFiles.add(f);
+    }
+  }
+  const written = [];
+  let filesWritten = 0;
+  for (const [file, patches] of [...byFile.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
+    if (refusedFiles.has(file)) {
+      for (const p of patches) {
+        if (!outcomes.some((o) => o.id === p.site.id)) {
+          outcomes.push({ id: p.site.id, status: "skipped", file, why: "another site in this file or group refused" });
+        }
+      }
+      continue;
+    }
+    const abs = join23(repo, file);
+    const before = readFileSync11(abs);
+    let patched;
+    try {
+      patched = applyPatches(before, patches);
+    } catch (err2) {
+      for (const p of patches) {
+        outcomes.push({ id: p.site.id, status: "refused", file, why: err2.message });
+      }
+      continue;
+    }
+    written.push({ file, sha256Before: digest(before), sha256After: digest(patched) });
+    for (const p of patches) {
+      outcomes.push({ id: p.site.id, status: "applied", file, recovered: p.recovered });
+    }
+    if (write) {
+      const tmp = join23(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
+      try {
+        writeFileSync5(tmp, patched);
+        renameSync2(tmp, abs);
+        filesWritten++;
+      } catch (err2) {
+        try {
+          unlinkSync(tmp);
+        } catch {
+        }
+        throw err2;
+      }
+    }
+  }
+  const applied = outcomes.filter((o) => o.status === "applied").length;
+  const skipped = outcomes.filter((o) => o.status === "skipped").length;
+  const refused = outcomes.filter((o) => o.status === "refused").length;
+  return {
+    write,
+    ok: refused === 0 && incompleteGroups === 0,
+    sites: { total: opts.translations.length, applied, skipped, refused, recovered: recoveredCount },
+    files: { touched: byFile.size, written: write ? filesWritten : written.length, skipped: refusedFiles.size },
+    groups: { total: groups.length, applied: groups.length - incompleteGroups, incomplete: incompleteGroups },
+    outcomes: outcomes.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.id < b.id ? -1 : 1),
+    written,
+    drift: { hard: refusedFiles.size, recovered: recoveredCount, files: [...refusedFiles].sort() }
+  };
+}
+function buildPatch(repo, site3, text, recover) {
+  const buf = readFileSync11(join23(repo, site3.file));
+  const syntax = syntaxFor(site3);
+  let start2 = site3.span.start;
+  let end = site3.span.end;
+  let recovered = false;
+  if (buf.subarray(start2, end).toString("utf8") !== site3.raw) {
+    if (!recover) {
+      throw new Error(`drift at ${site3.file}:${site3.line} \u2014 the recorded bytes no longer match, and --no-recover is set`);
+    }
+    const needle = Buffer.from(site3.raw, "utf8");
+    const found = allIndexesOf(buf, needle);
+    if (found.length === 1) {
+      const delta = found[0] - start2;
+      start2 += delta;
+      end += delta;
+      recovered = true;
+    } else {
+      throw new Error(
+        found.length === 0 ? `drift at ${site3.file}:${site3.line} \u2014 the recorded text is no longer in the file` : `drift at ${site3.file}:${site3.line} \u2014 the recorded text occurs ${found.length} times, so its position is ambiguous`
+      );
+    }
+  }
+  const valueStart = start2 + (site3.valueSpan.start - site3.span.start);
+  const valueEnd = end - (site3.span.end - site3.valueSpan.end);
+  const asciiOnly = usesUnicodeEscapes(buf);
+  let escaped = escapeFor(syntax, text, { quote: site3.quote, asciiOnly });
+  if (site3.holes.length > 0) {
+    escaped = escaped.replace(/\{(\d+)\}/g, (whole, n) => {
+      const hole = site3.holes.find((h) => h.index === Number(n));
+      return hole ? "${" + hole.expr + "}" : whole;
+    });
+  }
+  let writeStart = valueStart;
+  let writeEnd = valueEnd;
+  if (site3.prefix !== void 0 || site3.suffix !== void 0) {
+    const linePrefix = site3.linePrefix ?? "";
+    const body2 = linePrefix ? escaped.split("\n").map((l, i2) => i2 === 0 ? l : linePrefix + l).join("\n") : escaped;
+    escaped = (site3.prefix ?? "") + body2 + (site3.suffix ?? "");
+    writeStart = start2;
+    writeEnd = end;
+  }
+  const forCheck = site3.holes.length > 0 ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
+    const hole = site3.holes.find((h) => "${" + h.expr + "}" === m);
+    return hole ? `{${hole.index}}` : m;
+  }) : escaped;
+  const decoded = unescapeFor(
+    syntax,
+    site3.prefix !== void 0 ? forCheck.slice((site3.prefix ?? "").length, forCheck.length - (site3.suffix ?? "").length).split("\n").map((l, i2) => i2 === 0 || !site3.linePrefix ? l : l.slice(site3.linePrefix.length)).join("\n") : forCheck,
+    { quote: site3.quote }
+  );
+  if (decoded !== text && !asciiOnly) {
+    throw new Error(
+      `escaping ${site3.file}:${site3.line} as ${syntax} did not round-trip: wrote ${JSON.stringify(escaped)}, read back ${JSON.stringify(decoded)}`
+    );
+  }
+  return {
+    site: site3,
+    syntax,
+    start: writeStart,
+    end: writeEnd,
+    replacement: Buffer.from(escaped, "utf8"),
+    intended: text,
+    recovered
+  };
+}
+function applyPatches(buf, patches) {
+  const ordered = [...patches].sort((a, b) => b.start - a.start);
+  let out2 = buf;
+  for (const p of ordered) {
+    if (p.start < 0 || p.end > out2.length || p.start > p.end) {
+      throw new Error(`patch span ${p.start}-${p.end} is outside the file`);
+    }
+    out2 = Buffer.concat([out2.subarray(0, p.start), p.replacement, out2.subarray(p.end)]);
+  }
+  return out2;
+}
+function allIndexesOf(haystack, needle) {
+  const out2 = [];
+  let from = 0;
+  for (; ; ) {
+    const at = haystack.indexOf(needle, from);
+    if (at === -1) break;
+    out2.push(at);
+    from = at + 1;
+    if (out2.length > 8) break;
+  }
+  return out2;
+}
+function usesUnicodeEscapes(buf) {
+  let hasNonAscii = false;
+  for (const byte of buf) {
+    if (byte > 127) {
+      hasNonAscii = true;
+      break;
+    }
+  }
+  if (hasNonAscii) return false;
+  return /\\u[0-9a-fA-F]{4}/.test(buf.toString("utf8"));
+}
+function digest(buf) {
+  return createHash5("sha256").update(buf).digest("hex").slice(0, 16);
+}
+function formatApply(r) {
+  const head = r.write ? `ultrai18n apply: ${r.ok ? "\u2713" : "\u2717"} ${r.sites.applied}/${r.sites.total} applied, ${r.drift.hard} drift, ${r.files.written} files` : `ultrai18n apply: dry-run \u2014 would apply ${r.sites.applied}/${r.sites.total}, ${r.drift.hard} drift (pass --write)`;
+  const lines = [head];
+  if (r.sites.recovered) lines.push(`  ${r.sites.recovered} site(s) recovered after their file shifted`);
+  if (r.groups.incomplete) lines.push(`  ${r.groups.incomplete} group(s) held back so no partial group is written`);
+  for (const o of r.outcomes) {
+    if (o.status === "applied") continue;
+    lines.push(`  ${o.status === "refused" ? "\u2717" : "\xB7"} ${o.file}  ${o.id}  ${o.why}`);
+  }
+  return lines.join("\n");
+}
+
+// src/commands.ts
+import { existsSync as existsSync10, mkdirSync as mkdirSync4, readFileSync as readFileSync12, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { join as join24 } from "path";
+
+// src/translate.ts
+import { spawnSync as spawnSync3 } from "child_process";
+import { createHash as createHash6 } from "crypto";
+
+// src/validate.ts
+var HOLE = /\{(\d+)\}/g;
+function validate(group, translation, opts = {}) {
+  const out2 = [];
+  const source = group.text;
+  const want = holeCounts(source);
+  const got = holeCounts(translation);
+  for (const [index, n] of want) {
+    const have2 = got.get(index) ?? 0;
+    if (have2 === 0) {
+      out2.push({ validator: "V1", severity: "reject", message: `placeholder {${index}} was dropped` });
+    } else if (have2 !== n) {
+      out2.push({
+        validator: "V1",
+        severity: "reject",
+        message: `placeholder {${index}} appears ${have2} time(s), source has ${n}`
+      });
+    }
+  }
+  for (const [index] of got) {
+    if (!want.has(index)) {
+      out2.push({ validator: "V1", severity: "reject", message: `placeholder {${index}} was invented` });
+    }
+  }
+  const stray = translation.replace(HOLE, "");
+  if (/[{}]/.test(stray)) {
+    out2.push({
+      validator: "V2",
+      severity: "reject",
+      message: `stray brace outside a placeholder: ${JSON.stringify(stray.match(/.{0,12}[{}].{0,12}/)?.[0] ?? "")}`
+    });
+  }
+  for (const [pattern, what] of [
+    [/\$\{/, "a JavaScript interpolation"],
+    [/`/, "a backtick"],
+    [/\{\{/, "a template interpolation"],
+    [/<%/, "a template tag"]
+  ]) {
+    if (pattern.test(translation) && !pattern.test(source)) {
+      out2.push({ validator: "V3", severity: "reject", message: `the translation introduced ${what}` });
+    }
+  }
+  if (translation === source && new RegExp("\\p{L}{2,}", "u").test(source)) {
+    const pinned = opts.glossary?.get(source)?.pin === true;
+    if (!pinned && !isCognate(source) && !isMostlyPlaceholders(source)) {
+      out2.push({
+        validator: "V4",
+        severity: "warn",
+        message: "the translation is identical to the source \u2014 correct for a cognate or a product name, suspect otherwise"
+      });
+    }
+  }
+  if (group.max !== null && translation.length > group.max) {
+    out2.push({
+      validator: "V5",
+      severity: "reject",
+      message: `${translation.length} characters exceeds the ${group.max} available for a ${group.role}`
+    });
+  }
+  if (/\n/.test(translation) && !/\n/.test(source)) {
+    out2.push({ validator: "V6", severity: "reject", message: "the translation added a line break" });
+  }
+  if (translation !== translation.trim() && source === source.trim()) {
+    out2.push({ validator: "V6", severity: "warn", message: "the translation has leading or trailing whitespace" });
+  }
+  if (translation.trim() === "" && source.trim() !== "") {
+    out2.push({ validator: "V6", severity: "reject", message: "the translation is empty" });
+  }
+  for (const [term, entry] of opts.glossary ?? []) {
+    if (!entry.pin) continue;
+    if (!containsWord(source, term)) continue;
+    if (!translation.includes(entry.text)) {
+      out2.push({
+        validator: "V8",
+        severity: "reject",
+        message: `the pinned term ${JSON.stringify(term)} must appear as ${JSON.stringify(entry.text)}`
+      });
+    }
+  }
+  return out2;
+}
+function holeCounts(text) {
+  const counts = /* @__PURE__ */ new Map();
+  for (const m of text.matchAll(HOLE)) {
+    const key = m[1];
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+function isMostlyPlaceholders(text) {
+  return text.replace(HOLE, "").trim().length < 3;
+}
+function containsWord(haystack, needle) {
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\P{L})${escaped}(\\P{L}|$)`, "iu").test(haystack);
+}
+function rejects(violations) {
+  return violations.some((v) => v.severity === "reject");
+}
+
+// src/translate.ts
+var BATCH_SIZE = 8;
+function buildBatches(groups, opts) {
+  const pending = groups.filter((g) => g.status === "pending");
+  const size = opts.batchSize ?? BATCH_SIZE;
+  const batches = [];
+  for (let i2 = 0; i2 < pending.length; i2 += size) {
+    const slice = pending.slice(i2, i2 + size);
+    const items = slice.map((g) => ({
+      id: g.id,
+      text: g.text,
+      role: g.role,
+      ...g.max !== null ? { max: g.max } : {},
+      ...Object.keys(g.holeGloss).length ? { holes: g.holeGloss } : {},
+      ...g.sites.length + g.mirrors.length > 1 ? { sites: g.sites.length + g.mirrors.length } : {}
+    }));
+    const glossary = sliceGlossary(opts.glossary, items);
+    const batch = {
+      schemaVersion: 1,
+      batchId: String(batches.length).padStart(3, "0"),
+      batchDigest: "",
+      sourceLang: opts.sourceLang,
+      targetLang: opts.targetLang,
+      project: opts.project,
+      glossary,
+      items
+    };
+    batch.batchDigest = digestOf(batch);
+    batches.push(batch);
+  }
+  return batches;
+}
+function sliceGlossary(glossary, items) {
+  if (!glossary) return [];
+  const haystack = items.map((i2) => i2.text).join("\n");
+  const out2 = [];
+  for (const [src, entry] of glossary) {
+    const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const used = new RegExp(`(^|\\P{L})${escaped}(\\P{L}|$)`, "iu").test(haystack);
+    if (used || entry.pin) out2.push({ src, tgt: entry.text, pin: entry.pin });
+    if (out2.length >= 25) break;
+  }
+  return out2.sort((a, b) => a.src < b.src ? -1 : 1);
+}
+function digestOf(batch) {
+  const canonical = JSON.stringify({
+    sourceLang: batch.sourceLang,
+    targetLang: batch.targetLang,
+    items: batch.items,
+    glossary: batch.glossary
+  });
+  return createHash6("sha256").update(canonical).digest("hex").slice(0, 16);
+}
+function foldResults(results, opts) {
+  const byId = new Map(opts.groups.map((g) => [g.id, g]));
+  const report = { accepted: [], rejected: [], refused: [], unknown: [], missing: [] };
+  const answered = /* @__PURE__ */ new Set();
+  for (const result of results) {
+    const batch = opts.batches?.find((b) => b.batchId === result.batchId);
+    if (batch && result.batchDigest && result.batchDigest !== batch.batchDigest) {
+      throw new Error(
+        `batch ${result.batchId}: the result was computed against a different batch (digest ${result.batchDigest} \u2260 ${batch.batchDigest}) \u2014 re-run translate`
+      );
+    }
+    for (const item of result.items) {
+      const group = byId.get(item.id);
+      if (!group) {
+        report.unknown.push(item.id);
+        continue;
+      }
+      answered.add(item.id);
+      if (item.refuse) {
+        report.refused.push({ groupId: item.id, why: item.refuse });
+        continue;
+      }
+      if (item.text === void 0) {
+        report.rejected.push({
+          groupId: item.id,
+          text: "",
+          violations: [{ validator: "V6", severity: "reject", message: "no text and no refusal" }]
+        });
+        continue;
+      }
+      const violations = validate(group, item.text, { glossary: opts.glossary });
+      if (rejects(violations)) report.rejected.push({ groupId: item.id, text: item.text, violations });
+      else report.accepted.push({ groupId: item.id, text: item.text, violations });
+    }
+  }
+  if (opts.batches) {
+    for (const batch of opts.batches) {
+      for (const item of batch.items) {
+        if (!answered.has(item.id)) report.missing.push(item.id);
+      }
+    }
+  }
+  return report;
+}
+function runCliBackend(batch, opts) {
+  const retries = opts.retries ?? 2;
+  let lastError = "";
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = spawnSync3("sh", ["-c", opts.command], {
+      cwd: opts.cwd,
+      input: JSON.stringify(batch, null, 2),
+      timeout: opts.timeoutMs ?? 12e4,
+      maxBuffer: 1 << 26,
+      env: {
+        ...process.env,
+        ULTRAI18N_SOURCE_LANG: opts.sourceLang,
+        ULTRAI18N_TARGET_LANG: opts.targetLang,
+        ULTRAI18N_BATCH_ID: batch.batchId,
+        ULTRAI18N_ROLE: "translate"
+      }
+    });
+    if (r.error) {
+      lastError = r.error.message;
+    } else if (r.status !== 0) {
+      lastError = `exit ${r.status}: ${(r.stderr?.toString() ?? "").slice(0, 200)}`;
+    } else {
+      const parsed = parseResult(r.stdout?.toString() ?? "", batch.batchId);
+      if (parsed) return parsed;
+      lastError = "stdout was not the expected JSON";
+    }
+    if (attempt < retries) {
+      spawnSync3("sh", ["-c", `sleep ${attempt === 0 ? 1 : 4}`]);
+    }
+  }
+  throw new Error(`translator failed for batch ${batch.batchId} after ${retries + 1} attempt(s): ${lastError}`);
+}
+function parseResult(stdout, batchId) {
+  let body2 = stdout.trim();
+  const fence = /^```(?:json)?\s*\n([\s\S]*?)\n```$/.exec(body2);
+  if (fence) body2 = fence[1].trim();
+  try {
+    const parsed = JSON.parse(body2);
+    if (Array.isArray(parsed)) return { batchId, items: parsed };
+    const obj = parsed;
+    if (Array.isArray(obj.items)) return { ...obj, batchId: obj.batchId ?? batchId };
+    return null;
+  } catch {
+    return null;
+  }
+}
+var TRANSLATOR_CONTRACT = `# Contract: translator
+
+You translate short user-interface strings. Handle ONLY the batch files named in
+your prompt.
+
+For each batch, read its JSON and return one \`{id, text}\` per item \u2014 the same
+ids, nothing else.
+
+- Keep every \`{0}\`-style placeholder: the same set, in any order. Never drop,
+  duplicate or invent one.
+- Never emit \`\${\`, a backtick, or \`{{\`.
+- Respect \`max\` as a hard character limit when it is present.
+- Use each glossary entry's \`tgt\` verbatim.
+- \`role\` sets the register:
+  - \`button\`, \`tab\`, \`menu-item\`, \`label\` \u2014 imperative and terse, no final period
+  - \`paragraph\`, \`list-item\`, \`doc-prose\` \u2014 full sentences
+  - \`aria-label\`, \`alt\` \u2014 descriptive; never begin with "button" or "image"
+  - \`error\`, \`status\` \u2014 plain, no blame
+  - \`heading\`, \`doc-heading\` \u2014 noun phrase, no final period
+- If a string cannot be translated without restructuring the surrounding code,
+  return \`{id, refuse: "<one line why>"}\` rather than guessing.
+
+**Do not open any repository file. Do not write, edit or delete anything.** The
+batch is the whole context you need and the whole context you get: the
+orchestrator folds your results and the engine writes the files by byte offset.
+`;
+
+// src/commands.ts
+function runDir(out2) {
+  return {
+    root: out2,
+    inventory: join24(out2, "inventory.json"),
+    plan: join24(out2, "PLAN.json"),
+    batches: join24(out2, "batches"),
+    results: join24(out2, "results"),
+    translations: join24(out2, "TRANSLATIONS.json"),
+    glossary: join24(out2, "glossary.md"),
+    applyReport: join24(out2, "APPLY.json")
+  };
+}
+function readJson2(path, what) {
+  if (!existsSync10(path)) {
+    throw new Error(`${what} not found at ${path} \u2014 run the step that produces it first`);
+  }
+  return JSON.parse(readFileSync12(path, "utf8"));
+}
+function writeJson(path, value) {
+  mkdirSync4(join24(path, ".."), { recursive: true });
+  writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
+}
+var GEN_OPEN = "<!-- ul:gen key=proposals -->";
+var GEN_CLOSE = "<!-- /ul:gen key=proposals -->";
+function readGlossary(path) {
+  const out2 = /* @__PURE__ */ new Map();
+  if (!existsSync10(path)) return out2;
+  const text = readFileSync12(path, "utf8");
+  for (const line of text.split("\n")) {
+    const cells = line.split("|").map((c2) => c2.trim());
+    if (cells.length < 4) continue;
+    const [, src, tgt, pin] = cells;
+    if (!src || !tgt || src === "source" || /^-+$/.test(src)) continue;
+    out2.set(src, { text: tgt, pin: /^(yes|y|true|x)$/i.test(pin ?? "") });
+  }
+  return out2;
+}
+function writeGlossary(path, existing, proposals) {
+  const rows = proposals.slice(0, 20).map((g) => `| ${g.text.replace(/\|/g, "\\|")} |  |  | ${g.role} |`).join("\n");
+  const generated = [
+    GEN_OPEN,
+    "",
+    "_Proposals: the most frequent untranslated terms. Fill a target to pin one, then move the row above._",
+    "",
+    "| source | target | pin | role |",
+    "|---|---|---|---|",
+    rows,
+    "",
+    GEN_CLOSE
+  ].join("\n");
+  if (existing && existing.includes(GEN_OPEN) && existing.includes(GEN_CLOSE)) {
+    const before = existing.slice(0, existing.indexOf(GEN_OPEN));
+    const after = existing.slice(existing.indexOf(GEN_CLOSE) + GEN_CLOSE.length);
+    return before + generated + after;
+  }
+  return [
+    "# Glossary",
+    "",
+    "Everything between the human markers is yours. It is never rewritten, and it",
+    "wins over the translation memory and over any model.",
+    "",
+    "<!-- ul:human key=terms -->",
+    "",
+    "| source | target | pin | note |",
+    "|---|---|---|---|",
+    "",
+    "<!-- /ul:human key=terms -->",
+    "",
+    generated,
+    ""
+  ].join("\n");
+}
+function cmdPlan(out2, mode) {
+  const dirs = runDir(out2);
+  const inventory = readJson2(dirs.inventory, "inventory.json");
+  const glossary = readGlossary(dirs.glossary);
+  const p = plan(inventory, { mode, glossary: new Map([...glossary].map(([k, v]) => [k, v.text])) });
+  writeJson(dirs.plan, p);
+  const batches = buildBatches(p.groups, {
+    sourceLang: p.sourceLang,
+    targetLang: p.targetLang,
+    project: { name: projectName(inventory.repo) },
+    glossary
+  });
+  mkdirSync4(dirs.batches, { recursive: true });
+  for (const batch of batches) {
+    writeJson(join24(dirs.batches, `${batch.batchId}.batch.json`), batch);
+  }
+  mkdirSync4(join24(out2, "agents"), { recursive: true });
+  writeFileSync6(join24(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
+  const existing = existsSync10(dirs.glossary) ? readFileSync12(dirs.glossary, "utf8") : null;
+  writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
+  return { plan: p, batches };
+}
+function projectName(repo) {
+  return repo.split("/").filter(Boolean).pop() ?? "project";
+}
+function cmdTranslate(opts) {
+  const dirs = runDir(opts.out);
+  const p = readJson2(dirs.plan, "PLAN.json");
+  const batches = readBatches(dirs.batches);
+  if (batches.length === 0) {
+    return { backend: opts.backend, batches: 0, wrote: [], handoff: "nothing to translate" };
+  }
+  if (opts.backend === "cli") {
+    if (!opts.translator) throw new Error("--backend cli needs --translator '<command>'");
+    mkdirSync4(dirs.results, { recursive: true });
+    const wrote = [];
+    const failed2 = [];
+    for (const batch of batches) {
+      try {
+        const result = runCliBackend(batch, {
+          command: opts.translator,
+          cwd: opts.repo,
+          sourceLang: p.sourceLang,
+          targetLang: p.targetLang,
+          ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
+        });
+        const path = join24(dirs.results, `${batch.batchId}.result.json`);
+        writeJson(path, result);
+        wrote.push(path);
+      } catch (err2) {
+        failed2.push(`${batch.batchId}: ${err2.message}`);
+      }
+    }
+    if (failed2.length) {
+      writeJson(join24(opts.out, "FAILED.json"), { failed: failed2 });
+      throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
+    }
+    return { backend: "cli", batches: batches.length, wrote };
+  }
+  return {
+    backend: opts.backend,
+    batches: batches.length,
+    wrote: [],
+    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join24(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
+  };
+}
+function readBatches(dir) {
+  if (!existsSync10(dir)) return [];
+  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync12(join24(dir, f), "utf8")));
+}
+function readResults(dir) {
+  if (!existsSync10(dir)) return [];
+  return readdirSync4(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
+    const raw = readFileSync12(join24(dir, f), "utf8");
+    const parsed = parseResult(raw, f.replace(/\..*$/, ""));
+    if (!parsed) throw new Error(`${join24(dir, f)} is not a valid batch result`);
+    return parsed;
+  });
+}
+function cmdTranslateApply(out2) {
+  const dirs = runDir(out2);
+  const p = readJson2(dirs.plan, "PLAN.json");
+  const batches = readBatches(dirs.batches);
+  const results = readResults(dirs.results);
+  const glossary = readGlossary(dirs.glossary);
+  const report = foldResults(results, { groups: p.groups, glossary, batches });
+  const byGroup = new Map(p.groups.map((g) => [g.id, g]));
+  const translations = [];
+  for (const accepted of report.accepted) {
+    const group = byGroup.get(accepted.groupId);
+    if (!group) continue;
+    for (const id of [...group.sites, ...group.mirrors]) {
+      translations.push({ id, text: accepted.text });
+    }
+  }
+  for (const group of p.groups) {
+    if (group.status !== "memo" || !group.memo) continue;
+    for (const id of [...group.sites, ...group.mirrors]) {
+      translations.push({ id, text: group.memo.text });
+    }
+  }
+  writeJson(dirs.translations, { schemaVersion: 1, translations, report });
+  return {
+    accepted: report.accepted.length,
+    rejected: report.rejected.length,
+    refused: report.refused.length,
+    missing: report.missing.length,
+    translations
+  };
+}
+function cmdApply(repo, out2, write, recover) {
+  const dirs = runDir(out2);
+  const inventory = readJson2(dirs.inventory, "inventory.json");
+  const p = readJson2(dirs.plan, "PLAN.json");
+  const { translations } = readJson2(dirs.translations, "TRANSLATIONS.json");
+  const groups = p.groups.filter((g) => g.status === "pending" || g.status === "memo").map((g) => [...g.sites, ...g.mirrors]);
+  const report = apply({ repo, inventory, translations, write, recover, groups });
+  writeJson(dirs.applyReport, report);
+  return report;
+}
+
 // src/cli.ts
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
@@ -23547,7 +24672,8 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "backup",
   "strict",
   "help",
-  "no-ast"
+  "no-ast",
+  "no-recover"
 ]);
 function fail(msg) {
   process.stderr.write(`ultrai18n: ${msg}
@@ -23589,9 +24715,6 @@ var PENDING = {
   sites: "requires `scan`",
   lang: "wired into `scan`; a standalone command is not built yet",
   adjudicate: "requires `scan`",
-  plan: "requires `scan`",
-  translate: "requires `plan`",
-  apply: "requires `translate`",
   verify: "requires `apply`",
   check: "the six gates are not wired yet \u2014 run `census` for gate G1 and `scan` for the inventory",
   sync: "requires the catalog extractors",
@@ -23657,22 +24780,78 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join23(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
         to: String(p.flags.to ?? "en"),
         noAst: p.flags["no-ast"] === true
       });
-      mkdirSync4(out2, { recursive: true });
-      writeFileSync5(join23(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      mkdirSync5(out2, { recursive: true });
+      writeFileSync7(join25(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join23(out2, "inventory.json")}
+wrote ${join25(out2, "inventory.json")}
 `);
       }
+      return;
+    }
+    case "plan": {
+      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const mode = String(p.flags.mode ?? "swap");
+      const { plan: result, batches } = cmdPlan(out2, mode);
+      if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
+      else {
+        process.stdout.write(formatPlan(result) + "\n");
+        process.stderr.write(`
+wrote ${batches.length} batch(es) to ${runDir(out2).batches}
+`);
+      }
+      if (result.hazards.length || result.unlinked.length) process.exit(1);
+      return;
+    }
+    case "translate": {
+      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      if (p.flags.apply !== void 0) {
+        const folded = cmdTranslateApply(out2);
+        if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
+        else {
+          process.stdout.write(
+            `ultrai18n translate --apply: ${folded.accepted} accepted, ${folded.rejected} rejected, ${folded.refused} refused, ${folded.missing} missing \u2192 ${folded.translations.length} site patches
+`
+          );
+        }
+        if (folded.rejected || folded.missing) process.exit(1);
+        return;
+      }
+      const backend = String(p.flags.backend ?? (p.flags.translator ? "cli" : "subagent"));
+      if (backend === "api") fail("the api backend is not built yet \u2014 use --translator or --backend manual");
+      const outcome = cmdTranslate({
+        out: out2,
+        backend,
+        repo,
+        ...p.flags.translator ? { translator: String(p.flags.translator) } : {},
+        ...p.flags["translator-timeout"] ? { timeoutMs: Number(p.flags["translator-timeout"]) * 1e3 } : {}
+      });
+      if (json) process.stdout.write(JSON.stringify(outcome, null, 2) + "\n");
+      else {
+        process.stdout.write(`ultrai18n translate: backend ${outcome.backend}, ${outcome.batches} batch(es)
+`);
+        if (outcome.handoff) process.stdout.write(`  ${outcome.handoff}
+`);
+        for (const w of outcome.wrote) process.stdout.write(`  wrote ${w}
+`);
+      }
+      return;
+    }
+    case "apply": {
+      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      else process.stdout.write(formatApply(report) + "\n");
+      if (!report.ok) process.exit(1);
       return;
     }
     default: {

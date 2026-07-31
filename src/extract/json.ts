@@ -64,11 +64,14 @@ export function extractJson(file: string, text: string, map: OffsetMap): JsonExt
       const raw = text.slice(i, Math.min(end, n))
       const value = block ? raw.slice(2, -2).trim() : raw.slice(2).trim()
       if (/\p{L}{2,}/u.test(value)) {
-        sites.push(
-          site(file, currentPath(), 'comment', i, Math.min(end, n), value, null, [], map, text, {
-            isKey: false,
-          }),
-        )
+        const s0 = site(file, currentPath(), 'comment', i, Math.min(end, n), value, null, [], map, text, {
+          isKey: false,
+        })
+        // The marker lives inside the span, so it has to be rebuilt around the
+        // new text rather than overwritten by it.
+        s0.prefix = block ? '/* ' : raw.slice(0, raw.length - raw.replace(/^\/\/+\s*/, '').length)
+        s0.suffix = block ? ' */' : ''
+        sites.push(s0)
       }
       claimed += Math.min(end, n) - i
       i = Math.min(end, n)

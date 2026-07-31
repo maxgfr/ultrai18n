@@ -90,7 +90,33 @@ export function extractTs(
         return
 
       case 'comment': {
-        push(node, 'comment', stripCommentMarkers(node.text), null, null, [], { isKey: false }, false)
+        const shape = commentShape(node.text)
+        const path = anchorPath(node)
+        const span = byteSpan(node, map)
+        const start = map.lineColOf(node.startIndex)
+        const end = map.lineColOf(node.endIndex)
+        sites.push({
+          file,
+          path,
+          kind: 'comment',
+          span,
+          valueSpan: span,
+          raw: node.text,
+          value: shape.body,
+          quote: null,
+          escapes: false,
+          holes: [],
+          prefix: shape.prefix,
+          suffix: shape.suffix,
+          linePrefix: shape.linePrefix,
+          line: start.line,
+          col: start.col,
+          endLine: end.line,
+          endCol: end.col,
+          extractor: 'ts-ast',
+          tier: 'ast',
+          container: { isKey: false, inTest },
+        })
         return false
       }
 
@@ -281,6 +307,54 @@ function decodeEscape(seq: string): string {
       if (seq.startsWith('\\x')) return String.fromCharCode(parseInt(seq.slice(2), 16))
       return seq.slice(1)
   }
+}
+
+/**
+ * Split a comment into its delimiters and its text.
+ *
+ * The delimiters go back verbatim; only the text is translated. A JSDoc block
+ * keeps its per-line asterisks, because losing them turns a documented function
+ * into a wall of prose the next reader has to re-format.
+ */
+export function commentShape(raw: string): {
+  prefix: string
+  suffix: string
+  linePrefix: string
+  body: string
+} {
+  if (raw.startsWith('//')) {
+    const m = /^(\/\/+!?\s*)/.exec(raw)!
+    return { prefix: m[1]!, suffix: '', linePrefix: '', body: raw.slice(m[1]!.length) }
+  }
+  if (raw.startsWith('/*')) {
+    const inner = raw.replace(/^\/\*+!?/, '').replace(/\*+\/$/, '')
+    const lines = inner.split('\n')
+    const openMatch = /^(\/\*+!?)/.exec(raw)!
+    if (lines.length === 1) {
+      const lead = /^(\s*)/.exec(inner)![1]!
+      const trail = /(\s*)$/.exec(inner)![1]!
+      return {
+        prefix: openMatch[1]! + lead,
+        suffix: trail + '*/',
+        linePrefix: '',
+        body: inner.trim(),
+      }
+    }
+    // Multi-line: detect the ` * ` gutter from the second line, which is where
+    // it is unambiguous.
+    const gutter = /^(\s*\*+ ?)/.exec(lines[1] ?? '')?.[1] ?? ''
+    const body = lines
+      .map((l, i) => (i === 0 ? l.trim() : l.startsWith(gutter) ? l.slice(gutter.length) : l.trim()))
+      .join('\n')
+      .replace(/^\n+|\n+$/g, '')
+    return {
+      prefix: openMatch[1]! + '\n' + gutter,
+      suffix: '\n' + gutter.replace(/\*+ ?$/, '') + '*/',
+      linePrefix: gutter,
+      body,
+    }
+  }
+  return { prefix: '', suffix: '', linePrefix: '', body: raw }
 }
 
 export function stripCommentMarkers(raw: string): string {
