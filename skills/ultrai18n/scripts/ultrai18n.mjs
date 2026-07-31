@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
-import { join as join31, resolve as resolve3 } from "path";
+import { join as join33, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -616,9 +616,12 @@ function formatCensus(r, root) {
 }
 
 // src/scan.ts
-import "path";
+import { join as join24 } from "path";
 
 // src/extract/raw.ts
+function lineBytes(map, text, start2, length) {
+  return map.byteOf(Math.min(start2 + length + 1, text.length)) - map.byteOf(start2);
+}
 function emptyTokenIndex() {
   return { enums: /* @__PURE__ */ new Map(), compared: /* @__PURE__ */ new Map(), persisted: /* @__PURE__ */ new Map(), identifiers: /* @__PURE__ */ new Set() };
 }
@@ -4696,8 +4699,8 @@ function sh(cmd, args2, opts = {}) {
 function have(cmd) {
   const cached = whichCache.get(cmd);
   if (cached !== void 0) return cached;
-  const probe = sh(process.platform === "win32" ? "where" : "which", [cmd]);
-  const found = probe.ok && probe.stdout.trim().length > 0;
+  const probe2 = sh(process.platform === "win32" ? "where" : "which", [cmd]);
+  const found = probe2.ok && probe2.stdout.trim().length > 0;
   whichCache.set(cmd, found);
   return found;
 }
@@ -10343,8 +10346,8 @@ function sharedGrammarsCacheDir() {
 }
 function resolveGrammarsTier(opts = {}) {
   const cacheDir = sharedGrammarsCacheDir();
-  const withDirs = (tier, dir) => ({
-    tier,
+  const withDirs = (tier2, dir) => ({
+    tier: tier2,
     dir,
     cacheDir,
     dirs: [dir, ...existsSync(join22(dir, "..", EXTENDED_DIR)) ? [join22(dir, "..", EXTENDED_DIR)] : []]
@@ -12441,12 +12444,12 @@ function collectCallsRegex(content, symbols = [], maxCalls = 512) {
     const trimmed = line.trimStart();
     if (trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("*")) continue;
     CALL_RE.lastIndex = 0;
-    let probe;
+    let probe2;
     const introducerCaught = /* @__PURE__ */ new Set();
-    while ((probe = CALL_RE.exec(line)) !== null) {
-      const name2 = probe[2];
+    while ((probe2 = CALL_RE.exec(line)) !== null) {
+      const name2 = probe2[2];
       const key = `${name2} ${i2 + 1}`;
-      if (ownDefLines.has(key) && DEF_INTRODUCERS.test(line.slice(0, probe.index))) introducerCaught.add(key);
+      if (ownDefLines.has(key) && DEF_INTRODUCERS.test(line.slice(0, probe2.index))) introducerCaught.add(key);
     }
     CALL_RE.lastIndex = 0;
     let m;
@@ -13203,12 +13206,12 @@ function resolveDocLink(fromRel, spec, ctx) {
   return { kind: "dangling", reason: "missing-target" };
 }
 function resolveJs(fromRel, spec, ctx) {
-  const probe = (p) => firstExisting(ctx, [...JS_EXT_PROBES.map((e) => p + e), ...JS_INDEX.map((i2) => posix.join(p, i2))]);
+  const probe2 = (p) => firstExisting(ctx, [...JS_EXT_PROBES.map((e) => p + e), ...JS_INDEX.map((i2) => posix.join(p, i2))]);
   const tryResolve = (p) => {
-    const hit = probe(p);
+    const hit = probe2(p);
     if (hit) return hit;
     const noJs = p.replace(/\.(js|jsx|mjs|cjs)$/, "");
-    return noJs !== p ? probe(noJs) : void 0;
+    return noJs !== p ? probe2(noJs) : void 0;
   };
   if (spec.startsWith(".")) {
     const base = fromRel.includes("/") ? posix.dirname(fromRel) : "";
@@ -13386,7 +13389,7 @@ function resolveRust(fromRel, spec, ctx) {
 }
 function resolveJava(spec, ctx) {
   if (!ctx.javaRoots.length) return { kind: "external" };
-  const probe = (pkgPath) => {
+  const probe2 = (pkgPath) => {
     for (const root of ctx.javaRoots) {
       const p = norm(posix.join(root, pkgPath));
       if (p.endsWith("/*") || p === "*") {
@@ -13400,11 +13403,11 @@ function resolveJava(spec, ctx) {
     return void 0;
   };
   const path = spec.replace(/\./g, "/");
-  let hit = probe(path);
+  let hit = probe2(path);
   if (!hit && !spec.endsWith(".*")) {
     const segs = path.split("/");
     for (let n = segs.length - 1; n >= 2 && !hit; n--) {
-      hit = probe(segs.slice(0, n).join("/"));
+      hit = probe2(segs.slice(0, n).join("/"));
     }
   }
   return hit ? { kind: "resolved", target: hit } : { kind: "external" };
@@ -15345,8 +15348,8 @@ function packageAt(root, dir, kind, warnings) {
   const nx = () => probeNxProject(root, dir, warnings);
   const gradle = () => probeGradle(root, dir);
   const probes = kind === "go" ? [gomod, node, cargo, maven, py, composer, nx] : kind === "uv" ? [py, node, cargo, gomod, maven, composer, nx] : kind === "composer" ? [composer, node, py, cargo, gomod, maven, nx] : kind === "gradle" ? [node, maven, cargo, gomod, py, composer, nx, gradle] : [node, cargo, gomod, maven, py, composer, nx];
-  for (const probe of probes) {
-    const pkg = probe();
+  for (const probe2 of probes) {
+    const pkg = probe2();
     if (pkg) return pkg;
   }
   return void 0;
@@ -16903,10 +16906,10 @@ function renderMermaidClustered(graph, opts = {}) {
     lines.push("%% truncated to the most-connected modules/edges; see graph.json for the full graph");
   }
   lines.push("flowchart LR");
-  for (const tier of [0, 1, 2]) {
-    const inTier = shown.filter((m) => m.tier === tier);
+  for (const tier2 of [0, 1, 2]) {
+    const inTier = shown.filter((m) => m.tier === tier2);
     if (!inTier.length) continue;
-    lines.push(`  subgraph ${TIER_LABEL[tier]}`);
+    lines.push(`  subgraph ${TIER_LABEL[tier2]}`);
     for (const m of inTier) lines.push(`    ${clusterNodeId(m.slug)}["${m.path.replace(/"/g, "'")}"]`);
     lines.push("  end");
   }
@@ -18709,7 +18712,7 @@ async function warmGrammars(opts = {}) {
     pulled = res.ok && res.status === "pulled";
   }
   await ensureGrammars(keys);
-  const tier = resolveGrammarsTier().tier;
+  const tier2 = resolveGrammarsTier().tier;
   const ready = keys.some((k) => grammarReady(k));
   if (!ready) {
     note(
@@ -18717,7 +18720,7 @@ async function warmGrammars(opts = {}) {
 `
     );
   }
-  return { tier, ready, pulled, notes };
+  return { tier: tier2, ready, pulled, notes };
 }
 init_resolve();
 init_modules();
@@ -20301,6 +20304,8 @@ function extractTs(file, text, tree, map) {
   const compared = /* @__PURE__ */ new Map();
   const persisted = /* @__PURE__ */ new Map();
   const identifiers = /* @__PURE__ */ new Set();
+  const identifierHits = [];
+  const errorSpans = [];
   const inTest = TEST_FILE2.test(file);
   const push = (node, kind, value, valueNode, quote, holes, container, escapes) => {
     const path = anchorPath(node);
@@ -20329,11 +20334,15 @@ function extractTs(file, text, tree, map) {
     });
   };
   walkTree(tree.rootNode, (node) => {
+    if (node.type === "ERROR" || node.isMissing) {
+      errorSpans.push(byteSpan(node, map));
+      if (node.isMissing) return false;
+    }
     switch (node.type) {
       case "identifier":
       case "type_identifier":
       case "property_identifier":
-        identifiers.add(node.text);
+        identifierHits.push({ name: node.text, at: map.byteOf(node.startIndex) });
         return;
       case "comment": {
         const shape = commentShape(node.text);
@@ -20443,8 +20452,17 @@ function extractTs(file, text, tree, map) {
         return true;
     }
   });
+  for (const hit of identifierHits) {
+    if (errorSpans.some((s) => hit.at >= s.start && hit.at < s.end)) continue;
+    identifiers.add(hit.name);
+  }
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, tokens: { enums, compared, persisted, identifiers } };
+  return {
+    sites,
+    tokens: { enums, compared, persisted, identifiers },
+    errorSpans,
+    hasError: tree.rootNode.hasError || errorSpans.length > 0
+  };
 }
 function decodeString(node) {
   const quote = node.text[0] ?? "'";
@@ -20600,6 +20618,11 @@ function classifyStringContainer(node) {
   if (parent.type === "literal_type" || parent.type === "union_type" || node.parent?.parent?.type === "union_type") {
     container.enumMember = true;
   }
+  const tagged = parent.type === "tagged_template_expression" || parent.type === "call_expression" && parent.child(0)?.id !== node.id;
+  if (tagged && node.type === "template_string") {
+    const tag = parent.child(0);
+    if (tag) container.tag = tag.text;
+  }
   const call = callContext(node);
   if (call) {
     container.callee = call.callee;
@@ -20653,9 +20676,19 @@ function isPersistCall(call) {
 }
 function recordTokens(node, value, container, index, file) {
   const at = `${file}:${node.startPosition.row + 1}`;
-  if (container.enumMember) addToken(index.enums, value, at);
+  if (container.enumMember || inAsConstArray(node)) addToken(index.enums, value, at);
   if (container.compared) addToken(index.compared, value, at);
   if (container.persisted) addToken(index.persisted, value, at);
+}
+function inAsConstArray(node) {
+  const array = node.parent;
+  if (!array || array.type !== "array") return false;
+  let cur = array.parent;
+  while (cur && (cur.type === "as_expression" || cur.type === "satisfies_expression")) {
+    if (/\bas\s+const\b/.test(cur.text.slice(array.text.length))) return true;
+    cur = cur.parent;
+  }
+  return false;
 }
 function objectKeys(obj) {
   const keys = [];
@@ -20714,11 +20747,53 @@ function anchorPath(node) {
   let child = null;
   while (cur) {
     const segment = pathSegment(cur, child);
-    if (segment) segments.push(segment);
+    if (segment) {
+      segments.push(segment);
+    } else if (child && segments.length === 0 && ORDINAL_CONTAINERS.has(cur.type)) {
+      segments.push(
+        `[${cur.type === "union_type" ? unionOrdinal(cur, child) : namedOrdinal(cur, child)}]`
+      );
+    }
     child = cur;
     cur = cur.parent;
   }
   return segments.reverse().join("/") || "root";
+}
+var ORDINAL_CONTAINERS = /* @__PURE__ */ new Set([
+  "program",
+  "statement_block",
+  "union_type",
+  "class_body",
+  "arguments",
+  "object"
+]);
+function unionOrdinal(union, child) {
+  let top = union;
+  while (top.parent?.type === "union_type") top = top.parent;
+  const members = [];
+  const collect2 = (n) => {
+    for (let i2 = 0; i2 < n.childCount; i2++) {
+      const c2 = n.child(i2);
+      if (!c2.isNamed) continue;
+      if (c2.type === "union_type") collect2(c2);
+      else members.push(c2);
+    }
+  };
+  collect2(top);
+  const index = members.findIndex(
+    (m) => child.startIndex >= m.startIndex && child.endIndex <= m.endIndex
+  );
+  return index === -1 ? 0 : index;
+}
+function namedOrdinal(parent, child) {
+  let index = 0;
+  for (let i2 = 0; i2 < parent.childCount; i2++) {
+    const c2 = parent.child(i2);
+    if (!c2.isNamed) continue;
+    if (c2.id === child.id) return index;
+    index++;
+  }
+  return index;
 }
 function pathSegment(node, child) {
   switch (node.type) {
@@ -20731,6 +20806,12 @@ function pathSegment(node, child) {
       return node.childForFieldName?.("name")?.text ?? node.type;
     case "variable_declarator":
       return node.child(0)?.text ?? null;
+    // A type's name is as good an anchor as a function's, and without it every
+    // member of `type Status = 'a' | 'b'` anchors at the file root.
+    case "type_alias_declaration":
+    case "interface_declaration":
+    case "enum_declaration":
+      return node.childForFieldName?.("name")?.text ?? null;
     case "export_statement":
       return node.text.startsWith("export default") ? "default" : null;
     case "pair": {
@@ -20843,7 +20924,7 @@ function extractJson(file, text, map) {
         s0.suffix = block ? " */" : "";
         sites.push(s0);
       }
-      claimed += Math.min(end, n) - i2;
+      claimed += map.byteOf(Math.min(end, n)) - map.byteOf(i2);
       i2 = Math.min(end, n);
       continue;
     }
@@ -20875,7 +20956,7 @@ function extractJson(file, text, map) {
           parsed.escapes
         )
       );
-      claimed += parsed.end - i2;
+      claimed += map.byteOf(parsed.end) - map.byteOf(i2);
       i2 = parsed.end;
       continue;
     }
@@ -20918,7 +20999,7 @@ function extractJson(file, text, map) {
         if (top?.type === "object") top.key = word;
         keys.add(word);
       }
-      claimed += wordEnd - i2;
+      claimed += map.byteOf(wordEnd) - map.byteOf(i2);
       i2 = wordEnd;
       continue;
     }
@@ -21067,7 +21148,7 @@ function extractYaml(file, text, map, nested) {
   };
   for (let li = 0; li < lines.length; li++) {
     const { text: line, start: lineStart } = lines[li];
-    claimed += line.length + 1;
+    claimed += lineBytes(map, text, lineStart, line.length);
     const indentMatch = /^[ \t]*/.exec(line);
     const indent = indentMatch[0].length;
     const body2 = line.slice(indent);
@@ -21126,6 +21207,9 @@ function extractYaml(file, text, map, nested) {
             for (const child of nested(block.dedented, block.start + block.bodyIndent, path)) {
               sites.push(child);
             }
+          }
+          for (let k = li + 1; k <= block.lastLine && k < lines.length; k++) {
+            claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
           }
           li = block.lastLine;
         }
@@ -21299,7 +21383,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
   };
   for (let i2 = 0; i2 < lines.length; i2++) {
     const { text: line, start: start2 } = lines[i2];
-    claimed += line.length + 1;
+    claimed += lineBytes(map, text, start2, line.length);
     const fence = FENCE.exec(line);
     if (fence) {
       if (!inFence) {
@@ -21441,7 +21525,7 @@ function extractCss(file, text, map) {
   for (const match of text.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) identifiers.add(match[1]);
   for (const match of text.matchAll(/--([\w-]+)\s*:/g)) identifiers.add(`--${match[1]}`);
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: text.length, identifiers };
+  return { sites, claimedBytes: map.byteOf(text.length), identifiers };
 }
 function site2(file, path, kind, startChar, endChar, value, quote, map, text) {
   const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
@@ -21539,13 +21623,19 @@ function extractHtml(file, text, map) {
     const nameMatch = /^\/?\s*([a-zA-Z][\w:-]*)/.exec(tagBody);
     const tag = nameMatch?.[1]?.toLowerCase() ?? "";
     if (closing) {
-      const at = openStack.lastIndexOf(tag);
+      let at = -1;
+      for (let k = openStack.length - 1; k >= 0; k--) {
+        if (openStack[k].tag === tag) {
+          at = k;
+          break;
+        }
+      }
       if (at !== -1) openStack.length = at;
     } else {
       identifiers.add(tag);
       extractAttributes(tagBody, lt + 1, tag);
       const selfClosing = tagBody.trimEnd().endsWith("/");
-      if (!selfClosing) openStack.push(tag);
+      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody) });
     }
     i2 = gt + 1;
     if (!closing && (tag === "script" || tag === "style")) {
@@ -21556,17 +21646,18 @@ function extractHtml(file, text, map) {
   }
   function emitText(chunk, at) {
     if (!chunk.trim()) return;
-    const enclosing = openStack[openStack.length - 1] ?? "";
+    const enclosing = openStack[openStack.length - 1]?.tag ?? "";
     if (OPAQUE_ELEMENTS.has(enclosing)) return;
     const isSvgText = SVG_TEXT_ELEMENTS.has(enclosing);
     if (!isSvgText && !new RegExp("\\p{L}{2,}", "u").test(chunk)) return;
+    const qualified = resourcePath();
     for (const match of chunk.matchAll(/\S[^\n]*\S|\S/g)) {
       const body2 = match[0];
       if (!new RegExp("\\p{L}{2,}", "u").test(body2)) continue;
       if (/^\{\{[^}]*\}\}$|^\{[^}]*\}$|^<%.*%>$/.test(body2.trim())) continue;
       const from = at + (match.index ?? 0);
       push(
-        `${enclosing || "root"}/text[${index++}]`,
+        qualified ?? `${enclosing || "root"}/text[${index++}]`,
         "prose-run",
         from,
         from + body2.length,
@@ -21575,6 +21666,16 @@ function extractHtml(file, text, map) {
         { isKey: false, element: enclosing }
       );
     }
+  }
+  function resourcePath() {
+    const top = openStack[openStack.length - 1];
+    const parent = openStack[openStack.length - 2];
+    if (!top || !parent) return null;
+    if (top.tag !== "item") return null;
+    const quantity = top.attrs.quantity;
+    const owner = parent.attrs.name;
+    if (!quantity || !owner) return null;
+    return `${parent.tag}[${owner}]/item[${quantity}]`;
   }
   function extractAttributes(tagBody, base, tag) {
     for (const match of tagBody.matchAll(/([@:\w[\]().-]+)\s*=\s*(["'])((?:\\.|(?!\2)[^\\])*)\2/g)) {
@@ -21599,7 +21700,14 @@ function extractHtml(file, text, map) {
     }
   }
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: text.length, identifiers };
+  return { sites, claimedBytes: map.byteOf(text.length), identifiers };
+}
+function allAttributes(tagBody) {
+  const out2 = {};
+  for (const m of tagBody.matchAll(/([@:\w[\]().-]+)\s*=\s*(["'])((?:\\.|(?!\2)[^\\])*)\2/g)) {
+    out2[m[1].toLowerCase()] = m[3];
+  }
+  return out2;
 }
 function metaKey(tagBody) {
   const m = /\b(name|property|itemprop|http-equiv)\s*=\s*["']([^"']+)["']/i.exec(tagBody);
@@ -21665,7 +21773,7 @@ function extractText(file, text, map) {
     }
   }
   flush();
-  return { sites, claimedBytes: text.length };
+  return { sites, claimedBytes: map.byteOf(text.length) };
 }
 function makeSite2(file, path, startChar, endChar, value, map) {
   const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
@@ -22808,10 +22916,10 @@ function scanPaths(opts) {
       const words = splitWords(segment);
       if (words.length === 0) continue;
       if (words.every((w) => IGNORED_SEGMENTS.has(w) || opts.identifiers.has(w))) continue;
-      const probe = words.join(" ");
-      if (probe.replace(/\s/g, "").length < 5) continue;
+      const probe2 = words.join(" ");
+      if (probe2.replace(/\s/g, "").length < 5) continue;
       const named = words.map(pathWordLanguage).find((l) => l === opts.from);
-      const guess = detect(probe, { candidates: [opts.from, opts.to] });
+      const guess = detect(probe2, { candidates: [opts.from, opts.to] });
       const language = named ?? (guess.detected === opts.from && guess.confidence >= 0.6 ? guess.detected : null);
       if (!language) continue;
       seen.add(`${file}\0${segment}`);
@@ -23458,6 +23566,8 @@ var RULES_BY_ID = new Map(RULES17.map((r) => [r.id, r]));
 // src/classify.ts
 var STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/;
 var STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/;
+var STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/;
+var CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/;
 var URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i;
 var SLUG_SHAPE = /^[a-z0-9]+([:._\-/][a-z0-9]+)+$/;
 var ARIA_VOCAB = /^(aria-(live|current|pressed|sort|haspopup|autocomplete|relevant|orientation|expanded|hidden|checked|modal|busy|atomic|disabled|selected|multiline|readonly|required|invalid))$/;
@@ -23616,6 +23726,12 @@ function decide(raw, opts, rules, fileLocale2) {
   if (c2.callee && STYLE_CALLEES.test(c2.callee)) {
     return { surface: "token.style", verdict: "do-not-translate", reason: "style-token", confidence: "medium", skipDetection: true };
   }
+  if (c2.tag && STYLE_TAGS.test(c2.tag)) {
+    return { surface: "token.style", verdict: "do-not-translate", reason: "style-token", confidence: "high", skipDetection: true };
+  }
+  if (c2.tag && CONTRACT_TAGS.test(c2.tag)) {
+    return { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract", confidence: "high", skipDetection: true };
+  }
   if (c2.attrName && ARIA_VOCAB.test(c2.attrName)) {
     return { surface: "token.api-contract", verdict: "do-not-translate", reason: "aria-vocabulary", confidence: "high", skipDetection: true };
   }
@@ -23698,6 +23814,786 @@ function candidatesFor(from, to) {
   return [...set];
 }
 
+// src/plural/cldr.ts
+var CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
+var CATEGORY_SET = new Set(CATEGORIES);
+function isCategory(s) {
+  return CATEGORY_SET.has(s);
+}
+function sortCategories(cats) {
+  const seen = new Set(cats);
+  return CATEGORIES.filter((c2) => seen.has(c2));
+}
+var TABLE = {
+  // The detector's fourteen profiles.
+  en: ["one", "other"],
+  fr: ["one", "many", "other"],
+  es: ["one", "many", "other"],
+  de: ["one", "other"],
+  it: ["one", "many", "other"],
+  pt: ["one", "many", "other"],
+  nl: ["one", "other"],
+  sv: ["one", "other"],
+  da: ["one", "other"],
+  pl: ["one", "few", "many", "other"],
+  ro: ["one", "few", "other"],
+  tr: ["one", "other"],
+  ru: ["one", "few", "many", "other"],
+  ja: ["other"],
+  // Beyond the profiles: the shapes that differ most from two-form English.
+  ar: ["zero", "one", "two", "few", "many", "other"],
+  cy: ["zero", "one", "two", "few", "many", "other"],
+  ga: ["one", "two", "few", "many", "other"],
+  sl: ["one", "two", "few", "other"],
+  he: ["one", "two", "other"],
+  lv: ["zero", "one", "other"],
+  lt: ["one", "few", "many", "other"],
+  cs: ["one", "few", "many", "other"],
+  sk: ["one", "few", "many", "other"],
+  uk: ["one", "few", "many", "other"],
+  hr: ["one", "few", "other"],
+  sr: ["one", "few", "other"],
+  ca: ["one", "many", "other"],
+  zh: ["other"],
+  ko: ["other"],
+  vi: ["other"],
+  th: ["other"],
+  id: ["other"],
+  ms: ["other"],
+  hi: ["one", "other"],
+  fa: ["one", "other"],
+  fi: ["one", "other"],
+  el: ["one", "other"],
+  hu: ["one", "other"],
+  bg: ["one", "other"],
+  et: ["one", "other"],
+  nb: ["one", "other"],
+  no: ["one", "other"]
+};
+var TABLE_LOCALES = Object.keys(TABLE).sort();
+var tier = null;
+function probe() {
+  try {
+    const ru = new Intl.PluralRules("ru").resolvedOptions().pluralCategories;
+    const ar = new Intl.PluralRules("ar").resolvedOptions().pluralCategories;
+    if (ru.length === 4 && ar.length === 6) return { tier: "icu" };
+    return {
+      tier: "table",
+      reason: `this Node was built without full ICU (it reports ${ru.length} plural categories for Russian and ${ar.length} for Arabic, where CLDR has 4 and 6). Plural categories come from the shipped table, which covers ${TABLE_LOCALES.length} languages; anything outside it is routed to judgment.`
+    };
+  } catch (err2) {
+    return { tier: "table", reason: `Intl.PluralRules is unavailable (${err2.message})` };
+  }
+}
+function pluralTier() {
+  if (!tier) tier = probe();
+  return tier;
+}
+function categoriesFor(locale) {
+  const lang = baseLanguage(locale);
+  if (!lang) return null;
+  if (pluralTier().tier === "icu") {
+    try {
+      const cats = new Intl.PluralRules(lang).resolvedOptions().pluralCategories;
+      if (cats.length > 0 && cats.every(isCategory)) {
+        return sortCategories(cats);
+      }
+    } catch {
+    }
+  }
+  const fromTable = TABLE[lang];
+  return fromTable ? [...fromTable] : null;
+}
+function ordinalCategoriesFor(locale) {
+  const lang = baseLanguage(locale);
+  if (!lang || pluralTier().tier !== "icu") return null;
+  try {
+    const cats = new Intl.PluralRules(lang, { type: "ordinal" }).resolvedOptions().pluralCategories;
+    return cats.every(isCategory) ? sortCategories(cats) : null;
+  } catch {
+    return null;
+  }
+}
+function baseLanguage(locale) {
+  const m = /^([A-Za-z]{2,3})(?:[-_]|$)/.exec(locale.trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
+// src/plural/icu.ts
+var ARG_TYPES = /* @__PURE__ */ new Set(["plural", "selectordinal", "select"]);
+function looksLikeIcu(text) {
+  return /\{\s*[\w.]+\s*,\s*(?:plural|selectordinal|select)\s*,/.test(text);
+}
+function scanIcu(text) {
+  const args2 = [];
+  const placeholders = [];
+  let ok = true;
+  const visit = (from, to, depth) => {
+    let i2 = from;
+    while (i2 < to) {
+      const ch = text[i2];
+      if (ch === "'") {
+        i2 = skipQuote(text, i2);
+        continue;
+      }
+      if (ch !== "{") {
+        i2++;
+        continue;
+      }
+      const close = matchBrace(text, i2);
+      if (close === -1 || close > to) {
+        ok = false;
+        return;
+      }
+      const parsed = parseArgument(text, i2, close, depth);
+      if (parsed) {
+        args2.push(parsed);
+        for (const branch of parsed.branches) visit(branch.start, branch.end, depth + 1);
+      } else {
+        const inner = text.slice(i2 + 1, close).trim();
+        if (inner) placeholders.push(inner.split(",")[0].trim());
+      }
+      i2 = close + 1;
+    }
+  };
+  visit(0, text.length, 0);
+  return { arguments: args2, placeholders, ok };
+}
+function parseArgument(text, open, close, depth) {
+  const firstComma = findAtTopLevel(text, open + 1, close, ",");
+  if (firstComma === -1) return null;
+  const secondComma = findAtTopLevel(text, firstComma + 1, close, ",");
+  if (secondComma === -1) return null;
+  const name2 = text.slice(open + 1, firstComma).trim();
+  const type = text.slice(firstComma + 1, secondComma).trim();
+  if (!ARG_TYPES.has(type)) return null;
+  if (!/^[\w.$-]+$/.test(name2)) return null;
+  const { offset, branches } = parseBranches(text, secondComma + 1, close);
+  if (branches.length === 0) return null;
+  return { start: open, end: close + 1, name: name2, type, offset, branches, depth };
+}
+function parseBranches(text, from, to) {
+  const branches = [];
+  let offset = null;
+  let i2 = from;
+  while (i2 < to) {
+    while (i2 < to && /\s/.test(text[i2])) i2++;
+    if (i2 >= to) break;
+    const off = /^offset:\s*(-?\d+)/.exec(text.slice(i2, to));
+    if (off && branches.length === 0) {
+      offset = Number(off[1]);
+      i2 += off[0].length;
+      continue;
+    }
+    const selectorStart = i2;
+    while (i2 < to && !/[\s{]/.test(text[i2])) i2++;
+    const selector = text.slice(selectorStart, i2).trim();
+    if (!selector) break;
+    while (i2 < to && /\s/.test(text[i2])) i2++;
+    if (text[i2] !== "{") break;
+    const close = matchBrace(text, i2);
+    if (close === -1 || close >= to) break;
+    branches.push({
+      selector,
+      category: isCategory(selector) ? selector : null,
+      start: i2 + 1,
+      end: close,
+      body: text.slice(i2 + 1, close)
+    });
+    i2 = close + 1;
+  }
+  return { offset, branches };
+}
+function matchBrace(text, open) {
+  let depth = 0;
+  let i2 = open;
+  while (i2 < text.length) {
+    const ch = text[i2];
+    if (ch === "'") {
+      i2 = skipQuote(text, i2);
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i2;
+    }
+    i2++;
+  }
+  return -1;
+}
+function skipQuote(text, at) {
+  if (text[at + 1] === "'") return at + 2;
+  const next = text[at + 1];
+  if (next !== "{" && next !== "}" && next !== "#" && next !== "|") return at + 1;
+  let i2 = at + 2;
+  while (i2 < text.length) {
+    if (text[i2] === "'") {
+      if (text[i2 + 1] === "'") {
+        i2 += 2;
+        continue;
+      }
+      return i2 + 1;
+    }
+    i2++;
+  }
+  return text.length;
+}
+function findAtTopLevel(text, from, to, char) {
+  let depth = 0;
+  let i2 = from;
+  while (i2 < to) {
+    const ch = text[i2];
+    if (ch === "'") {
+      i2 = skipQuote(text, i2);
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+    else if (ch === char && depth === 0) return i2;
+    i2++;
+  }
+  return -1;
+}
+function serializeArgument(arg, bodies, order) {
+  const exact = Object.keys(bodies).filter((s) => s.startsWith("="));
+  exact.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  const rest = order ? order.filter((s) => !s.startsWith("=") && bodies[s] !== void 0) : Object.keys(bodies).filter((s) => !s.startsWith("="));
+  const selectors = [...exact, ...rest];
+  const head = `{${arg.name}, ${arg.type}, ${arg.offset !== null ? `offset:${arg.offset} ` : ""}`;
+  return head + selectors.map((s) => `${s} {${bodies[s] ?? ""}}`).join(" ") + "}";
+}
+function splice(text, edits) {
+  const ordered = [...edits].sort((a, b) => b.start - a.start);
+  let out2 = text;
+  for (const edit of ordered) {
+    out2 = out2.slice(0, edit.start) + edit.text + out2.slice(edit.end);
+  }
+  return out2;
+}
+
+// src/plural/shapes.ts
+var PLURAL_SHAPES = [
+  {
+    id: "key-suffix",
+    title: "Category appended to the key",
+    docs: "https://www.i18next.com/translation-function/plurals",
+    notes: "i18next `key_one`, Rails `key.one`, and any hand-rolled `_singular`/`_plural`. Numeric suffixes (`key_0`) are deliberately NOT read as categories: they collide with array indices, and guessing wrong invents a form nobody wrote."
+  },
+  {
+    id: "sibling-object",
+    title: "Categories as sibling keys of one object",
+    docs: "https://guides.rubyonrails.org/i18n.html#pluralization",
+    notes: "Rails, vue-i18n object form, Flutter. Requires at least two category-named siblings."
+  },
+  {
+    id: "inline-select",
+    title: "ICU MessageFormat plural argument",
+    docs: "https://unicode-org.github.io/icu/userguide/format_parse/messages/",
+    notes: "react-intl, FormatJS, ARB, Android ICU, Java. The engine keeps the skeleton and hands the translator only the branch bodies, so a target needing four branches where the source has two costs nothing structural."
+  },
+  {
+    id: "attr-quantity",
+    title: "Quantity attribute on a resource item",
+    docs: "https://developer.android.com/guide/topics/resources/string-resource#Plurals",
+    notes: 'Android `<plurals><item quantity="one">`, and plists shaped the same way.'
+  },
+  {
+    id: "delimited",
+    title: "Forms separated by a pipe",
+    docs: "https://vue-i18n.intlify.dev/guide/essentials/pluralization",
+    notes: 'vue-i18n. Positional rather than named: two parts are one|other, three are zero|one|other. Only read inside a locale bundle, and only when a part carries a number \u2014 otherwise "Save | Cancel" would become a plural family.'
+  },
+  {
+    id: "annotation",
+    title: "Declared in place by an annotation",
+    docs: "https://github.com/maxgfr/ultrai18n#plurals",
+    notes: "The escape hatch for everything above that no shape recognises, and the only remedy for a rule baked into an expression. The engine never infers these: something has to say so."
+  }
+];
+var SHAPES_BY_ID = new Map(PLURAL_SHAPES.map((s) => [s.id, s]));
+var SUFFIX_TOKENS = {
+  zero: "zero",
+  one: "one",
+  two: "two",
+  few: "few",
+  many: "many",
+  other: "other",
+  singular: "one",
+  plural: "other"
+};
+var SUFFIX_RE = new RegExp(`^(.*?)([_.])(?:(ordinal)[_.])?(${Object.keys(SUFFIX_TOKENS).join("|")})$`);
+function splitPluralKey(path) {
+  const cut = path.lastIndexOf("/");
+  const parent = cut === -1 ? "" : path.slice(0, cut);
+  const key = cut === -1 ? path : path.slice(cut + 1);
+  if (isCategory(key) && parent) return { base: parent, category: key, separator: "/" };
+  const m = SUFFIX_RE.exec(key);
+  if (!m || !m[1]) return null;
+  return { base: `${parent}/${m[1]}`, category: SUFFIX_TOKENS[m[4]], separator: m[2] };
+}
+function detectFamilies(sites, opts) {
+  const claimed = /* @__PURE__ */ new Set();
+  const families = [];
+  for (const family of detectInlineSelect(sites)) {
+    families.push(family);
+    for (const id of family.sites) claimed.add(id);
+  }
+  for (const family of detectAttrQuantity(sites)) {
+    if (family.sites.some((id) => claimed.has(id))) continue;
+    families.push(family);
+    for (const id of family.sites) claimed.add(id);
+  }
+  for (const family of detectKeySuffix(sites, opts)) {
+    if (family.sites.some((id) => claimed.has(id))) continue;
+    families.push(family);
+    for (const id of family.sites) claimed.add(id);
+  }
+  for (const family of detectSiblingObject(sites, opts)) {
+    if (family.sites.some((id) => claimed.has(id))) continue;
+    families.push(family);
+    for (const id of family.sites) claimed.add(id);
+  }
+  for (const family of detectDelimited(sites, opts)) {
+    if (family.sites.some((id) => claimed.has(id))) continue;
+    families.push(family);
+    for (const id of family.sites) claimed.add(id);
+  }
+  return families.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.base < b.base ? -1 : 1);
+}
+function detectInlineSelect(sites) {
+  const out2 = [];
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    if (!looksLikeIcu(site3.value)) continue;
+    const scan3 = scanIcu(site3.value);
+    if (!scan3.ok) continue;
+    for (const argument of scan3.arguments) {
+      if (argument.type === "select") continue;
+      const forms = [];
+      const exact = [];
+      for (const branch of argument.branches) {
+        if (branch.selector.startsWith("=")) {
+          exact.push({ selector: branch.selector, value: branch.body });
+          continue;
+        }
+        if (!branch.category) continue;
+        forms.push({
+          category: branch.category,
+          selector: branch.selector,
+          siteId: site3.id,
+          value: branch.body,
+          branch: { start: branch.start, end: branch.end }
+        });
+      }
+      if (forms.length === 0) continue;
+      out2.push({
+        shape: "inline-select",
+        file: site3.file,
+        base: `${pathOf(site3)}${argument.depth > 0 ? `@${argument.start}` : ""}`,
+        forms,
+        exact,
+        sites: [site3.id],
+        ordinal: argument.type === "selectordinal",
+        icu: { siteId: site3.id, argument }
+      });
+    }
+  }
+  return out2;
+}
+function detectKeySuffix(sites, opts) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    if (!opts.isBundle(site3.file)) continue;
+    const path = pathOf(site3);
+    const cut = path.lastIndexOf("/");
+    const parent = cut === -1 ? "" : path.slice(0, cut);
+    const key = cut === -1 ? path : path.slice(cut + 1);
+    const m = SUFFIX_RE.exec(key);
+    if (!m) continue;
+    const base = m[1];
+    const ordinal = m[3] !== void 0;
+    const category = SUFFIX_TOKENS[m[4]];
+    if (!base) continue;
+    const groupKey2 = `${site3.file}\0${parent}\0${base}\0${ordinal}`;
+    let group = groups.get(groupKey2);
+    if (!group) {
+      group = { forms: [], file: site3.file, base: `${parent}/${base}`, ordinal };
+      groups.set(groupKey2, group);
+    }
+    group.forms.push({ category, selector: key.slice(base.length), siteId: site3.id, value: site3.value });
+  }
+  return [...groups.values()].filter((g) => g.forms.length > 0).map((g) => ({
+    shape: "key-suffix",
+    file: g.file,
+    base: g.base,
+    forms: dedupe(g.forms),
+    exact: [],
+    sites: g.forms.map((f) => f.siteId),
+    ordinal: g.ordinal
+  }));
+}
+function detectSiblingObject(sites, opts) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    if (!opts.isBundle(site3.file)) continue;
+    const path = pathOf(site3);
+    const cut = path.lastIndexOf("/");
+    if (cut <= 0) continue;
+    const parent = path.slice(0, cut);
+    const key = path.slice(cut + 1);
+    if (!isCategory(key)) continue;
+    const groupKey2 = `${site3.file}\0${parent}`;
+    let group = groups.get(groupKey2);
+    if (!group) {
+      group = { forms: [], file: site3.file, base: parent };
+      groups.set(groupKey2, group);
+    }
+    group.forms.push({ category: key, selector: key, siteId: site3.id, value: site3.value });
+  }
+  return [...groups.values()].filter((g) => new Set(g.forms.map((f) => f.category)).size >= 2).map((g) => ({
+    shape: "sibling-object",
+    file: g.file,
+    base: g.base,
+    forms: dedupe(g.forms),
+    exact: [],
+    sites: g.forms.map((f) => f.siteId),
+    ordinal: false
+  }));
+}
+var QUANTITY_PATH = /^(.*plurals\[[^\]]*\])\/item\[([a-z]+)\]$/;
+function detectAttrQuantity(sites) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    const m = QUANTITY_PATH.exec(pathOf(site3));
+    if (!m) continue;
+    const quantity = m[2];
+    if (!isCategory(quantity)) continue;
+    const groupKey2 = `${site3.file}\0${m[1]}`;
+    let group = groups.get(groupKey2);
+    if (!group) {
+      group = { forms: [], file: site3.file, base: m[1] };
+      groups.set(groupKey2, group);
+    }
+    group.forms.push({
+      category: quantity,
+      selector: `quantity="${quantity}"`,
+      siteId: site3.id,
+      value: site3.value
+    });
+  }
+  return [...groups.values()].map((g) => ({
+    shape: "attr-quantity",
+    file: g.file,
+    base: g.base,
+    forms: dedupe(g.forms),
+    exact: [],
+    sites: g.forms.map((f) => f.siteId),
+    ordinal: false
+  }));
+}
+var DELIMITED_ORDER = {
+  2: ["one", "other"],
+  3: ["zero", "one", "other"]
+};
+function detectDelimited(sites, opts) {
+  const out2 = [];
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    if (!opts.isBundle(site3.file)) continue;
+    if (!site3.value.includes("|")) continue;
+    const parts2 = site3.value.split("|").map((p) => p.trim());
+    const order = DELIMITED_ORDER[parts2.length];
+    if (!order) continue;
+    if (parts2.some((p) => !new RegExp("\\p{L}{2,}", "u").test(p))) continue;
+    if (!parts2.some((p) => /\d|\{[^}]*\}|%[sd@]/.test(p))) continue;
+    out2.push({
+      shape: "delimited",
+      file: site3.file,
+      base: pathOf(site3),
+      forms: parts2.map((value, i2) => ({
+        category: order[i2],
+        selector: `[${i2}]`,
+        siteId: site3.id,
+        value
+      })),
+      exact: [],
+      sites: [site3.id],
+      ordinal: false
+    });
+  }
+  return out2;
+}
+function pathOf(site3) {
+  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
+}
+function dedupe(forms) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const form of forms) byCategory.set(form.category, form);
+  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
+}
+
+// src/plural/annotate.ts
+import { existsSync as existsSync10, readFileSync as readFileSync12 } from "fs";
+var PRAGMA = /(^|\s)ultrai18n:plural\b/;
+function readPragmas(sites) {
+  const byFile = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    const list = byFile.get(site3.file);
+    if (list) list.push(site3);
+    else byFile.set(site3.file, [site3]);
+  }
+  const out2 = [];
+  for (const [file, group] of byFile) {
+    const ordered = [...group].sort((a, b) => a.span.start - b.span.start);
+    for (let i2 = 0; i2 < ordered.length; i2++) {
+      const comment = ordered[i2];
+      if (comment.kind !== "comment") continue;
+      if (!PRAGMA.test(comment.value)) continue;
+      const target = ordered.slice(i2 + 1).find((s) => s.kind !== "comment" && s.kind !== "key");
+      if (!target) continue;
+      const fields = parseFields(comment.value);
+      out2.push({
+        siteKey: target.siteKey,
+        siteId: target.id,
+        file,
+        count: fields.count ?? null,
+        forms: formsFrom(fields, target.id),
+        categories: categoriesFrom(fields.categories),
+        pragmaSiteId: comment.id,
+        origin: "pragma"
+      });
+    }
+  }
+  return out2;
+}
+function readSidecar(path, sites) {
+  if (!existsSync10(path)) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync12(path, "utf8"));
+  } catch (err2) {
+    throw new Error(`${path} is not readable JSON: ${err2.message}`);
+  }
+  const bySiteKey = new Map(sites.map((s) => [s.siteKey, s]));
+  const out2 = [];
+  for (const entry of parsed.families ?? []) {
+    const site3 = bySiteKey.get(entry.siteKey);
+    if (!site3) continue;
+    const forms = [];
+    for (const [selector, value] of Object.entries(entry.forms ?? {})) {
+      if (!isCategory(selector)) continue;
+      forms.push({ category: selector, selector, siteId: site3.id, value });
+    }
+    out2.push({
+      siteKey: entry.siteKey,
+      siteId: site3.id,
+      file: site3.file,
+      count: entry.count ?? null,
+      forms: sortForms(forms),
+      categories: categoriesFrom(entry.categories?.join(",")),
+      pragmaSiteId: null,
+      origin: "sidecar"
+    });
+  }
+  return out2;
+}
+function danglingSidecarKeys(path, sites) {
+  if (!existsSync10(path)) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(readFileSync12(path, "utf8"));
+  } catch {
+    return [];
+  }
+  const known = new Set(sites.map((s) => s.siteKey));
+  return (parsed.families ?? []).map((f) => f.siteKey).filter((k) => !known.has(k));
+}
+function parseFields(text) {
+  const body2 = text.slice(text.search(PRAGMA)).replace(/^\s*/, "").replace(/^ultrai18n:plural\b/, "");
+  const fields = {};
+  const re = /([A-Za-z][\w-]*)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|(\S+))/g;
+  for (const m of body2.matchAll(re)) {
+    const raw = m[2] ?? m[3] ?? m[4] ?? "";
+    fields[m[1]] = raw.replace(/\\(["'\\])/g, "$1");
+  }
+  return fields;
+}
+function formsFrom(fields, siteId2) {
+  const forms = [];
+  for (const [key, value] of Object.entries(fields)) {
+    if (!isCategory(key)) continue;
+    forms.push({ category: key, selector: key, siteId: siteId2, value });
+  }
+  return sortForms(forms);
+}
+function categoriesFrom(spec) {
+  if (!spec) return null;
+  const cats = spec.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean).filter(isCategory);
+  return cats.length ? sortCategories(cats) : null;
+}
+function sortForms(forms) {
+  const byCategory = new Map(forms.map((f) => [f.category, f]));
+  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
+}
+
+// src/plural/index.ts
+function assembleFamilies(opts) {
+  const detectOpts = { isBundle: opts.isBundle };
+  const detected = detectFamilies(opts.sites, detectOpts);
+  const annotated = [
+    ...readPragmas(opts.sites),
+    ...opts.sidecarPath ? readSidecar(opts.sidecarPath, opts.sites) : []
+  ];
+  const byId = new Map(opts.sites.map((s) => [s.id, s]));
+  const families = [];
+  const claimed = /* @__PURE__ */ new Set();
+  for (const a of annotated) {
+    families.push(fromAnnotation(a, byId, opts));
+    claimed.add(a.siteId);
+  }
+  for (const d of detected) {
+    if (d.sites.some((id) => claimed.has(id))) continue;
+    families.push(fromDetected(d, opts));
+    for (const id of d.sites) claimed.add(id);
+  }
+  families.sort((a, b) => a.anchor < b.anchor ? -1 : a.anchor > b.anchor ? 1 : 0);
+  const memberSites = /* @__PURE__ */ new Map();
+  for (const family of families) {
+    for (const form of family.forms) {
+      if (!memberSites.has(form.siteId)) {
+        memberSites.set(form.siteId, { familyId: family.id, category: form.category });
+      }
+    }
+  }
+  return {
+    families,
+    memberSites,
+    pragmaSites: new Set(annotated.map((a) => a.pragmaSiteId).filter((id) => id !== null))
+  };
+}
+function fromDetected(d, opts) {
+  const locale = opts.fileLocale(d.file) ?? opts.sourceLanguage;
+  const sourceCategories = sortCategories(d.forms.map((f) => f.category));
+  const ownRequired = locale ? categoriesFor(locale) : null;
+  const targetRequired = d.ordinal ? ordinalCategoriesFor(opts.targetLanguage) ?? sourceCategories : d.shape === "delimited" ? sourceCategories : categoriesFor(opts.targetLanguage);
+  const { writeMode, keyTemplate, insertAfterSiteId, blocked } = writePlan(d, opts);
+  const cldrApplies = !d.ordinal && d.shape !== "delimited" && ownRequired !== null;
+  return {
+    id: familyId(d.file, d.base),
+    file: d.file,
+    anchor: `${d.file}#${d.base}`,
+    base: d.base,
+    shape: d.shape,
+    declaredBy: "shape",
+    locale,
+    forms: d.forms,
+    exact: d.exact,
+    sourceCategories,
+    ownRequired,
+    targetRequired,
+    missing: cldrApplies ? ownRequired.filter((c2) => !sourceCategories.includes(c2)) : [],
+    extra: cldrApplies ? sourceCategories.filter((c2) => !ownRequired.includes(c2)) : [],
+    sites: [...new Set(d.sites)],
+    ordinal: d.ordinal,
+    writeMode,
+    keyTemplate,
+    insertAfterSiteId,
+    count: null,
+    ...blocked ? { blocked } : {}
+  };
+}
+function fromAnnotation(a, byId, opts) {
+  const site3 = byId.get(a.siteId);
+  const locale = opts.fileLocale(a.file) ?? opts.sourceLanguage;
+  const forms = a.forms.length > 0 ? a.forms : [{ category: "other", selector: "other", siteId: a.siteId, value: site3.value }];
+  const sourceCategories = sortCategories(forms.map((f) => f.category));
+  const ownRequired = a.categories ?? (locale ? categoriesFor(locale) : null);
+  const targetRequired = a.categories ?? categoriesFor(opts.targetLanguage);
+  return {
+    id: familyId(a.file, a.siteKey),
+    file: a.file,
+    anchor: a.siteKey,
+    base: a.siteKey.slice(a.siteKey.indexOf("#") + 1),
+    shape: "annotation",
+    declaredBy: "annotation",
+    locale,
+    forms,
+    exact: [],
+    sourceCategories,
+    ownRequired,
+    targetRequired,
+    missing: ownRequired ? ownRequired.filter((c2) => !sourceCategories.includes(c2)) : [],
+    extra: [],
+    sites: [a.siteId],
+    ordinal: false,
+    // An annotated site is a code construct, not a catalog entry: the forms may
+    // need a different NUMBER of agreement sites than the source has, and no
+    // span rewrite can produce that.
+    writeMode: "code-edit",
+    keyTemplate: null,
+    insertAfterSiteId: null,
+    count: a.count,
+    blocked: "the forms live in an expression, so completing this family is a code edit; the translated forms are supplied in the worklist"
+  };
+}
+function writePlan(d, opts) {
+  switch (d.shape) {
+    // One value span holds the whole family, so adding a form is an ordinary
+    // rewrite of that span.
+    case "inline-select":
+    case "delimited":
+      return { writeMode: "replace", keyTemplate: null, insertAfterSiteId: null };
+    case "key-suffix":
+    case "sibling-object": {
+      if (!isInsertableBundle(d.file)) {
+        return {
+          writeMode: "code-edit",
+          keyTemplate: null,
+          insertAfterSiteId: null,
+          blocked: `a new form here means a new key in ${d.file}, and insertion is only supported for JSON and YAML locale bundles`
+        };
+      }
+      const last = d.forms[d.forms.length - 1];
+      const first = d.forms[0];
+      if (!last || !first) {
+        return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null };
+      }
+      const keyTemplate = d.shape === "sibling-object" ? "{category}" : `${baseKey(d.base)}${separatorOf(first.selector)}{category}`;
+      return { writeMode: "insert", keyTemplate, insertAfterSiteId: last.siteId };
+    }
+    case "attr-quantity":
+      return {
+        writeMode: "code-edit",
+        keyTemplate: null,
+        insertAfterSiteId: null,
+        blocked: "adding an <item quantity> element is a markup edit; the engine reports the missing forms rather than writing XML it did not parse structurally"
+      };
+    default:
+      return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null };
+  }
+}
+function isInsertableBundle(file) {
+  return /\.(json|jsonc|json5|arb|ya?ml)$/i.test(file);
+}
+function baseKey(base) {
+  const cut = base.lastIndexOf("/");
+  return cut === -1 ? base : base.slice(cut + 1);
+}
+function separatorOf(selector) {
+  const first = selector[0];
+  return first === "_" || first === "." ? first : "_";
+}
+function familyId(file, base) {
+  return "pf_" + sha12(`${file}#${base}`).slice(0, 12);
+}
+function keyForCategory(family, category) {
+  return family.keyTemplate ? family.keyTemplate.replace("{category}", category) : null;
+}
+
 // src/scan.ts
 var JSON_EXT = /* @__PURE__ */ new Set([".json", ".jsonc", ".json5", ".webmanifest", ".arb"]);
 var YAML_EXT = /* @__PURE__ */ new Set([".yml", ".yaml"]);
@@ -23715,6 +24611,8 @@ async function scan2(opts) {
   for (const file of walked.files) {
     results.push(await extractFile(file, tokens, opts));
   }
+  let collisions = 0;
+  for (const result of results) collisions += disambiguatePaths(result.sites);
   const from = opts.from === "auto" || opts.from === void 0 ? inferSourceLanguage(results, to) : opts.from;
   const sites = [];
   for (const result of results) {
@@ -23738,6 +24636,12 @@ async function scan2(opts) {
     (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start
   );
   linkDuplicates(sites);
+  const plurals = attachPlurals(sites, {
+    repo,
+    to,
+    from,
+    ...opts.pluralSidecar !== void 0 ? { sidecarPath: opts.pluralSidecar } : {}
+  });
   return {
     schemaVersion: 1,
     repo,
@@ -23745,10 +24649,103 @@ async function scan2(opts) {
     targetLanguage: to,
     sites,
     census: buildCensus(repo, walked, results),
-    advisories: advisoriesFor(results, sites),
+    advisories: [
+      ...advisoriesFor(results, sites),
+      ...pluralAdvisories(plurals),
+      ...collisions ? [
+        {
+          id: "anchor-collision",
+          file: null,
+          message: `${collisions} site(s) shared an anchor with another site and were suffixed \`~n\` to keep their ids distinct. The suffix is stable for a given file but shifts if a sibling is inserted above, so an exception pinned to one of these is worth re-checking. Anonymous nodes are already anchored by position, so reaching this means a construct the anchor grammar cannot name at all.`,
+          sites: []
+        }
+      ] : []
+    ],
     limits: LIMITS,
-    recallClaim: "full"
+    recallClaim: "full",
+    plurals
   };
+}
+function disambiguatePaths(sites) {
+  const byPath = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    const list = byPath.get(site3.path);
+    if (list) list.push(site3);
+    else byPath.set(site3.path, [site3]);
+  }
+  const taken = new Set(byPath.keys());
+  let surprising = 0;
+  for (const group of byPath.values()) {
+    if (group.length < 2) continue;
+    const ordered = [...group].sort(
+      (a, b) => Number(a.kind === "key") - Number(b.kind === "key") || a.span.start - b.span.start
+    );
+    const structural = group.length === 2 && group.filter((s) => s.kind === "key").length === 1;
+    for (const site3 of ordered.slice(1)) {
+      let n = 2;
+      while (taken.has(`${site3.path}~${n}`)) n++;
+      const next = `${site3.path}~${n}`;
+      taken.add(next);
+      site3.path = next;
+      if (!structural) surprising++;
+    }
+  }
+  return surprising;
+}
+function isBundleFile(file) {
+  if (fileLocale(file) !== null) return true;
+  return matchRules(RULES17, { file, path: "", value: "" }).some((m) => m.rule.ecosystem === "i18n");
+}
+function attachPlurals(sites, opts) {
+  const sidecar = opts.sidecarPath ?? join24(opts.repo, ".ultrai18n", "plurals.json");
+  const { families, memberSites, pragmaSites } = assembleFamilies({
+    sites,
+    targetLanguage: opts.to,
+    sourceLanguage: opts.from,
+    fileLocale,
+    isBundle: isBundleFile,
+    sidecarPath: sidecar
+  });
+  const byId = new Map(sites.map((s) => [s.id, s]));
+  for (const [siteId2, member] of memberSites) {
+    const site3 = byId.get(siteId2);
+    if (!site3) continue;
+    site3.plural = { familyId: member.familyId, category: member.category, shape: "" };
+  }
+  for (const family of families) {
+    for (const id of family.sites) {
+      const site3 = byId.get(id);
+      if (!site3?.plural) continue;
+      site3.plural.shape = family.shape;
+      site3.surface = "i18n.plural-family";
+      if (family.declaredBy === "annotation") site3.decidedBy = "inline-pragma";
+    }
+  }
+  for (const id of pragmaSites) {
+    const site3 = byId.get(id);
+    if (!site3) continue;
+    site3.verdict = "do-not-translate";
+    site3.reason = "explicitly-marked";
+    site3.decidedBy = "inline-pragma";
+  }
+  return families;
+}
+function pluralAdvisories(families) {
+  const out2 = [];
+  const tier2 = pluralTier();
+  if (tier2.tier !== "icu" && families.length > 0) {
+    out2.push({ id: "degraded-plural-tier", file: null, message: tier2.reason ?? "", sites: [] });
+  }
+  const broken = families.filter((f) => f.missing.length > 0 || f.extra.length > 0);
+  if (broken.length) {
+    out2.push({
+      id: "plural-incomplete",
+      file: broken[0].file,
+      message: `${broken.length} plural family(ies) do not have the forms their own locale requires. This is a live rendering bug rather than a missing translation: ${broken.slice(0, 3).map((f) => `${f.file}#${f.base} (${f.locale ?? "?"} needs ${f.ownRequired?.join(", ") ?? "?"}, has ${f.sourceCategories.join(", ")})`).join("; ")}.`,
+      sites: broken.flatMap((f) => f.sites).slice(0, 10)
+    });
+  }
+  return out2;
 }
 async function extractFile(file, tokens, opts) {
   const read = readTextEx(file.abs);
@@ -23771,9 +24768,33 @@ async function extractFile(file, tokens, opts) {
     if (parser2) {
       const tree = parser2.parse(read.text);
       if (tree) {
-        const { sites, tokens: contributed } = extractTs(file.rel, read.text, tree, map);
+        const { sites, tokens: contributed, errorSpans, hasError } = extractTs(
+          file.rel,
+          read.text,
+          tree,
+          map
+        );
         merge2(tokens, contributed);
-        return { ...base, sites, extractor: "ts-ast", bytesClaimed: read.bytes };
+        if (!hasError) {
+          return { ...base, sites, extractor: "ts-ast", bytesClaimed: read.bytes };
+        }
+        const unreadable = merge(errorSpans);
+        const claimed = [...complement(unreadable, read.bytes), ...sites.map((s) => s.span)];
+        const residual2 = sweepFile(file.rel, read.text, map, claimed, {
+          identifiers: tokens.identifiers,
+          extractor: "ts-ast",
+          reason: `the ${ext} grammar could not parse this span; found by the residual sweep`
+        });
+        const unreadableBytes = unreadable.reduce((n, s) => n + (s.end - s.start), 0);
+        return {
+          ...base,
+          sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
+          extractor: "ts-ast",
+          degraded: true,
+          bytesClaimed: Math.max(0, read.bytes - unreadableBytes),
+          complete: false,
+          reason: `the ${ext} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`
+        };
       }
     }
     return {
@@ -23927,12 +24948,21 @@ function advisoriesFor(results, sites) {
       sites: timeWords.slice(0, 10).map((s) => s.id)
     });
   }
-  const degraded = results.filter((r) => r.degraded);
+  const degraded = results.filter((r) => r.degraded && r.extractor !== "ts-ast");
   if (degraded.length) {
     out2.push({
       id: "degraded-tier",
       file: null,
       message: `${degraded.length} file(s) were read without the AST tier, so key-versus-value and enum detection were unavailable for them. Their verdicts are weaker, and that is recorded per file in the census.`,
+      sites: []
+    });
+  }
+  const unparsed = results.filter((r) => r.degraded && r.extractor === "ts-ast");
+  if (unparsed.length) {
+    out2.push({
+      id: "ast-parse-error",
+      file: unparsed[0].file.rel,
+      message: `${unparsed.length} file(s) hit syntax the shipped grammar could not parse. Those regions were swept for text instead of being claimed, so their claimRatio is below 1 and anything human-looking in them is in the inventory as unclassified. Usually this means a language feature newer than the grammar.`,
       sites: []
     });
   }
@@ -24028,6 +25058,51 @@ function formatScan(inv, opts = {}) {
   }
   return lines.join("\n");
 }
+function formatPlurals(inv) {
+  const families = inv.plurals ?? [];
+  const lines = [
+    `ultrai18n plurals  ${inv.repo}  \u2192 ${inv.targetLanguage}`,
+    ""
+  ];
+  if (families.length === 0) {
+    lines.push("  No plural families found.");
+    lines.push("");
+    lines.push("  The engine reads five arrangements, listed by `plurals --shapes`. If this");
+    lines.push("  repository pluralises some other way, declare a family in place with an");
+    lines.push("  `ultrai18n:plural` comment rather than teaching the engine to guess.");
+    return lines.join("\n");
+  }
+  const tier2 = pluralTier();
+  if (tier2.tier !== "icu") lines.push(`  ! ${tier2.reason}`, "");
+  const broken = families.filter((f) => f.missing.length || f.extra.length);
+  lines.push(`  ${families.length} family(ies), ${broken.length} not complete for their own locale`);
+  if (broken.length) {
+    lines.push("");
+    lines.push(`INCOMPLETE (${broken.length}) \u2014 the wrong string renders for some numbers, today`);
+    for (const f of broken) {
+      lines.push(`  ${f.file}#${f.base}  [${f.shape}]  ${f.locale ?? "?"}`);
+      lines.push(
+        `      has ${f.sourceCategories.join(", ")} \xB7 ${f.locale ?? "this locale"} selects ${f.ownRequired?.join(", ") ?? "?"}` + (f.missing.length ? ` \xB7 missing ${f.missing.join(", ")}` : "") + (f.extra.length ? ` \xB7 never selected: ${f.extra.join(", ")}` : "")
+      );
+    }
+  }
+  lines.push("");
+  lines.push(`ALL FAMILIES (${families.length})`);
+  for (const f of families) {
+    lines.push(
+      `  ${f.file}#${f.base}
+      ${f.shape} \xB7 ${f.locale ?? "?"} \u2192 ${f.targetRequired?.join(", ") ?? "?"} \xB7 writes by ${f.writeMode}` + (f.ordinal ? " \xB7 ordinal" : "") + (f.declaredBy === "annotation" ? " \xB7 declared by annotation" : "") + (f.blocked ? `
+      blocked: ${f.blocked}` : "")
+    );
+  }
+  lines.push("");
+  lines.push("SHAPES READ");
+  for (const shape of PLURAL_SHAPES) {
+    lines.push(`  ${shape.id.padEnd(16)} ${shape.title}
+      ${shape.docs}`);
+  }
+  return lines.join("\n");
+}
 function tally(sites) {
   const counts = /* @__PURE__ */ new Map();
   for (const s of sites) counts.set(s.verdict, (counts.get(s.verdict) ?? 0) + 1);
@@ -24044,7 +25119,9 @@ function plan(inv, opts = {}) {
   const mode = opts.mode ?? "swap";
   const glossary = opts.glossary ?? /* @__PURE__ */ new Map();
   const tm = opts.tm ?? /* @__PURE__ */ new Map();
-  const translatable = inv.sites.filter((s) => s.verdict === "translate");
+  const families = inv.plurals ?? [];
+  const familySites = new Set(families.flatMap((f) => f.sites));
+  const translatable = inv.sites.filter((s) => s.verdict === "translate" && !familySites.has(s.id));
   const excluded = inv.sites.filter((s) => s.verdict === "do-not-translate");
   const CONFLICTING = /* @__PURE__ */ new Set([
     "identifier",
@@ -24098,9 +25175,15 @@ function plan(inv, opts = {}) {
     }
     groups.push(group);
   }
+  const bySiteId = new Map(inv.sites.map((s) => [s.id, s]));
+  for (const family of families) {
+    const group = pluralGroup(family, inv.targetLanguage, bySiteId);
+    if (group) groups.push(group);
+  }
   attachMirrors(groups, inv);
   const unlinked = findUnlinked(inv, groups);
   const pending = groups.filter((g) => g.status === "pending");
+  const plural = groups.filter((g) => g.plural);
   return {
     schemaVersion: 1,
     sourceLang: inv.sourceLanguage ?? "unknown",
@@ -24117,9 +25200,58 @@ function plan(inv, opts = {}) {
       memo: groups.filter((g) => g.status === "memo").length,
       hazard: groups.filter((g) => g.status === "hazard").length,
       structural: groups.filter((g) => g.status === "structural").length,
-      skipped: inv.sites.length - groups.reduce((n, g) => n + g.sites.length, 0)
+      skipped: inv.sites.length - groups.reduce((n, g) => n + g.sites.length, 0),
+      plural: plural.length,
+      pluralCompleting: plural.filter((g) => g.plural.op === "complete").length
     }
   };
+}
+function pluralGroup(family, targetLang, bySiteId) {
+  const sites = family.sites.map((id) => bySiteId.get(id)).filter((s) => s !== void 0);
+  if (sites.length === 0) return null;
+  const translatable = sites.some((s) => s.verdict === "translate");
+  if (!translatable && family.declaredBy !== "annotation") return null;
+  const targetCategories = family.targetRequired ?? family.sourceCategories;
+  const forms = {};
+  for (const form of family.forms) forms[form.category] = form.value;
+  const op = family.locale === targetLang ? "complete" : "translate";
+  const canonical = forms.other ?? family.forms[0]?.value ?? "";
+  const group = {
+    id: "g_" + family.id.slice(3, 15),
+    text: canonical,
+    role: "label",
+    roleClass: "ui-short",
+    status: "pending",
+    max: null,
+    holes: [],
+    holeGloss: {},
+    sites: family.sites,
+    mirrors: [],
+    plural: {
+      familyId: family.id,
+      shape: family.shape,
+      writeMode: family.writeMode,
+      op,
+      locale: family.locale,
+      forms,
+      sourceCategories: family.sourceCategories,
+      targetCategories,
+      exact: family.exact,
+      placeholders: placeholdersIn(Object.values(forms))
+    }
+  };
+  if (family.writeMode === "code-edit") {
+    group.blocked = family.blocked ?? "the forms cannot be written mechanically here; they go to the structural worklist";
+  }
+  return group;
+}
+var PLACEHOLDER = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
+function placeholdersIn(values) {
+  const out2 = /* @__PURE__ */ new Set();
+  for (const value of values) {
+    for (const m of value.matchAll(PLACEHOLDER)) out2.add(m[0]);
+  }
+  return [...out2].sort();
 }
 function groupKey(site3) {
   const role = classOf(roleOf(site3));
@@ -24227,6 +25359,11 @@ function formatPlan(p) {
   lines.push(
     `  ${p.counts.sites} sites \u2192 ${p.counts.groups} groups: ${p.counts.toTranslate} to translate, ${p.counts.memo} already known`
   );
+  if (p.counts.plural) {
+    lines.push(
+      `  ${p.counts.plural} plural family(ies)` + (p.counts.pluralCompleting ? `, ${p.counts.pluralCompleting} of them being completed for a locale that already needs more forms than it has` : "")
+    );
+  }
   if (p.hazards.length) {
     lines.push("");
     lines.push(`HAZARDS (${p.hazards.length}) \u2014 not planned; the engine will not guess these`);
@@ -24248,8 +25385,8 @@ function formatPlan(p) {
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync12, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
-import { join as join24, dirname as dirname6 } from "path";
+import { readFileSync as readFileSync13, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
+import { join as join25, dirname as dirname6 } from "path";
 import { createHash as createHash5 } from "crypto";
 
 // src/escape.ts
@@ -24316,7 +25453,7 @@ function escapeRaw(syntax, text, opts) {
     case "yaml-block":
       return opts.blockIndent ? text.split("\n").map((l) => l === "" ? l : opts.blockIndent + l).join("\n") : text;
     case "md-text":
-      return text.replace(/^(\s*)([#>*+-]|\d+[.)])/, "$1\\$2");
+      return opts.atLineStart === false ? text : text.replace(/^(\s*)([#>*+-]|\d+[.)])/, "$1\\$2");
     case "html-text":
       return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     case "html-attr":
@@ -24403,6 +25540,7 @@ function apply(opts) {
   const byFile = /* @__PURE__ */ new Map();
   const refusedFiles = /* @__PURE__ */ new Set();
   let recoveredCount = 0;
+  let appliedWrites = 0;
   for (const t of opts.translations) {
     const site3 = byId.get(t.id);
     if (!site3) {
@@ -24421,13 +25559,34 @@ function apply(opts) {
       refusedFiles.add(site3.file);
     }
   }
+  for (const [afterSiteId, group] of groupBy(opts.insertions ?? [], (i2) => i2.afterSiteId)) {
+    const site3 = byId.get(afterSiteId);
+    if (!site3) {
+      outcomes.push({
+        id: afterSiteId,
+        status: "refused",
+        file: "?",
+        why: "the site this new key would follow is not in the inventory"
+      });
+      continue;
+    }
+    try {
+      const patch = buildInsertion(repo, site3, group);
+      const list = byFile.get(site3.file);
+      if (list) list.push(patch);
+      else byFile.set(site3.file, [patch]);
+    } catch (err2) {
+      outcomes.push({ id: patch_id(afterSiteId, group), status: "refused", file: site3.file, why: err2.message });
+      refusedFiles.add(site3.file);
+    }
+  }
   for (const [file, patches] of byFile) {
-    patches.sort((a, b) => a.start - b.start);
+    patches.sort((a, b) => a.start - b.start || Number(a.inserted) - Number(b.inserted));
     for (let i2 = 0; i2 + 1 < patches.length; i2++) {
       if (patches[i2].end > patches[i2 + 1].start) {
         refusedFiles.add(file);
         outcomes.push({
-          id: patches[i2].site.id,
+          id: patches[i2].id,
           status: "refused",
           file,
           why: `overlaps the next site at byte ${patches[i2 + 1].start} \u2014 the inventory is inconsistent`
@@ -24453,29 +25612,36 @@ function apply(opts) {
   for (const [file, patches] of [...byFile.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
     if (refusedFiles.has(file)) {
       for (const p of patches) {
-        if (!outcomes.some((o) => o.id === p.site.id)) {
-          outcomes.push({ id: p.site.id, status: "skipped", file, why: "another site in this file or group refused" });
+        if (!outcomes.some((o) => o.id === p.id)) {
+          outcomes.push({ id: p.id, status: "skipped", file, why: "another site in this file or group refused" });
         }
       }
       continue;
     }
-    const abs = join24(repo, file);
-    const before = readFileSync12(abs);
+    const abs = join25(repo, file);
+    const before = readFileSync13(abs);
     let patched;
     try {
       patched = applyPatches(before, patches);
     } catch (err2) {
       for (const p of patches) {
-        outcomes.push({ id: p.site.id, status: "refused", file, why: err2.message });
+        outcomes.push({ id: p.id, status: "refused", file, why: err2.message });
       }
       continue;
     }
     written.push({ file, sha256Before: digest(before), sha256After: digest(patched) });
     for (const p of patches) {
-      outcomes.push({ id: p.site.id, status: "applied", file, recovered: p.recovered });
+      appliedWrites += p.writes;
+      outcomes.push({
+        id: p.id,
+        status: "applied",
+        file,
+        recovered: p.recovered,
+        ...p.inserted ? { inserted: true } : {}
+      });
     }
     if (write) {
-      const tmp = join24(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
+      const tmp = join25(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
       try {
         writeFileSync5(tmp, patched);
         renameSync2(tmp, abs);
@@ -24489,13 +25655,21 @@ function apply(opts) {
       }
     }
   }
-  const applied = outcomes.filter((o) => o.status === "applied").length;
+  const applied = appliedWrites;
   const skipped = outcomes.filter((o) => o.status === "skipped").length;
   const refused = outcomes.filter((o) => o.status === "refused").length;
+  const inserted = (opts.insertions ?? []).length;
   return {
     write,
     ok: refused === 0 && incompleteGroups === 0,
-    sites: { total: opts.translations.length, applied, skipped, refused, recovered: recoveredCount },
+    sites: {
+      total: opts.translations.length + inserted,
+      applied,
+      skipped,
+      refused,
+      recovered: recoveredCount,
+      inserted
+    },
     files: { touched: byFile.size, written: write ? filesWritten : written.length, skipped: refusedFiles.size },
     groups: { total: groups.length, applied: groups.length - incompleteGroups, incomplete: incompleteGroups },
     outcomes: outcomes.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.id < b.id ? -1 : 1),
@@ -24504,7 +25678,7 @@ function apply(opts) {
   };
 }
 function buildPatch(repo, site3, text, recover) {
-  const buf = readFileSync12(join24(repo, site3.file));
+  const buf = readFileSync13(join25(repo, site3.file));
   const syntax = syntaxFor(site3);
   let start2 = site3.span.start;
   let end = site3.span.end;
@@ -24529,7 +25703,11 @@ function buildPatch(repo, site3, text, recover) {
   const valueStart = start2 + (site3.valueSpan.start - site3.span.start);
   const valueEnd = end - (site3.span.end - site3.valueSpan.end);
   const asciiOnly = usesUnicodeEscapes(buf);
-  let escaped = escapeFor(syntax, text, { quote: site3.quote, asciiOnly });
+  let escaped = escapeFor(syntax, text, {
+    quote: site3.quote,
+    asciiOnly,
+    atLineStart: startsItsLine(buf, start2)
+  });
   if (site3.holes.length > 0) {
     escaped = escaped.replace(/\{(\d+)\}/g, (whole, n) => {
       const hole = site3.holes.find((h) => h.index === Number(n));
@@ -24566,8 +25744,76 @@ function buildPatch(repo, site3, text, recover) {
     end: writeEnd,
     replacement: Buffer.from(escaped, "utf8"),
     intended: text,
-    recovered
+    recovered,
+    id: site3.id,
+    writes: 1
   };
+}
+function buildInsertion(repo, site3, insertions) {
+  const syntax = syntaxFor(site3);
+  if (syntax !== "json-string" && syntax !== "yaml-scalar") {
+    throw new UnknownSyntaxError(
+      `${site3.file}: a new plural form here would be a ${syntax} edit, and insertion is only supported in JSON and YAML locale bundles`
+    );
+  }
+  const buf = readFileSync13(join25(repo, site3.file));
+  if (buf.subarray(site3.span.start, site3.span.end).toString("utf8") !== site3.raw) {
+    throw new Error(
+      `drift at ${site3.file}:${site3.line} \u2014 the anchor for a new key no longer matches, so its position is unknown`
+    );
+  }
+  const indent = indentOfLine(buf, site3.span.start);
+  const ordered = [...insertions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.key < b.key ? -1 : 1));
+  const entries = ordered.map((ins) => {
+    const escaped = escapeFor(syntax, ins.text, { quote: '"', asciiOnly: usesUnicodeEscapes(buf) });
+    return syntax === "json-string" ? `,
+${indent}${JSON.stringify(ins.key)}: "${escaped}"` : `
+${indent}${ins.key}: "${escaped}"`;
+  });
+  return {
+    site: site3,
+    syntax,
+    // Zero-width, immediately after the anchor's closing delimiter. In JSON the
+    // comma leads, so this is correct whether the anchor was the last entry in
+    // its object or not.
+    start: site3.span.end,
+    end: site3.span.end,
+    replacement: Buffer.from(entries.join(""), "utf8"),
+    intended: ordered.map((i2) => i2.text).join(" / "),
+    recovered: false,
+    id: patch_id(site3.id, ordered),
+    writes: ordered.length,
+    inserted: true
+  };
+}
+function patch_id(siteId2, insertions) {
+  return `${siteId2}+${insertions.map((i2) => i2.key).sort().join("+")}`;
+}
+function startsItsLine(buf, at) {
+  let i2 = at;
+  while (i2 > 0 && buf[i2 - 1] !== 10) {
+    const byte = buf[i2 - 1];
+    if (byte !== 32 && byte !== 9) return false;
+    i2--;
+  }
+  return true;
+}
+function indentOfLine(buf, at) {
+  let start2 = at;
+  while (start2 > 0 && buf[start2 - 1] !== 10) start2--;
+  let end = start2;
+  while (end < buf.length && (buf[end] === 32 || buf[end] === 9)) end++;
+  return buf.subarray(start2, end).toString("utf8");
+}
+function groupBy(items, key) {
+  const out2 = /* @__PURE__ */ new Map();
+  for (const item of items) {
+    const k = key(item);
+    const list = out2.get(k);
+    if (list) list.push(item);
+    else out2.set(k, [item]);
+  }
+  return out2;
 }
 function applyPatches(buf, patches) {
   const ordered = [...patches].sort((a, b) => b.start - a.start);
@@ -24609,6 +25855,9 @@ function digest(buf) {
 function formatApply(r) {
   const head = r.write ? `ultrai18n apply: ${r.ok ? "\u2713" : "\u2717"} ${r.sites.applied}/${r.sites.total} applied, ${r.drift.hard} drift, ${r.files.written} files` : `ultrai18n apply: dry-run \u2014 would apply ${r.sites.applied}/${r.sites.total}, ${r.drift.hard} drift (pass --write)`;
   const lines = [head];
+  if (r.sites.inserted) {
+    lines.push(`  ${r.sites.inserted} new plural form(s) written as keys their locale requires and the file did not have`);
+  }
   if (r.sites.recovered) lines.push(`  ${r.sites.recovered} site(s) recovered after their file shifted`);
   if (r.groups.incomplete) lines.push(`  ${r.groups.incomplete} group(s) held back so no partial group is written`);
   for (const o of r.outcomes) {
@@ -24619,8 +25868,8 @@ function formatApply(r) {
 }
 
 // src/commands.ts
-import { existsSync as existsSync10, mkdirSync as mkdirSync4, readFileSync as readFileSync13, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
-import { join as join25 } from "path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync4, readFileSync as readFileSync14, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { join as join26 } from "path";
 
 // src/translate.ts
 import { spawnSync as spawnSync3 } from "child_process";
@@ -24650,12 +25899,13 @@ function validate(group, translation, opts = {}) {
       out2.push({ validator: "V1", severity: "reject", message: `placeholder {${index}} was invented` });
     }
   }
-  const stray = translation.replace(HOLE, "");
-  if (/[{}]/.test(stray)) {
+  const wantBraces = braceSkeleton(source);
+  const gotBraces = braceSkeleton(translation);
+  if (wantBraces !== gotBraces) {
     out2.push({
       validator: "V2",
       severity: "reject",
-      message: `stray brace outside a placeholder: ${JSON.stringify(stray.match(/.{0,12}[{}].{0,12}/)?.[0] ?? "")}`
+      message: `brace structure changed: the source has ${wantBraces.length || "none"}${wantBraces ? ` (${wantBraces})` : ""} and the translation has ${gotBraces.length || "none"}${gotBraces ? ` (${gotBraces})` : ""}`
     });
   }
   for (const [pattern, what] of [
@@ -24707,6 +25957,9 @@ function validate(group, translation, opts = {}) {
   }
   return out2;
 }
+function braceSkeleton(text) {
+  return text.replace(HOLE, "").replace(/[^{}]/g, "");
+}
 function holeCounts(text) {
   const counts = /* @__PURE__ */ new Map();
   for (const m of text.matchAll(HOLE)) {
@@ -24725,6 +25978,53 @@ function containsWord(haystack, needle) {
 function rejects(violations) {
   return violations.some((v) => v.severity === "reject");
 }
+function validatePlural(forms, expected, sourcePlaceholders) {
+  const out2 = [];
+  const got = Object.keys(forms);
+  for (const category of expected) {
+    if (forms[category] === void 0) {
+      out2.push({
+        validator: "V9",
+        severity: "reject",
+        message: `the ${category} form is missing, and the target locale selects it`
+      });
+    } else if (!forms[category].trim()) {
+      out2.push({ validator: "V9", severity: "reject", message: `the ${category} form is empty` });
+    }
+  }
+  for (const category of got) {
+    if (category.startsWith("=")) continue;
+    if (!expected.includes(category)) {
+      out2.push({
+        validator: "V9",
+        severity: "reject",
+        message: `there is a ${category} form, and the target locale never selects it`
+      });
+    }
+  }
+  const allowed = new Set(sourcePlaceholders);
+  for (const [category, text] of Object.entries(forms)) {
+    for (const m of text.matchAll(PLACEHOLDER2)) {
+      if (!allowed.has(m[0])) {
+        out2.push({
+          validator: "V9",
+          severity: "reject",
+          message: `the ${category} form introduced ${m[0]}, which no source form has \u2014 nothing will substitute it`
+        });
+      }
+    }
+    for (const [pattern, what] of [
+      [/\$\{/, "a JavaScript interpolation"],
+      [/`/, "a backtick"]
+    ]) {
+      if (pattern.test(text)) {
+        out2.push({ validator: "V3", severity: "reject", message: `the ${category} form introduced ${what}` });
+      }
+    }
+  }
+  return out2;
+}
+var PLACEHOLDER2 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
 
 // src/translate.ts
 var BATCH_SIZE = 8;
@@ -24740,7 +26040,15 @@ function buildBatches(groups, opts) {
       role: g.role,
       ...g.max !== null ? { max: g.max } : {},
       ...Object.keys(g.holeGloss).length ? { holes: g.holeGloss } : {},
-      ...g.sites.length + g.mirrors.length > 1 ? { sites: g.sites.length + g.mirrors.length } : {}
+      ...g.sites.length + g.mirrors.length > 1 ? { sites: g.sites.length + g.mirrors.length } : {},
+      ...g.plural ? {
+        plural: {
+          op: g.plural.op,
+          forms: g.plural.forms,
+          targetCategories: g.plural.targetCategories,
+          placeholders: g.plural.placeholders
+        }
+      } : {}
     }));
     const glossary = sliceGlossary(opts.glossary, items);
     const batch = {
@@ -24799,6 +26107,32 @@ function foldResults(results, opts) {
       answered.add(item.id);
       if (item.refuse) {
         report.refused.push({ groupId: item.id, why: item.refuse });
+        continue;
+      }
+      if (group.plural) {
+        const forms = item.forms;
+        if (!forms) {
+          report.rejected.push({
+            groupId: item.id,
+            text: "",
+            violations: [
+              {
+                validator: "V9",
+                severity: "reject",
+                message: `this is a plural family \u2014 answer with forms for ${group.plural.targetCategories.join(", ")}, not a single text`
+              }
+            ]
+          });
+          continue;
+        }
+        const violations2 = validatePlural(
+          forms,
+          group.plural.targetCategories,
+          group.plural.placeholders
+        );
+        const entry = { groupId: item.id, text: forms.other ?? Object.values(forms)[0] ?? "", forms, violations: violations2 };
+        if (rejects(violations2)) report.rejected.push(entry);
+        else report.accepted.push(entry);
         continue;
       }
       if (item.text === void 0) {
@@ -24929,6 +26263,28 @@ ids, nothing else.
 - If a string cannot be translated without restructuring the surrounding code,
   return \`{id, refuse: "<one line why>"}\` rather than guessing.
 
+## Items with a \`plural\` field
+
+These are plural FAMILIES. Answer with \`{id, forms: {...}}\` \u2014 never \`text\`.
+
+- \`plural.forms\` is what the source has, keyed by CLDR category.
+- \`plural.targetCategories\` is exactly the set of keys your answer must have.
+  Not a subset, not a superset. It is often a different SIZE from the source:
+  English has two forms and Russian needs four, Japanese needs one. Write each
+  form so it is correct for the numbers that category actually covers \u2014 Russian
+  \`few\` covers 2\u20134, \`many\` covers 0 and 5\u201320. Do not copy one form into the
+  others to fill the shape.
+- \`plural.op\` is \`translate\` when you are moving the family into another
+  language, and \`complete\` when the family is already in the target language and
+  is missing forms that language needs. For \`complete\`, keep the existing forms
+  as they are written and supply only what is absent, in the same voice.
+- \`plural.placeholders\` lists every placeholder the source uses. You may use
+  any of them and you may leave one out \u2014 "One item" is better English than
+  "1 item" \u2014 but never invent one that is not in that list. \`#\` is the number
+  itself and is a placeholder like any other.
+- Return no ICU syntax, no braces of your own, and no key names. You are writing
+  the text of each form; the engine writes the syntax around it.
+
 **Do not open any repository file. Do not write, edit or delete anything.** The
 batch is the whole context you need and the whole context you get: the
 orchestrator folds your results and the engine writes the files by byte offset.
@@ -24938,31 +26294,31 @@ orchestrator folds your results and the engine writes the files by byte offset.
 function runDir(out2) {
   return {
     root: out2,
-    inventory: join25(out2, "inventory.json"),
-    plan: join25(out2, "PLAN.json"),
-    batches: join25(out2, "batches"),
-    results: join25(out2, "results"),
-    translations: join25(out2, "TRANSLATIONS.json"),
-    glossary: join25(out2, "glossary.md"),
-    applyReport: join25(out2, "APPLY.json")
+    inventory: join26(out2, "inventory.json"),
+    plan: join26(out2, "PLAN.json"),
+    batches: join26(out2, "batches"),
+    results: join26(out2, "results"),
+    translations: join26(out2, "TRANSLATIONS.json"),
+    glossary: join26(out2, "glossary.md"),
+    applyReport: join26(out2, "APPLY.json")
   };
 }
 function readJson2(path, what) {
-  if (!existsSync10(path)) {
+  if (!existsSync11(path)) {
     throw new Error(`${what} not found at ${path} \u2014 run the step that produces it first`);
   }
-  return JSON.parse(readFileSync13(path, "utf8"));
+  return JSON.parse(readFileSync14(path, "utf8"));
 }
 function writeJson(path, value) {
-  mkdirSync4(join25(path, ".."), { recursive: true });
+  mkdirSync4(join26(path, ".."), { recursive: true });
   writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
 }
 var GEN_OPEN = "<!-- ul:gen key=proposals -->";
 var GEN_CLOSE = "<!-- /ul:gen key=proposals -->";
 function readGlossary(path) {
   const out2 = /* @__PURE__ */ new Map();
-  if (!existsSync10(path)) return out2;
-  const text = readFileSync13(path, "utf8");
+  if (!existsSync11(path)) return out2;
+  const text = readFileSync14(path, "utf8");
   for (const line of text.split("\n")) {
     const cells = line.split("|").map((c2) => c2.trim());
     if (cells.length < 4) continue;
@@ -25021,11 +26377,11 @@ function cmdPlan(out2, mode) {
   });
   mkdirSync4(dirs.batches, { recursive: true });
   for (const batch of batches) {
-    writeJson(join25(dirs.batches, `${batch.batchId}.batch.json`), batch);
+    writeJson(join26(dirs.batches, `${batch.batchId}.batch.json`), batch);
   }
-  mkdirSync4(join25(out2, "agents"), { recursive: true });
-  writeFileSync6(join25(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
-  const existing = existsSync10(dirs.glossary) ? readFileSync13(dirs.glossary, "utf8") : null;
+  mkdirSync4(join26(out2, "agents"), { recursive: true });
+  writeFileSync6(join26(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
+  const existing = existsSync11(dirs.glossary) ? readFileSync14(dirs.glossary, "utf8") : null;
   writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
   return { plan: p, batches };
 }
@@ -25051,7 +26407,7 @@ async function cmdTranslateApi(opts) {
         contract: TRANSLATOR_CONTRACT,
         ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
       });
-      const path = join25(dirs.results, `${batch.batchId}.result.json`);
+      const path = join26(dirs.results, `${batch.batchId}.result.json`);
       writeJson(path, result);
       wrote.push(path);
     } catch (err2) {
@@ -25059,7 +26415,7 @@ async function cmdTranslateApi(opts) {
     }
   }
   if (failed2.length) {
-    writeJson(join25(opts.out, "FAILED.json"), { failed: failed2 });
+    writeJson(join26(opts.out, "FAILED.json"), { failed: failed2 });
     throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
   }
   return { backend: "api", batches: batches.length, wrote };
@@ -25085,7 +26441,7 @@ function cmdTranslate(opts) {
           targetLang: p.targetLang,
           ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
         });
-        const path = join25(dirs.results, `${batch.batchId}.result.json`);
+        const path = join26(dirs.results, `${batch.batchId}.result.json`);
         writeJson(path, result);
         wrote.push(path);
       } catch (err2) {
@@ -25093,7 +26449,7 @@ function cmdTranslate(opts) {
       }
     }
     if (failed2.length) {
-      writeJson(join25(opts.out, "FAILED.json"), { failed: failed2 });
+      writeJson(join26(opts.out, "FAILED.json"), { failed: failed2 });
       throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
     }
     return { backend: "cli", batches: batches.length, wrote };
@@ -25102,34 +26458,50 @@ function cmdTranslate(opts) {
     backend: opts.backend,
     batches: batches.length,
     wrote: [],
-    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join25(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
+    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join26(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
   };
 }
 function readBatches(dir) {
-  if (!existsSync10(dir)) return [];
-  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync13(join25(dir, f), "utf8")));
+  if (!existsSync11(dir)) return [];
+  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync14(join26(dir, f), "utf8")));
 }
 function readResults(dir) {
-  if (!existsSync10(dir)) return [];
+  if (!existsSync11(dir)) return [];
   return readdirSync4(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
-    const raw = readFileSync13(join25(dir, f), "utf8");
+    const raw = readFileSync14(join26(dir, f), "utf8");
     const parsed = parseResult(raw, f.replace(/\..*$/, ""));
-    if (!parsed) throw new Error(`${join25(dir, f)} is not a valid batch result`);
+    if (!parsed) throw new Error(`${join26(dir, f)} is not a valid batch result`);
     return parsed;
   });
 }
 function cmdTranslateApply(out2) {
   const dirs = runDir(out2);
+  const inventory = readJson2(dirs.inventory, "inventory.json");
   const p = readJson2(dirs.plan, "PLAN.json");
   const batches = readBatches(dirs.batches);
   const results = readResults(dirs.results);
   const glossary = readGlossary(dirs.glossary);
   const report = foldResults(results, { groups: p.groups, glossary, batches });
   const byGroup = new Map(p.groups.map((g) => [g.id, g]));
+  const families = new Map(
+    (inventory.plurals ?? []).map((f) => [f.id, f])
+  );
+  const bySiteId = new Map(inventory.sites.map((s) => [s.id, s]));
   const translations = [];
+  const insertions = [];
+  const structural = [];
   for (const accepted of report.accepted) {
     const group = byGroup.get(accepted.groupId);
     if (!group) continue;
+    if (group.plural && accepted.forms) {
+      const family = families.get(group.plural.familyId);
+      if (!family) continue;
+      const written = writeFamily(family, accepted.forms, bySiteId);
+      translations.push(...written.translations);
+      insertions.push(...written.insertions);
+      if (written.todo) structural.push(written.todo);
+      continue;
+    }
     for (const id of [...group.sites, ...group.mirrors]) {
       translations.push({ id, text: accepted.text });
     }
@@ -25140,29 +26512,93 @@ function cmdTranslateApply(out2) {
       translations.push({ id, text: group.memo.text });
     }
   }
-  writeJson(dirs.translations, { schemaVersion: 1, translations, report });
+  writeJson(dirs.translations, { schemaVersion: 1, translations, insertions, report });
+  if (structural.length) writeJson(join26(out2, "PLURALS.todo.json"), { schemaVersion: 1, families: structural });
   return {
     accepted: report.accepted.length,
     rejected: report.rejected.length,
     refused: report.refused.length,
     missing: report.missing.length,
-    translations
+    translations,
+    insertions,
+    structural: structural.length
   };
+}
+function writeFamily(family, forms, bySiteId) {
+  const target = family.targetRequired ?? family.sourceCategories;
+  if (family.writeMode === "code-edit") {
+    return {
+      translations: [],
+      insertions: [],
+      todo: {
+        familyId: family.id,
+        file: family.file,
+        anchor: family.anchor,
+        shape: family.shape,
+        why: family.blocked ?? "this family cannot be written by byte offset",
+        count: family.count,
+        forms,
+        targetCategories: [...target]
+      }
+    };
+  }
+  if (family.writeMode === "replace") {
+    const siteId2 = family.sites[0];
+    const site3 = siteId2 ? bySiteId.get(siteId2) : void 0;
+    if (!site3) return { translations: [], insertions: [] };
+    const rebuilt = family.shape === "inline-select" ? rebuildIcu(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(" | ");
+    return rebuilt === null ? { translations: [], insertions: [] } : { translations: [{ id: site3.id, text: rebuilt }], insertions: [] };
+  }
+  const byCategory = new Map(family.forms.map((f) => [f.category, f]));
+  const translations = [];
+  const insertions = [];
+  const anchor2 = family.insertAfterSiteId;
+  let order = 0;
+  for (const category of target) {
+    const text = forms[category];
+    if (text === void 0) continue;
+    const existing = byCategory.get(category);
+    if (existing) {
+      translations.push({ id: existing.siteId, text });
+      continue;
+    }
+    const key = keyForCategory(family, category);
+    if (!anchor2 || !key) continue;
+    insertions.push({ afterSiteId: anchor2, key, text, order: order++ });
+  }
+  return { translations, insertions };
+}
+function rebuildIcu(value, family, forms, target) {
+  const scan3 = scanIcu(value);
+  if (!scan3.ok) return null;
+  const at = /@(\d+)$/.exec(family.base);
+  const argument = at ? scan3.arguments.find((a) => a.start === Number(at[1])) : scan3.arguments.find((a) => a.type !== "select");
+  if (!argument) return null;
+  const bodies = {};
+  for (const branch of argument.branches) {
+    if (branch.selector.startsWith("=")) bodies[branch.selector] = branch.body;
+  }
+  for (const category of target) {
+    if (forms[category] !== void 0) bodies[category] = forms[category];
+  }
+  return splice(value, [
+    { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) }
+  ]);
 }
 function cmdApply(repo, out2, write, recover) {
   const dirs = runDir(out2);
   const inventory = readJson2(dirs.inventory, "inventory.json");
   const p = readJson2(dirs.plan, "PLAN.json");
-  const { translations } = readJson2(dirs.translations, "TRANSLATIONS.json");
+  const { translations, insertions = [] } = readJson2(dirs.translations, "TRANSLATIONS.json");
   const groups = p.groups.filter((g) => g.status === "pending" || g.status === "memo").map((g) => [...g.sites, ...g.mirrors]);
-  const report = apply({ repo, inventory, translations, write, recover, groups });
+  const report = apply({ repo, inventory, translations, insertions, write, recover, groups });
   writeJson(dirs.applyReport, report);
   return report;
 }
 
 // src/check.ts
-import { existsSync as existsSync11, readFileSync as readFileSync14 } from "fs";
-import { join as join26 } from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync15 } from "fs";
+import { join as join27 } from "path";
 var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "identifier",
   "module-specifier",
@@ -25363,6 +26799,27 @@ function gateCoherence(inv, repo) {
       }
     }
   }
+  for (const family of inv.plurals ?? []) {
+    if (family.missing.length === 0 && family.extra.length === 0) continue;
+    const parts2 = [];
+    if (family.missing.length) parts2.push(`no ${family.missing.join(" or ")} form`);
+    if (family.extra.length) {
+      parts2.push(`a ${family.extra.join(" and ")} form that ${family.locale ?? "this locale"} never selects`);
+    }
+    findings.push({
+      file: family.file,
+      siteKey: family.anchor,
+      kind: "plural-incomplete",
+      message: `${family.base} is a plural family in ${family.locale ?? "an unknown locale"}, which selects ${family.ownRequired?.join(", ") ?? "?"} \u2014 and it has ${parts2.join(", and ")}`
+    });
+  }
+  for (const key of danglingSidecarKeys(join27(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
+    findings.push({
+      siteKey: key,
+      kind: "plural-dangling",
+      message: "a plural declaration names a site that is not in the inventory"
+    });
+  }
   for (const site3 of inv.sites) {
     const max = site3.constraints.maxLength;
     if (max !== null && site3.value.length > max) {
@@ -25378,9 +26835,9 @@ function gateCoherence(inv, repo) {
   const from = inv.sourceLanguage;
   if (from && from !== inv.targetLanguage) {
     for (const rel2 of ["CONTRIBUTING.md", "README.md", "docs/CONTRIBUTING.md"]) {
-      const abs = join26(repo, rel2);
-      if (!existsSync11(abs)) continue;
-      const text = readFileSync14(abs, "utf8");
+      const abs = join27(repo, rel2);
+      if (!existsSync12(abs)) continue;
+      const text = readFileSync15(abs, "utf8");
       const policy = /\b(commit messages|comments|documentation|everything in this repository|tout(?:e)? (?:le|la)? ?(?:dépôt|projet)|les commentaires|les messages de commit)\b[^.\n]{0,80}\b(français|french|anglais|english|español|spanish|deutsch|german)\b/i;
       const m = policy.exec(text);
       if (m && namesLanguage(m[0], from)) {
@@ -25414,8 +26871,8 @@ function clip3(s, n = 56) {
   return flat.length > n ? flat.slice(0, n - 1) + "\u2026" : flat;
 }
 function readExceptions(path) {
-  if (!existsSync11(path)) return { entries: [] };
-  return JSON.parse(readFileSync14(path, "utf8"));
+  if (!existsSync12(path)) return { entries: [] };
+  return JSON.parse(readFileSync15(path, "utf8"));
 }
 function formatCheck(r) {
   const lines = [];
@@ -25441,8 +26898,8 @@ function formatCheck(r) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync12, readFileSync as readFileSync15 } from "fs";
-import { join as join27 } from "path";
+import { existsSync as existsSync13, readFileSync as readFileSync16 } from "fs";
+import { join as join28 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 var VERIFY_MAX = 40;
 function buildVerify(opts) {
@@ -25502,16 +26959,16 @@ function censusReason(group) {
   return null;
 }
 function readLive(repo, site3) {
-  const abs = join27(repo, site3.file);
-  if (!existsSync12(abs)) return null;
-  const buf = readFileSync15(abs);
+  const abs = join28(repo, site3.file);
+  if (!existsSync13(abs)) return null;
+  const buf = readFileSync16(abs);
   const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
   return sha256(slice).slice(0, 16);
 }
 function currentValue(repo, site3) {
-  const abs = join27(repo, site3.file);
-  if (!existsSync12(abs)) return null;
-  const buf = readFileSync15(abs);
+  const abs = join28(repo, site3.file);
+  if (!existsSync13(abs)) return null;
+  const buf = readFileSync16(abs);
   return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
 }
 function applyVerdicts(opts) {
@@ -25619,16 +27076,18 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync16, writeFileSync as writeFileSync7 } from "fs";
-import { join as join28 } from "path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync5, readFileSync as readFileSync17, writeFileSync as writeFileSync7 } from "fs";
+import { join as join29 } from "path";
 var BATCH_SIZE2 = 8;
 var SMALL_WORKLIST = 3;
 function phaseStatuses(out2) {
-  const planPath = join28(out2, "PLAN.json");
-  const plan2 = existsSync13(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
-  const batches = existsSync13(join28(out2, "batches"));
-  const todo = existsSync13(join28(out2, "VERIFY.todo.json"));
-  const applied = existsSync13(join28(out2, "APPLY.json"));
+  const planPath = join29(out2, "PLAN.json");
+  const plan2 = existsSync14(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
+  const batches = existsSync14(join29(out2, "batches"));
+  const todo = existsSync14(join29(out2, "VERIFY.todo.json"));
+  const applied = existsSync14(join29(out2, "APPLY.json"));
+  const pluralPath = join29(out2, "PLURALS.todo.json");
+  const pluralTodo = existsSync14(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
   const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
   const hazards = plan2?.hazards?.length ?? 0;
   const structural = plan2?.structural?.length ?? 0;
@@ -25647,7 +27106,7 @@ function phaseStatuses(out2) {
       // the hazard rule exists to prevent.
       ready: !!plan2 && batches && hazards === 0 && pending > 0,
       ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
-      worklist: join28(out2, "batches"),
+      worklist: join29(out2, "batches"),
       items: Math.ceil(pending / BATCH_SIZE2),
       writes: false
     },
@@ -25655,9 +27114,19 @@ function phaseStatuses(out2) {
       name: "review",
       ready: todo,
       ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
-      worklist: join28(out2, "VERIFY.todo.json"),
-      items: todo ? JSON.parse(readOr(join28(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      worklist: join29(out2, "VERIFY.todo.json"),
+      items: todo ? JSON.parse(readOr(join29(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
       writes: false
+    },
+    {
+      name: "plural",
+      // After `apply --write`, for the same reason `structural` is: this phase
+      // edits files, and `apply` is the sole writer until it has finished.
+      ready: pluralTodo > 0 && applied,
+      ...pluralTodo === 0 ? { reason: "no plural family in this run needs a code edit" } : !applied ? { reason: "plural code edits run after `apply --write`, never alongside it" } : {},
+      worklist: join29(out2, "PLURALS.todo.json"),
+      items: pluralTodo,
+      writes: true
     },
     {
       name: "structural",
@@ -25679,18 +27148,18 @@ function orchestrate(opts) {
     err2.exitCode = 2;
     throw err2;
   }
-  const dir = join28(opts.out, "orchestration");
-  const agents = join28(dir, "agents");
+  const dir = join29(opts.out, "orchestration");
+  const agents = join29(dir, "agents");
   mkdirSync5(agents, { recursive: true });
   const files = [];
   const contract = CONTRACTS[phase];
-  const contractPath = join28(agents, `${contract.role}.md`);
+  const contractPath = join29(agents, `${contract.role}.md`);
   writeFileSync7(contractPath, contract.body);
   files.push(contractPath);
-  const workflowPath = join28(dir, `${phase}.workflow.mjs`);
+  const workflowPath = join29(dir, `${phase}.workflow.mjs`);
   writeFileSync7(workflowPath, workflowScript(phase, opts, status2, contract.role));
   files.push(workflowPath);
-  const runbookPath = join28(dir, "RUNBOOK.md");
+  const runbookPath = join29(dir, "RUNBOOK.md");
   writeFileSync7(runbookPath, runbook(statuses, opts));
   files.push(runbookPath);
   return {
@@ -25746,6 +27215,36 @@ When unsure, choose the harsher verdict. A false pass is worse than a false fail
 **Return \`{claimId, citation, verdict, note}\`. Do not edit any file.**
 `
   },
+  plural: {
+    role: "pluralist",
+    body: `# Contract: pluralist
+
+You complete plural families whose forms are already translated and cannot be
+written by byte offset \u2014 a rule baked into an expression, or a resource format
+the engine does not edit.
+
+Each entry in \`PLURALS.todo.json\` gives you \`forms\` (already translated, keyed
+by CLDR category), \`targetCategories\` (exactly the forms the target locale
+selects), \`file\`, \`anchor\`, and \`count\` where an annotation named the counting
+expression.
+
+**Do not translate anything.** The words are decided. Your job is the code:
+
+- Make the call site select among \`targetCategories\` by the count, using the
+  platform's own plural API \u2014 \`Intl.PluralRules\`, the i18n runtime already in
+  the repository, the framework's plural helper. Do not hand-roll \`n > 1\`.
+- The number of forms is not the number the source had. English has two and
+  Russian has four; a target with one form is complete with one.
+- Where the old code built a word out of a conditional suffix, the whole phrase
+  becomes one message per form. A suffix cannot express agreement in a language
+  that inflects more than the noun.
+
+Edit **only the one file named in your prompt**. This phase runs after
+\`apply --write\`, never alongside it.
+
+Return \`{familyId, file, note}\` describing what you changed and why.
+`
+  },
   structural: {
     role: "structuralist",
     body: `# Contract: structuralist
@@ -25769,6 +27268,7 @@ var JOINS = {
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
+  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out}`,
   structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
 };
 function workflowScript(phase, o, status2, role) {
@@ -25841,19 +27341,22 @@ ${rows}
    add \`--write\`.
 7. \`node ${o.engine} verify --repo ${o.repo} --out ${o.out}\`, adjudicate, then
    \`verify --apply verdicts.json\`.
-8. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
+8. Any family in \`PLURALS.todo.json\` needs a code edit: its forms are
+   translated, and the call site has to select among them with the platform's
+   own plural API. \`node ${o.engine} plurals --repo ${o.repo}\` lists them.
+9. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
 `;
 }
 function readOr(path, fallback) {
   try {
-    return readFileSync16(path, "utf8");
+    return readFileSync17(path, "utf8");
   } catch {
     return fallback;
   }
 }
 
 // src/sync.ts
-import { existsSync as existsSync14, readFileSync as readFileSync17 } from "fs";
+import { existsSync as existsSync15, readFileSync as readFileSync18 } from "fs";
 import "path";
 var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
 function sync(opts) {
@@ -25877,6 +27380,7 @@ function sync(opts) {
   const targets = [...byLocale.keys()].filter((l) => l !== sourceLocale).sort();
   const findings = [];
   const counts = {};
+  const sourceFamilies = familiesOf(source);
   for (const locale of targets) {
     const target = byLocale.get(locale);
     const tally3 = {
@@ -25886,9 +27390,40 @@ function sync(opts) {
       untranslated: 0,
       "identical-ok": 0,
       "arity-mismatch": 0,
+      "plural-incomplete": 0,
       ok: 0
     };
+    const targetFamilies = familiesOf(target);
+    const required = categoriesFor(locale);
+    for (const [base, src] of sourceFamilies) {
+      const have2 = targetFamilies.get(base);
+      if (!have2) {
+        tally3.missing++;
+        findings.push({
+          key: base,
+          locale,
+          class: "missing",
+          source: [...src.values()][0]?.value ?? "",
+          detail: `the whole plural family is absent; ${locale} selects ${required?.join(", ") ?? "?"}`
+        });
+        continue;
+      }
+      const absent = (required ?? []).filter((c2) => !have2.has(c2));
+      if (absent.length) {
+        tally3["plural-incomplete"]++;
+        findings.push({
+          key: base,
+          locale,
+          class: "plural-incomplete",
+          source: [...src.values()][0]?.value ?? "",
+          detail: `no ${absent.join(" or ")} form, and ${locale} selects ${required.join(", ")} \u2014 the runtime falls back for the numbers those forms cover`
+        });
+        continue;
+      }
+      tally3.ok++;
+    }
     for (const [key, srcSite] of source) {
+      if (splitPluralKey(key)) continue;
       const tgtSite = target.get(key);
       if (!tgtSite) {
         tally3.missing++;
@@ -25936,6 +27471,8 @@ function sync(opts) {
     }
     for (const key of target.keys()) {
       if (source.has(key)) continue;
+      const plural = splitPluralKey(key);
+      if (plural && sourceFamilies.has(plural.base)) continue;
       tally3.orphan++;
       findings.push({
         key,
@@ -25947,7 +27484,9 @@ function sync(opts) {
     }
     counts[locale] = tally3;
   }
-  const arity2 = findings.filter((f) => f.class === "arity-mismatch").length;
+  const broken = findings.filter(
+    (f) => f.class === "arity-mismatch" || f.class === "plural-incomplete"
+  ).length;
   return {
     sourceLocale,
     locales: targets,
@@ -25955,10 +27494,33 @@ function sync(opts) {
     byLocale: counts,
     findings: sortFindings(findings),
     baselineOnly,
-    ok: arity2 === 0
+    ok: broken === 0
   };
 }
-var ORDER2 = ["arity-mismatch", "stale", "missing", "untranslated", "orphan", "identical-ok", "ok"];
+function familiesOf(keys) {
+  const out2 = /* @__PURE__ */ new Map();
+  for (const [key, site3] of keys) {
+    const plural = splitPluralKey(key);
+    if (!plural) continue;
+    let family = out2.get(plural.base);
+    if (!family) {
+      family = /* @__PURE__ */ new Map();
+      out2.set(plural.base, family);
+    }
+    family.set(plural.category, site3);
+  }
+  return out2;
+}
+var ORDER2 = [
+  "arity-mismatch",
+  "plural-incomplete",
+  "stale",
+  "missing",
+  "untranslated",
+  "orphan",
+  "identical-ok",
+  "ok"
+];
 function sortFindings(findings) {
   return findings.sort(
     (a, b) => ORDER2.indexOf(a.class) - ORDER2.indexOf(b.class) || (a.locale < b.locale ? -1 : a.locale > b.locale ? 1 : 0) || (a.key < b.key ? -1 : 1)
@@ -25975,9 +27537,9 @@ function sameSet(a, b) {
   return true;
 }
 function readState(path) {
-  if (!path || !existsSync14(path)) return null;
+  if (!path || !existsSync15(path)) return null;
   try {
-    return JSON.parse(readFileSync17(path, "utf8"));
+    return JSON.parse(readFileSync18(path, "utf8"));
   } catch {
     return null;
   }
@@ -26003,12 +27565,20 @@ function formatSync(r) {
       lines.push(`  ${f.locale} ${f.key}: ${f.detail}`);
     }
   }
+  const plural = r.findings.filter((f) => f.class === "plural-incomplete");
+  if (plural.length) {
+    lines.push("");
+    lines.push(`PLURAL INCOMPLETE (${plural.length}) \u2014 the wrong string renders for some numbers, today`);
+    for (const f of plural.slice(0, 10)) {
+      lines.push(`  ${f.locale} ${f.key}: ${f.detail}`);
+    }
+  }
   return lines.join("\n");
 }
 
 // src/init.ts
 import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync8 } from "fs";
-import { dirname as dirname7, join as join30 } from "path";
+import { dirname as dirname7, join as join31 } from "path";
 function buildBaseline(report) {
   const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
   return { schemaVersion: 1, from: report.from, to: report.to, accepted };
@@ -26020,7 +27590,7 @@ function init2(opts) {
   const written = [];
   const notes = [];
   if (opts.baseline) {
-    const path = join30(opts.out, "baseline.json");
+    const path = join31(opts.out, "baseline.json");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
     written.push(path);
@@ -26029,13 +27599,13 @@ function init2(opts) {
     );
   }
   if (opts.ci) {
-    const path = join30(opts.repo, ".github/workflows/ultrai18n.yml");
+    const path = join31(opts.repo, ".github/workflows/ultrai18n.yml");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, WORKFLOW);
     written.push(path);
   }
   if (opts.hook) {
-    const path = join30(opts.repo, ".git/hooks/pre-commit");
+    const path = join31(opts.repo, ".git/hooks/pre-commit");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, HOOK, { mode: 493 });
     written.push(path);
@@ -26090,7 +27660,7 @@ node "$ENGINE" check --repo . || {
 `;
 
 // src/cli.ts
-import { existsSync as existsSync15 } from "fs";
+import { existsSync as existsSync16 } from "fs";
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
 Usage:
@@ -26105,6 +27675,7 @@ Usage:
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
+  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
   ultrai18n orchestrate [--phase <name>] [--eco] [--list]
@@ -26116,6 +27687,10 @@ Commands:
               reason. The denominator is \`git ls-files\`, not the walker, because
               the walker's own exclusions are what needs auditing. Exits 1 when
               any tracked path is unaccounted for (gate G1).
+
+  plurals     Every plural family, with the forms its own locale selects and the
+              forms it actually has. Exits 1 when one is short \u2014 that is a wrong
+              string rendering today, not a missing translation.
 
 Options:
   --repo <dir>   Repository root (default: cwd)
@@ -26141,6 +27716,7 @@ var COMMANDS = /* @__PURE__ */ new Set([
   "verify",
   "check",
   "sync",
+  "plurals",
   "glossary",
   "orchestrate",
   "init",
@@ -26294,7 +27870,7 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -26302,18 +27878,18 @@ ${r.docs ? `    ${r.docs}
         noAst: p.flags["no-ast"] === true
       });
       mkdirSync7(out2, { recursive: true });
-      writeFileSync9(join31(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      writeFileSync9(join33(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join31(out2, "inventory.json")}
+wrote ${join33(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -26327,7 +27903,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -26373,7 +27949,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatApply(report) + "\n");
@@ -26381,8 +27957,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
-      const todoPath = join31(out2, "VERIFY.todo.json");
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const todoPath = join33(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
@@ -26391,7 +27967,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         );
         const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
         const result = applyVerdicts({ todo: todo2, verdicts: list });
-        writeJson(join31(out2, "VERIFY.json"), result);
+        writeJson(join33(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else {
           process.stdout.write(
@@ -26413,7 +27989,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
       });
       writeJson(todoPath, todo);
-      writeFileSync9(join31(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      writeFileSync9(join33(out2, "VERIFY.md"), formatVerifyTodo(todo));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
@@ -26426,7 +28002,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const engine = resolve3(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
@@ -26462,14 +28038,41 @@ join:     ${emitted.join}
       }
       return;
     }
+    case "plurals": {
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const families = inventory.plurals ?? [];
+      const incomplete = families.filter((f) => f.missing.length || f.extra.length);
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              repo,
+              targetLanguage: inventory.targetLanguage,
+              tier: pluralTier(),
+              shapes: PLURAL_SHAPES,
+              families,
+              incomplete: incomplete.map((f) => f.id),
+              ok: incomplete.length === 0
+            },
+            null,
+            2
+          ) + "\n"
+        );
+      } else {
+        process.stdout.write(formatPlurals(inventory) + "\n");
+      }
+      if (incomplete.length) process.exitCode = 1;
+      return;
+    }
     case "sync": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
         inventory,
         ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
-        statePath: join31(out2, "catalog-state.json")
+        statePath: join33(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatSync(report) + "\n");
@@ -26477,9 +28080,9 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const report = check({ repo, inventory, exceptions: readExceptions(join31(out2, "exceptions.json")) });
+      const report = check({ repo, inventory, exceptions: readExceptions(join33(out2, "exceptions.json")) });
       const result = init2({
         repo,
         out: out2,
@@ -26498,20 +28101,20 @@ join:     ${emitted.join}
       return;
     }
     case "check": {
-      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join31(out2, "exceptions.json"));
-      const baselinePath = join31(out2, "baseline.json");
-      const baseline = existsSync15(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
+      const exceptions = readExceptions(join33(out2, "exceptions.json"));
+      const baselinePath = join33(out2, "baseline.json");
+      const baseline = existsSync16(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({ repo, inventory, exceptions, ...baseline ? { baseline } : {} });
       if (p.flags.semantic) {
-        const todoPath = join31(out2, "VERIFY.todo.json");
-        const resultPath = join31(out2, "VERIFY.json");
+        const todoPath = join33(out2, "VERIFY.todo.json");
+        const resultPath = join33(out2, "VERIFY.json");
         const semantic = checkSemantic({
           repo,
           inventory,
-          todo: existsSync15(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
-          result: existsSync15(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
+          todo: existsSync16(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
+          result: existsSync16(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
         });
         if (!semantic.ok) {
           report.ok = false;

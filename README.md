@@ -54,10 +54,31 @@ npx skills add maxgfr/ultrai18n --global   # every project
 
 No build step, no API key, no network. The tree-sitter grammars ship with the engine.
 
+## Plurals
+
+English has two plural forms, Russian needs four, Japanese one. So a plural cannot be one string in
+and one string out, and the unit of work is the **family**: every form goes to the translator at
+once, along with exactly the categories the target locale selects, and the engine writes back the
+keys that did not exist before.
+
+Five arrangements are read, and none of them is a dependency on an i18n library — `item_one`
+(i18next, Rails, hand-rolled), `item: { one, other }`, `{n, plural, one {…} other {…}}` (ICU),
+Android `<plurals>`, and vue-i18n's pipes. Categories come from `Intl.PluralRules`, so any BCP-47
+tag works. Anything else is declared where it lives:
+
+```js
+// ultrai18n:plural count=n one="One item in your cart" other="{0} items in your cart"
+const label = `${n} item${n > 1 ? 's' : ''} in your cart`
+```
+
+The most useful output needs no translation at all. `plurals` exits 1 when a catalog is short of a
+form its own locale selects — a Russian bundle with only `one` and `other` renders the wrong string
+for 2, 3 and 4 right now, in production.
+
 ## Status
 
 The pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `verify` → `check`, plus
-`sync`, `orchestrate` and `init --ci --baseline`.
+`plurals`, `sync`, `orchestrate` and `init --ci --baseline`.
 
 Translation backends: a generic CLI (`--translator '<command>'`), direct HTTP (`--backend api`), and
 manual. `--backend subagent` writes the batches and the agent contract and hands over, because the

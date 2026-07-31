@@ -3,7 +3,8 @@ import { join, resolve } from 'node:path'
 import { VERSION } from './version'
 import { runCensus, formatCensus } from './census'
 import { scan } from './scan'
-import { formatScan } from './report'
+import { formatScan, formatPlurals } from './report'
+import { PLURAL_SHAPES, pluralTier, type PluralFamily } from './plural'
 import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
 import { formatPlan } from './plan'
@@ -33,6 +34,7 @@ Usage:
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
+  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
   ultrai18n orchestrate [--phase <name>] [--eco] [--list]
@@ -44,6 +46,10 @@ Commands:
               reason. The denominator is \`git ls-files\`, not the walker, because
               the walker's own exclusions are what needs auditing. Exits 1 when
               any tracked path is unaccounted for (gate G1).
+
+  plurals     Every plural family, with the forms its own locale selects and the
+              forms it actually has. Exits 1 when one is short — that is a wrong
+              string rendering today, not a missing translation.
 
 Options:
   --repo <dir>   Repository root (default: cwd)
@@ -59,7 +65,7 @@ Exit codes:
 
 const COMMANDS = new Set([
   'scan', 'census', 'sites', 'catalog', 'lang', 'adjudicate', 'plan', 'translate',
-  'apply', 'verify', 'check', 'sync', 'glossary', 'orchestrate', 'init', 'version',
+  'apply', 'verify', 'check', 'sync', 'plurals', 'glossary', 'orchestrate', 'init', 'version',
 ])
 
 const VALUE_FLAGS = new Set([
@@ -338,6 +344,34 @@ async function main(): Promise<void> {
         process.stderr.write(`ultrai18n: ${(err as Error).message}\n`)
         process.exitCode = code
       }
+      return
+    }
+
+    case 'plurals': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const families = (inventory.plurals ?? []) as PluralFamily[]
+      const incomplete = families.filter((f) => f.missing.length || f.extra.length)
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              repo,
+              targetLanguage: inventory.targetLanguage,
+              tier: pluralTier(),
+              shapes: PLURAL_SHAPES,
+              families,
+              incomplete: incomplete.map((f) => f.id),
+              ok: incomplete.length === 0,
+            },
+            null,
+            2,
+          ) + '\n',
+        )
+      } else {
+        process.stdout.write(formatPlurals(inventory) + '\n')
+      }
+      if (incomplete.length) process.exitCode = 1
       return
     }
 

@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { TRANSLATOR_CONTRACT } from './translate'
 
-export type PhaseName = 'adjudicate' | 'translate' | 'review' | 'structural'
+export type PhaseName = 'adjudicate' | 'translate' | 'review' | 'plural' | 'structural'
 
 export interface PhaseStatus {
   name: PhaseName
@@ -50,6 +50,11 @@ export function phaseStatuses(out: string): PhaseStatus[] {
   const todo = existsSync(join(out, 'VERIFY.todo.json'))
   const applied = existsSync(join(out, 'APPLY.json'))
 
+  const pluralPath = join(out, 'PLURALS.todo.json')
+  const pluralTodo = existsSync(pluralPath)
+    ? ((JSON.parse(readOr(pluralPath, '{"families":[]}')) as { families?: unknown[] }).families ?? []).length
+    : 0
+
   const pending = plan?.groups?.filter((g) => g.status === 'pending').length ?? 0
   const hazards = plan?.hazards?.length ?? 0
   const structural = plan?.structural?.length ?? 0
@@ -84,6 +89,20 @@ export function phaseStatuses(out: string): PhaseStatus[] {
       worklist: join(out, 'VERIFY.todo.json'),
       items: todo ? (JSON.parse(readOr(join(out, 'VERIFY.todo.json'), '{"pairs":[]}')) as { pairs: unknown[] }).pairs.length : 0,
       writes: false,
+    },
+    {
+      name: 'plural',
+      // After `apply --write`, for the same reason `structural` is: this phase
+      // edits files, and `apply` is the sole writer until it has finished.
+      ready: pluralTodo > 0 && applied,
+      ...(pluralTodo === 0
+        ? { reason: 'no plural family in this run needs a code edit' }
+        : !applied
+          ? { reason: 'plural code edits run after `apply --write`, never alongside it' }
+          : {}),
+      worklist: join(out, 'PLURALS.todo.json'),
+      items: pluralTodo,
+      writes: true,
     },
     {
       name: 'structural',
@@ -194,6 +213,36 @@ When unsure, choose the harsher verdict. A false pass is worse than a false fail
 **Return \`{claimId, citation, verdict, note}\`. Do not edit any file.**
 `,
   },
+  plural: {
+    role: 'pluralist',
+    body: `# Contract: pluralist
+
+You complete plural families whose forms are already translated and cannot be
+written by byte offset — a rule baked into an expression, or a resource format
+the engine does not edit.
+
+Each entry in \`PLURALS.todo.json\` gives you \`forms\` (already translated, keyed
+by CLDR category), \`targetCategories\` (exactly the forms the target locale
+selects), \`file\`, \`anchor\`, and \`count\` where an annotation named the counting
+expression.
+
+**Do not translate anything.** The words are decided. Your job is the code:
+
+- Make the call site select among \`targetCategories\` by the count, using the
+  platform's own plural API — \`Intl.PluralRules\`, the i18n runtime already in
+  the repository, the framework's plural helper. Do not hand-roll \`n > 1\`.
+- The number of forms is not the number the source had. English has two and
+  Russian has four; a target with one form is complete with one.
+- Where the old code built a word out of a conditional suffix, the whole phrase
+  becomes one message per form. A suffix cannot express agreement in a language
+  that inflects more than the noun.
+
+Edit **only the one file named in your prompt**. This phase runs after
+\`apply --write\`, never alongside it.
+
+Return \`{familyId, file, note}\` describing what you changed and why.
+`,
+  },
   structural: {
     role: 'structuralist',
     body: `# Contract: structuralist
@@ -218,6 +267,7 @@ const JOINS: Record<PhaseName, (o: OrchestrateOptions) => string> = {
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
+  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out}`,
   structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`,
 }
 
@@ -297,7 +347,10 @@ ${rows}
    add \`--write\`.
 7. \`node ${o.engine} verify --repo ${o.repo} --out ${o.out}\`, adjudicate, then
    \`verify --apply verdicts.json\`.
-8. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
+8. Any family in \`PLURALS.todo.json\` needs a code edit: its forms are
+   translated, and the call site has to select among them with the platform's
+   own plural API. \`node ${o.engine} plurals --repo ${o.repo}\` lists them.
+9. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
 `
 }
 

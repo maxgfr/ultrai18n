@@ -61,7 +61,7 @@ export function extractCss(file: string, text: string, map: OffsetMap): CssExtra
   sites.sort((a, b) => a.span.start - b.span.start)
   // The whole file was scanned; the parts not emitted were read and judged
   // non-textual, which is a different claim from "not looked at".
-  return { sites, claimedBytes: text.length, identifiers }
+  return { sites, claimedBytes: map.byteOf(text.length), identifiers }
 }
 
 function site(

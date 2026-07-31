@@ -28,6 +28,10 @@ export interface ClassifyOptions {
 
 const STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/
 const STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/
+/** Template tags whose body is a stylesheet: translating it breaks the layout. */
+const STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/
+/** Template tags whose body is a wire-format document: field names, not copy. */
+const CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/
 const URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i
 const SLUG_SHAPE = /^[a-z0-9]+([:._\-/][a-z0-9]+)+$/
 const ARIA_VOCAB = /^(aria-(live|current|pressed|sort|haspopup|autocomplete|relevant|orientation|expanded|hidden|checked|modal|busy|atomic|disabled|selected|multiline|readonly|required|invalid))$/
@@ -235,6 +239,15 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   }
   if (c.callee && STYLE_CALLEES.test(c.callee)) {
     return { surface: 'token.style', verdict: 'do-not-translate', reason: 'style-token', confidence: 'medium', skipDetection: true }
+  }
+  // A tagged template's tag says what the body IS. Without this a `css` block
+  // reads as an ordinary template literal full of words, and a translated
+  // stylesheet is a broken one.
+  if (c.tag && STYLE_TAGS.test(c.tag)) {
+    return { surface: 'token.style', verdict: 'do-not-translate', reason: 'style-token', confidence: 'high', skipDetection: true }
+  }
+  if (c.tag && CONTRACT_TAGS.test(c.tag)) {
+    return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'api-contract', confidence: 'high', skipDetection: true }
   }
   if (c.attrName && ARIA_VOCAB.test(c.attrName)) {
     return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'aria-vocabulary', confidence: 'high', skipDetection: true }

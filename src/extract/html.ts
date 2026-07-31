@@ -34,7 +34,11 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   let index = 0
   let i = 0
   const n = text.length
-  const openStack: string[] = []
+  // The stack carries each open element's attributes, not just its name. A
+  // resource `<item>` means nothing without the `quantity` that labels it and
+  // the `<plurals name>` that owns it, and a bare document-order index cannot
+  // express either.
+  const openStack: { tag: string; attrs: Record<string, string> }[] = []
 
   const push = (
     path: string,
@@ -112,13 +116,19 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
     const tag = nameMatch?.[1]?.toLowerCase() ?? ''
 
     if (closing) {
-      const at = openStack.lastIndexOf(tag)
+      let at = -1
+      for (let k = openStack.length - 1; k >= 0; k--) {
+        if (openStack[k]!.tag === tag) {
+          at = k
+          break
+        }
+      }
       if (at !== -1) openStack.length = at
     } else {
       identifiers.add(tag)
       extractAttributes(tagBody, lt + 1, tag)
       const selfClosing = tagBody.trimEnd().endsWith('/')
-      if (!selfClosing) openStack.push(tag)
+      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody) })
     }
 
     i = gt + 1
@@ -134,13 +144,14 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
 
   function emitText(chunk: string, at: number): void {
     if (!chunk.trim()) return
-    const enclosing = openStack[openStack.length - 1] ?? ''
+    const enclosing = openStack[openStack.length - 1]?.tag ?? ''
     // Inside <title>/<desc>/<text> the content is copy even in an SVG; inside
     // <code>/<pre> it is not, whatever it looks like.
     if (OPAQUE_ELEMENTS.has(enclosing)) return
     const isSvgText = SVG_TEXT_ELEMENTS.has(enclosing)
     if (!isSvgText && !/\p{L}{2,}/u.test(chunk)) return
 
+    const qualified = resourcePath()
     for (const match of chunk.matchAll(/\S[^\n]*\S|\S/g)) {
       const body = match[0]
       if (!/\p{L}{2,}/u.test(body)) continue
@@ -148,7 +159,7 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
       if (/^\{\{[^}]*\}\}$|^\{[^}]*\}$|^<%.*%>$/.test(body.trim())) continue
       const from = at + (match.index ?? 0)
       push(
-        `${enclosing || 'root'}/text[${index++}]`,
+        qualified ?? `${enclosing || 'root'}/text[${index++}]`,
         'prose-run',
         from,
         from + body.length,
@@ -157,6 +168,25 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
         { isKey: false, element: enclosing },
       )
     }
+  }
+
+  /**
+   * `plurals[cart_items]/item[one]`, for a resource item inside a named parent.
+   *
+   * Named rather than numbered on purpose. A document-order index renumbers
+   * every site below an insertion, and for a plural that is worse than untidy:
+   * the forms are the identity, and `item[3]` says nothing about which form it
+   * is. This is also the only path shape the plural detector can read.
+   */
+  function resourcePath(): string | null {
+    const top = openStack[openStack.length - 1]
+    const parent = openStack[openStack.length - 2]
+    if (!top || !parent) return null
+    if (top.tag !== 'item') return null
+    const quantity = top.attrs.quantity
+    const owner = parent.attrs.name
+    if (!quantity || !owner) return null
+    return `${parent.tag}[${owner}]/item[${quantity}]`
   }
 
   function extractAttributes(tagBody: string, base: number, tag: string): void {
@@ -188,7 +218,16 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   }
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  return { sites, claimedBytes: text.length, identifiers }
+  return { sites, claimedBytes: map.byteOf(text.length), identifiers }
+}
+
+/** Every quoted attribute on a tag, lowercased by name. */
+function allAttributes(tagBody: string): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const m of tagBody.matchAll(/([@:\w[\]().-]+)\s*=\s*(["'])((?:\\.|(?!\2)[^\\])*)\2/g)) {
+    out[m[1]!.toLowerCase()] = m[3]!
+  }
+  return out
 }
 
 /** The identifying name of a <meta>: `name`, `property`, `itemprop` or `http-equiv`. */

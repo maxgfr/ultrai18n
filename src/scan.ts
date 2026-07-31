@@ -5,7 +5,7 @@
 // cannot be answered while still reading the repo. Classifying as we go would
 // make a site's verdict depend on file order, and a verdict that depends on
 // file order is not a verdict.
-import { extname } from 'node:path'
+import { extname, join } from 'node:path'
 import { walk, type WalkedFile } from './vendor/walk'
 import { readTextEx, OffsetMap } from './vendor/text'
 import { extractTs } from './extract/ts'
@@ -15,12 +15,15 @@ import { extractMarkdown } from './extract/markdown'
 import { extractCss } from './extract/css'
 import { extractHtml } from './extract/html'
 import { extractText, isPlainText } from './extract/text'
-import { sweepFile } from './sweep'
+import { sweepFile, merge as mergeSpans, complement } from './sweep'
 import { scanPaths, pathSites } from './paths'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
 import { prepareGrammars, parserForExt, AST_EXTENSIONS, grammarStatus } from './ast/parse'
 import { classify } from './classify'
 import { detect } from './lang/detect'
+import { matchRules } from './catalog/match'
+import { RULES } from './catalog/rules'
+import { assembleFamilies, pluralTier, type PluralFamily } from './plural'
 import type { Advisory, CensusEntry, Inventory, Site } from './types'
 import { gitLsFiles } from './census'
 
@@ -38,6 +41,8 @@ export interface ScanOptions {
   to?: string
   /** Skip the AST tier even when grammars are available, to exercise degradation. */
   noAst?: boolean
+  /** Where plural declarations live. Defaults to `<repo>/.ultrai18n/plurals.json`. */
+  pluralSidecar?: string
 }
 
 interface FileResult {
@@ -67,6 +72,11 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   for (const file of walked.files) {
     results.push(await extractFile(file, tokens, opts))
   }
+
+  // Two sites may not share an anchor. See disambiguatePaths — this runs
+  // before classification because the site id is derived from the anchor.
+  let collisions = 0
+  for (const result of results) collisions += disambiguatePaths(result.sites)
 
   // Pass 2 — classify against the now-complete indexes.
   const from = opts.from === 'auto' || opts.from === undefined ? inferSourceLanguage(results, to) : opts.from
@@ -98,6 +108,16 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   )
   linkDuplicates(sites)
 
+  // Pass 3 — plural families, which are cross-site by nature: `item_one` and
+  // `item_other` are one unit of work living at two sites, and neither of them
+  // means anything on its own.
+  const plurals = attachPlurals(sites, {
+    repo,
+    to,
+    from,
+    ...(opts.pluralSidecar !== undefined ? { sidecarPath: opts.pluralSidecar } : {}),
+  })
+
   return {
     schemaVersion: 1,
     repo,
@@ -105,10 +125,169 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
     targetLanguage: to,
     sites,
     census: buildCensus(repo, walked, results),
-    advisories: advisoriesFor(results, sites),
+    advisories: [
+      ...advisoriesFor(results, sites),
+      ...pluralAdvisories(plurals),
+      ...(collisions
+        ? [
+            {
+              id: 'anchor-collision',
+              file: null,
+              message:
+                `${collisions} site(s) shared an anchor with another site and were suffixed \`~n\` to keep their ` +
+                `ids distinct. The suffix is stable for a given file but shifts if a sibling is inserted above, ` +
+                `so an exception pinned to one of these is worth re-checking. Anonymous nodes are already ` +
+                `anchored by position, so reaching this means a construct the anchor grammar cannot name at all.`,
+              sites: [],
+            },
+          ]
+        : []),
+    ],
     limits: LIMITS,
     recallClaim: 'full',
+    plurals,
   }
+}
+
+/**
+ * Force every site in a file onto a distinct anchor.
+ *
+ * Returns how many moves were SURPRISING — a key sharing its own value's
+ * pointer is expected and silent.
+ *
+ * Two sites sharing an anchor share a site id, and a site id is what `apply`
+ * resolves a translation against — with a Map, so the last one wins and the
+ * other's translation lands on the wrong bytes. `identity.ts` has always said
+ * this must not happen and shipped `disambiguate` to prevent it; nothing ever
+ * called it, and the collisions are not rare. Four sites in one small file
+ * share an anchor today: `anchorPath` promises statement ordinals inside a
+ * function body and does not emit them, and a JSON key sits on the same
+ * pointer as its own value.
+ *
+ * The VALUE keeps the bare path rather than whichever site came first. `sync`
+ * and the plural shapes both read a key name straight out of the pointer, and
+ * a `~2` buried in the middle of one would make `item_one` unrecognisable as a
+ * plural form.
+ */
+export function disambiguatePaths(sites: RawSite[]): number {
+  const byPath = new Map<string, RawSite[]>()
+  for (const site of sites) {
+    const list = byPath.get(site.path)
+    if (list) list.push(site)
+    else byPath.set(site.path, [site])
+  }
+
+  const taken = new Set(byPath.keys())
+  let surprising = 0
+  for (const group of byPath.values()) {
+    if (group.length < 2) continue
+    const ordered = [...group].sort(
+      (a, b) => Number(a.kind === 'key') - Number(b.kind === 'key') || a.span.start - b.span.start,
+    )
+    // A key and its own value share a JSON Pointer by construction — the
+    // pointer names the pair. That is resolved here and NOT reported: an
+    // advisory that fires on every object in every repository is one people
+    // learn to scroll past, which costs more than it saves. What is worth
+    // reporting is an anchor grammar that could not tell two real sites apart.
+    const structural = group.length === 2 && group.filter((s) => s.kind === 'key').length === 1
+    for (const site of ordered.slice(1)) {
+      let n = 2
+      while (taken.has(`${site.path}~${n}`)) n++
+      const next = `${site.path}~${n}`
+      taken.add(next)
+      site.path = next
+      if (!structural) surprising++
+    }
+  }
+  return surprising
+}
+
+/**
+ * Is this file a locale catalog?
+ *
+ * The weaker shapes need this context and would be unusable without it: a key
+ * ending in `_one` is a plural form in a message bundle and a coincidence
+ * anywhere else, and `'Save | Cancel'` is a vue-i18n plural only if it is
+ * sitting in a vue-i18n catalog.
+ */
+export function isBundleFile(file: string): boolean {
+  if (fileLocale(file) !== null) return true
+  return matchRules(RULES, { file, path: '', value: '' }).some((m) => m.rule.ecosystem === 'i18n')
+}
+
+function attachPlurals(
+  sites: Site[],
+  opts: { repo: string; to: string; from: string | null; sidecarPath?: string },
+): PluralFamily[] {
+  const sidecar = opts.sidecarPath ?? join(opts.repo, '.ultrai18n', 'plurals.json')
+  const { families, memberSites, pragmaSites } = assembleFamilies({
+    sites,
+    targetLanguage: opts.to,
+    sourceLanguage: opts.from,
+    fileLocale,
+    isBundle: isBundleFile,
+    sidecarPath: sidecar,
+  })
+
+  const byId = new Map(sites.map((s) => [s.id, s]))
+  for (const [siteId, member] of memberSites) {
+    const site = byId.get(siteId)
+    if (!site) continue
+    site.plural = { familyId: member.familyId, category: member.category, shape: '' }
+  }
+  for (const family of families) {
+    for (const id of family.sites) {
+      const site = byId.get(id)
+      if (!site?.plural) continue
+      site.plural.shape = family.shape
+      // The surface exists to make a plural findable as a plural: `sites
+      // --surface i18n.plural-family` is how an agent asks the question, and a
+      // form indistinguishable from any other bundle string cannot answer it.
+      site.surface = 'i18n.plural-family'
+      if (family.declaredBy === 'annotation') site.decidedBy = 'inline-pragma'
+    }
+  }
+
+  // The pragma comment is a directive addressed to this tool. Translating it
+  // would be absurd, and leaving it as prose puts it in a batch.
+  for (const id of pragmaSites) {
+    const site = byId.get(id)
+    if (!site) continue
+    site.verdict = 'do-not-translate'
+    site.reason = 'explicitly-marked'
+    site.decidedBy = 'inline-pragma'
+  }
+
+  return families
+}
+
+function pluralAdvisories(families: PluralFamily[]): Advisory[] {
+  const out: Advisory[] = []
+
+  const tier = pluralTier()
+  if (tier.tier !== 'icu' && families.length > 0) {
+    out.push({ id: 'degraded-plural-tier', file: null, message: tier.reason ?? '', sites: [] })
+  }
+
+  // The finding worth more than anything the translation half of this tool
+  // does: a bundle that renders the wrong string today, with nothing
+  // translated and no locale added.
+  const broken = families.filter((f) => f.missing.length > 0 || f.extra.length > 0)
+  if (broken.length) {
+    out.push({
+      id: 'plural-incomplete',
+      file: broken[0]!.file,
+      message:
+        `${broken.length} plural family(ies) do not have the forms their own locale requires. This is a live ` +
+        `rendering bug rather than a missing translation: ${broken
+          .slice(0, 3)
+          .map((f) => `${f.file}#${f.base} (${f.locale ?? '?'} needs ${f.ownRequired?.join(', ') ?? '?'}, has ${f.sourceCategories.join(', ')})`)
+          .join('; ')}.`,
+      sites: broken.flatMap((f) => f.sites).slice(0, 10),
+    })
+  }
+
+  return out
 }
 
 async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptions): Promise<FileResult> {
@@ -134,9 +313,39 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     if (parser) {
       const tree = parser.parse(read.text)
       if (tree) {
-        const { sites, tokens: contributed } = extractTs(file.rel, read.text, tree, map)
+        const { sites, tokens: contributed, errorSpans, hasError } = extractTs(
+          file.rel,
+          read.text,
+          tree,
+          map,
+        )
         merge(tokens, contributed)
-        return { ...base, sites, extractor: 'ts-ast', bytesClaimed: read.bytes }
+        if (!hasError) {
+          // The visitor reaches every node, so a clean parse genuinely did look
+          // at every byte.
+          return { ...base, sites, extractor: 'ts-ast', bytesClaimed: read.bytes }
+        }
+        // It did not. Sweep exactly the regions the grammar failed on, so a
+        // parse that broke down halfway produces `unclassified` sites rather
+        // than a thinner result reporting full coverage — the one place this
+        // tier could otherwise lose text without saying so.
+        const unreadable = mergeSpans(errorSpans)
+        const claimed = [...complement(unreadable, read.bytes), ...sites.map((s) => s.span)]
+        const residual = sweepFile(file.rel, read.text, map, claimed, {
+          identifiers: tokens.identifiers,
+          extractor: 'ts-ast',
+          reason: `the ${ext} grammar could not parse this span; found by the residual sweep`,
+        })
+        const unreadableBytes = unreadable.reduce((n, s) => n + (s.end - s.start), 0)
+        return {
+          ...base,
+          sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+          extractor: 'ts-ast',
+          degraded: true,
+          bytesClaimed: Math.max(0, read.bytes - unreadableBytes),
+          complete: false,
+          reason: `the ${ext} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`,
+        }
       }
     }
     // The AST tier is unavailable. Say so per file rather than quietly
@@ -346,12 +555,28 @@ function advisoriesFor(results: FileResult[], sites: Site[]): Advisory[] {
     })
   }
 
-  const degraded = results.filter((r) => r.degraded)
+  const degraded = results.filter((r) => r.degraded && r.extractor !== 'ts-ast')
   if (degraded.length) {
     out.push({
       id: 'degraded-tier',
       file: null,
       message: `${degraded.length} file(s) were read without the AST tier, so key-versus-value and enum detection were unavailable for them. Their verdicts are weaker, and that is recorded per file in the census.`,
+      sites: [],
+    })
+  }
+
+  // A parse that broke down is a different failure from no parser at all, and
+  // it is the one worth naming: the file LOOKS fully covered, and the only
+  // thing separating it from a silent miss is that its claimRatio is now honest.
+  const unparsed = results.filter((r) => r.degraded && r.extractor === 'ts-ast')
+  if (unparsed.length) {
+    out.push({
+      id: 'ast-parse-error',
+      file: unparsed[0]!.file.rel,
+      message:
+        `${unparsed.length} file(s) hit syntax the shipped grammar could not parse. Those regions were swept for ` +
+        `text instead of being claimed, so their claimRatio is below 1 and anything human-looking in them is in ` +
+        `the inventory as unclassified. Usually this means a language feature newer than the grammar.`,
       sites: [],
     })
   }

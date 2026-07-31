@@ -1,4 +1,24 @@
 import type { Hole, SiteKind, Span, Tier } from '../types'
+import type { OffsetMap } from '../vendor/text'
+
+/**
+ * How many BYTES a line occupies, its newline included.
+ *
+ * The census reports `claimRatio` as a fraction of the file's bytes, and a
+ * lexer scanning a JS string counts UTF-16 code units. The two agree on an
+ * ASCII file and diverge badly on any other: a Japanese bundle read end to end
+ * reported 0.72, which reads as "the extractor skipped a quarter of this file"
+ * when it had skipped nothing at all. Since the target of this tool is
+ * repositories that are not in English, the mismatch showed up almost
+ * everywhere it mattered.
+ *
+ * Clamping at the end of the text is the second half: the final line of a file
+ * with no trailing newline has no newline to claim, and counting one anyway put
+ * the ratio above 1.
+ */
+export function lineBytes(map: OffsetMap, text: string, start: number, length: number): number {
+  return map.byteOf(Math.min(start + length + 1, text.length)) - map.byteOf(start)
+}
 
 /**
  * What an extractor emits, before classification.
@@ -72,6 +92,14 @@ export interface Container {
   argIndex?: number
   /** True inside a test file. */
   inTest?: boolean
+  /**
+   * The tag of a tagged template — `css`, `gql`, `styled.div`.
+   *
+   * Kept apart from `callee` because a tagged template is not a call
+   * expression, so the call-walking that fills `callee` never sees one. Without
+   * this a `css` block reads as an ordinary translatable template literal.
+   */
+  tag?: string
 }
 
 /** Cross-reference indexes, built repo-wide before classification. */

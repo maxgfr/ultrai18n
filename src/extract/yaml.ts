@@ -12,7 +12,7 @@
 // page. Ordinary YAML tooling reports one opaque string; recursing into it with
 // remapped offsets turns it into individually patchable prose.
 import type { Span } from '../types'
-import type { Container, RawSite } from './raw'
+import { lineBytes, type Container, type RawSite } from './raw'
 import { pointer } from '../identity'
 import { OffsetMap } from '../vendor/text'
 
@@ -90,7 +90,7 @@ export function extractYaml(
 
   for (let li = 0; li < lines.length; li++) {
     const { text: line, start: lineStart } = lines[li]!
-    claimed += line.length + 1
+    claimed += lineBytes(map, text, lineStart, line.length)
 
     const indentMatch = /^[ \t]*/.exec(line)!
     const indent = indentMatch[0].length
@@ -169,6 +169,14 @@ export function extractYaml(
             for (const child of nested(block.dedented, block.start + block.bodyIndent, path)) {
               sites.push(child)
             }
+          }
+          // The block's lines are consumed here, so the main loop never reaches
+          // them and never counts them. They ARE read — the nested extraction
+          // just ran over them — and leaving them out made a workflow holding a
+          // release-notes body report 0.70 as though a third of it had been
+          // skipped.
+          for (let k = li + 1; k <= block.lastLine && k < lines.length; k++) {
+            claimed += lineBytes(map, text, lines[k]!.start, lines[k]!.text.length)
           }
           li = block.lastLine
         }

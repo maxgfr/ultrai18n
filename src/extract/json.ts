@@ -73,7 +73,7 @@ export function extractJson(file: string, text: string, map: OffsetMap): JsonExt
         s0.suffix = block ? ' */' : ''
         sites.push(s0)
       }
-      claimed += Math.min(end, n) - i
+      claimed += map.byteOf(Math.min(end, n)) - map.byteOf(i)
       i = Math.min(end, n)
       continue
     }
@@ -106,7 +106,7 @@ export function extractJson(file: string, text: string, map: OffsetMap): JsonExt
           parsed.escapes,
         ),
       )
-      claimed += parsed.end - i
+      claimed += map.byteOf(parsed.end) - map.byteOf(i)
       i = parsed.end
       continue
     }
@@ -154,7 +154,7 @@ export function extractJson(file: string, text: string, map: OffsetMap): JsonExt
         if (top?.type === 'object') top.key = word
         keys.add(word)
       }
-      claimed += wordEnd - i
+      claimed += map.byteOf(wordEnd) - map.byteOf(i)
       i = wordEnd
       continue
     }

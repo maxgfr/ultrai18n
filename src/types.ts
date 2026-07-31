@@ -3,6 +3,7 @@
 // Every vocabulary here is CLOSED. A free-text reason cannot be reconciled,
 // counted, or gated on, and the moment one is accepted the exceptions file
 // becomes a place to write prose instead of a place to record decisions.
+import type { PluralFamily } from './plural'
 
 /** What kind of syntactic thing the text was found in. */
 export type SiteKind =
@@ -119,6 +120,14 @@ export type NeedsJudgmentReason =
   | 'label-without-prose'
   /** A plural or agreement rule baked into the expression — needs a code edit, not a string. */
   | 'grammar-hole'
+  /**
+   * A plural family that does not have the forms its own locale requires.
+   *
+   * Not a translation problem: a Russian bundle carrying only `one` and `other`
+   * renders the wrong string for 2, 3 and 4 right now, in production, with
+   * nothing translated.
+   */
+  | 'plural-incomplete'
   /** 7 or 12 short strings: calendar vocabulary, locale-dependent despite looking symbolic. */
   | 'symbol-set'
   | 'manifest-shaped-object'
@@ -236,6 +245,13 @@ export interface Site {
   }
   /** Only on residual-sweep sites: which extractor owned the file, and why it did not claim this. */
   whyUnclaimed?: string
+  /**
+   * Back-reference to the plural family this site is a form of.
+   *
+   * The family is the unit of work — a target locale may need more forms than
+   * the source has — so the site points at it rather than carrying the forms.
+   */
+  plural?: { familyId: string; category: string; shape: string }
 }
 
 export type CensusBucket = 'scanned' | 'scanned-zero' | 'skipped'
@@ -272,6 +288,15 @@ export interface Inventory {
   advisories: Advisory[]
   limits: string[]
   recallClaim: 'full' | 'weakened'
+  /**
+   * Plural families, whole.
+   *
+   * Carried on the inventory rather than reconstructed downstream, so an agent
+   * reading `--json` never has to work out which keys belong together nor how
+   * many forms the target needs. The import is type-only and therefore erased,
+   * so the cycle it appears to create does not exist at runtime.
+   */
+  plurals: PluralFamily[]
 }
 
 /**

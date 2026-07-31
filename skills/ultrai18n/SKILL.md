@@ -27,7 +27,13 @@ to fake; and a model does nothing but translate strings it is handed.
 >    `{id, text}`. It does not open a source file, and it cannot reformat, drop, or "improve" code.
 > 3. **A refusal is a result.** Where a decision needs code the engine cannot read — a dual-use
 >    string, a plural baked into a ternary — it reports and blocks rather than guessing. A tool that
->    guesses here corrupts data silently.
+>    guesses here corrupts data silently. A refusal can be *answered*: an `ultrai18n:plural`
+>    annotation declares in place what the engine will not infer.
+> 6. **A plural is a family, not a string.** English has two forms and Russian needs four, Japanese
+>    one. So the unit of work is the family, the translator is asked for exactly the categories the
+>    TARGET locale selects, and the engine writes the new keys. A catalog short of a form its own
+>    locale selects is a bug rendering the wrong string *today*, with nothing translated — `plurals`
+>    and gate G6 both report it.
 > 4. **Never translate an identifier.** Enum members, storage keys, module specifiers, API contract
 >    strings, CSS tokens, URL slugs and vendored legal text are decided by the engine and are not
 >    negotiable by an agent.
@@ -46,6 +52,10 @@ to fake; and a model does nothing but translate strings it is handed.
    per *site*, not per string. Both roles are legitimate; one of them has to be renamed.
 5. **You want the language surface explained for one file** — `catalog --explain <file>` prints
    every rule that applies and why.
+6. **Plurals** — run `plurals`. It exits 1 when a family lacks a form its own locale selects, which
+   is a live rendering bug and worth fixing before any translation happens. Families the engine
+   cannot write mechanically land in `PLURALS.todo.json` with their forms already translated; the
+   `pluralist` contract turns those into a code edit.
 
 ## Command cheat-sheet
 
@@ -57,6 +67,7 @@ to fake; and a model does nothing but translate strings it is handed.
 - `apply [--write]` — patch by byte offset. Dry-run by default.
 - `verify [--apply <verdicts.json>]` — adversarial review of what actually shipped.
 - `check [--semantic] [--new-only]` — the six gates. Exit 1 on any failure.
+- `plurals` — every plural family, what its locale selects, what it has. Exit 1 when one is short.
 - `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
 - `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
 - `init --ci --baseline` — freeze today, so only new regressions block a pull request.
@@ -74,6 +85,21 @@ most string extractors miss entirely), Vue, Svelte and Astro single-file compone
 and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework interpolation
 (`{{ msg }}`, `{msg}`, `${x}`) becomes a placeholder the translator may reorder but may not drop.
 
+**Plurals are read by arrangement, not by library.** Five shapes, and no dependency on any i18n
+runtime: the category appended to a key (`item_one` — i18next, Rails, anything hand-rolled), the
+categories as sibling keys (`item: { one, other }`), an ICU argument
+(`{n, plural, one {…} other {…}}` — react-intl, FormatJS, ARB), a quantity attribute
+(Android `<plurals>`), and pipe-separated positional forms (vue-i18n). Categories come from
+`Intl.PluralRules`, so any BCP-47 tag works and no language list is baked in. Anything none of that
+covers is declared in place:
+
+```js
+// ultrai18n:plural count=n one="One item in your cart" other="{0} items in your cart"
+const label = `${n} item${n > 1 ? 's' : ''} in your cart`
+```
+
+Formats without comments use `.ultrai18n/plurals.json`, keyed by `siteKey`.
+
 ## Scope notes
 
 - **Determinism is a product guarantee.** Same repo, same inventory, byte for byte. No timestamps in
@@ -87,10 +113,20 @@ and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework inte
   routed to judgment rather than guessed, because `"OK"`, `"Menu"` and `"Format"` are genuinely
   ambiguous across languages; and the gate catches "still in the source language", never
   "translated badly".
+- **Plural limits.** New forms are written only into JSON and YAML locale bundles, as a sibling of a
+  key that is already there. Android XML, `.stringsdict` and any rule living in an expression are
+  reported with their translated forms and left to a code edit — a plural is a call-site decision,
+  and a tool that rewrites call sites is no longer patching bytes. gettext `msgid_plural` and Apple
+  `.stringsdict` have no reader yet: listed, not claimed. Ordinal families and vue-i18n's positional
+  forms are translated and preserved but never measured against CLDR, because neither follows it.
+- **`claimRatio` is a measurement, in bytes, on both sides.** A ratio below 1 means the extractor
+  genuinely did not account for part of the file, never that the file contained an accented
+  character. Anything it did not claim is swept, so the shortfall shows up as `unclassified` rather
+  than as silence.
 
 ## Status
 
-Every command in the cheat-sheet works, plus `sync`, `orchestrate` and `init`.
+Every command in the cheat-sheet works, plus `plurals`, `sync`, `orchestrate` and `init`.
 
 Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS
 and plain text through hand-written byte-indexed lexers, with a residual sweep behind them so a
@@ -104,6 +140,13 @@ because the engine cannot spawn a Claude Code agent and will not pretend to.
 Paths are a surface too: a filename written in the source language is found, its referrers are
 resolved, and it is **reported rather than renamed** — a rename that misses one referrer is a broken
 build, and no static tool can prove it found the last one.
+
+Two sites may never share an anchor, because a shared anchor is a shared site id and `apply`
+resolves a translation through it — one translation would land on another site's bytes. An anonymous
+node (a comment, a union member, an import specifier, a statement in a function body) is anchored by
+its POSITION in its container, emitted in place of the name it does not have; named paths are
+untouched. Where even that is not enough, the later sites are suffixed `~n` and the collision is
+reported.
 
 On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
 `scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed

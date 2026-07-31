@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { sha256 } from './identity'
 import type { Inventory, Site } from './types'
 import { fileLocale } from './scan'
+import { categoriesFor, splitPluralKey } from './plural'
 
 export type DiffClass =
   | 'missing'
@@ -21,6 +22,8 @@ export type DiffClass =
   | 'untranslated'
   | 'identical-ok'
   | 'arity-mismatch'
+  /** The locale is short of a plural form its own rules select. */
+  | 'plural-incomplete'
   | 'ok'
 
 export interface KeyState {
@@ -90,13 +93,54 @@ export function sync(opts: SyncOptions): SyncReport {
   const findings: SyncFinding[] = []
   const counts: SyncReport['byLocale'] = {}
 
+  // Plural forms are compared as FAMILIES, never key by key. Comparing them one
+  // key at a time is not merely noisy, it is backwards: Russian's `_few` and
+  // `_many` have no English counterpart, so every one of them reads as an
+  // orphan — while the case that actually matters, a Russian catalog with no
+  // `_few` at all, produces no finding, because English never had one to miss.
+  const sourceFamilies = familiesOf(source)
+
   for (const locale of targets) {
     const target = byLocale.get(locale)!
     const tally: Record<DiffClass, number> = {
-      missing: 0, stale: 0, orphan: 0, untranslated: 0, 'identical-ok': 0, 'arity-mismatch': 0, ok: 0,
+      missing: 0, stale: 0, orphan: 0, untranslated: 0, 'identical-ok': 0,
+      'arity-mismatch': 0, 'plural-incomplete': 0, ok: 0,
+    }
+
+    const targetFamilies = familiesOf(target)
+    const required = categoriesFor(locale)
+    for (const [base, src] of sourceFamilies) {
+      const have = targetFamilies.get(base)
+      if (!have) {
+        tally.missing++
+        findings.push({
+          key: base,
+          locale,
+          class: 'missing',
+          source: [...src.values()][0]?.value ?? '',
+          detail: `the whole plural family is absent; ${locale} selects ${required?.join(', ') ?? '?'}`,
+        })
+        continue
+      }
+      const absent = (required ?? []).filter((c) => !have.has(c))
+      if (absent.length) {
+        tally['plural-incomplete']++
+        findings.push({
+          key: base,
+          locale,
+          class: 'plural-incomplete',
+          source: [...src.values()][0]?.value ?? '',
+          detail:
+            `no ${absent.join(' or ')} form, and ${locale} selects ${required!.join(', ')} — ` +
+            `the runtime falls back for the numbers those forms cover`,
+        })
+        continue
+      }
+      tally.ok++
     }
 
     for (const [key, srcSite] of source) {
+      if (splitPluralKey(key)) continue
       const tgtSite = target.get(key)
       if (!tgtSite) {
         tally.missing++
@@ -154,6 +198,11 @@ export function sync(opts: SyncOptions): SyncReport {
 
     for (const key of target.keys()) {
       if (source.has(key)) continue
+      // A form this locale requires is not an orphan just because the source
+      // language has no equivalent. Russian needs `few`; English does not have
+      // one to be missing.
+      const plural = splitPluralKey(key)
+      if (plural && sourceFamilies.has(plural.base)) continue
       tally.orphan++
       findings.push({
         key,
@@ -167,7 +216,11 @@ export function sync(opts: SyncOptions): SyncReport {
     counts[locale] = tally
   }
 
-  const arity = findings.filter((f) => f.class === 'arity-mismatch').length
+  // Both failing classes describe a catalog that is broken as it stands, rather
+  // than one that is merely behind.
+  const broken = findings.filter(
+    (f) => f.class === 'arity-mismatch' || f.class === 'plural-incomplete',
+  ).length
   return {
     sourceLocale,
     locales: targets,
@@ -175,12 +228,31 @@ export function sync(opts: SyncOptions): SyncReport {
     byLocale: counts,
     findings: sortFindings(findings),
     baselineOnly,
-    ok: arity === 0,
+    ok: broken === 0,
   }
 }
 
+/** Group a locale's keys into plural families: base → category → site. */
+function familiesOf(keys: Map<string, Site>): Map<string, Map<string, Site>> {
+  const out = new Map<string, Map<string, Site>>()
+  for (const [key, site] of keys) {
+    const plural = splitPluralKey(key)
+    if (!plural) continue
+    let family = out.get(plural.base)
+    if (!family) {
+      family = new Map()
+      out.set(plural.base, family)
+    }
+    family.set(plural.category, site)
+  }
+  return out
+}
+
 /** Severity order: broken now, then silently wrong, then absent, then dead. */
-const ORDER: DiffClass[] = ['arity-mismatch', 'stale', 'missing', 'untranslated', 'orphan', 'identical-ok', 'ok']
+const ORDER: DiffClass[] = [
+  'arity-mismatch', 'plural-incomplete', 'stale', 'missing', 'untranslated',
+  'orphan', 'identical-ok', 'ok',
+]
 
 function sortFindings(findings: SyncFinding[]): SyncFinding[] {
   return findings.sort(
@@ -241,6 +313,14 @@ export function formatSync(r: SyncReport): string {
     lines.push('')
     lines.push(`ARITY MISMATCH (${arity.length}) — a runtime bug already in the repository`)
     for (const f of arity.slice(0, 10)) {
+      lines.push(`  ${f.locale} ${f.key}: ${f.detail}`)
+    }
+  }
+  const plural = r.findings.filter((f) => f.class === 'plural-incomplete')
+  if (plural.length) {
+    lines.push('')
+    lines.push(`PLURAL INCOMPLETE (${plural.length}) — the wrong string renders for some numbers, today`)
+    for (const f of plural.slice(0, 10)) {
       lines.push(`  ${f.locale} ${f.key}: ${f.detail}`)
     }
   }

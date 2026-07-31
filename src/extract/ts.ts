@@ -30,6 +30,17 @@ export interface TsExtractResult {
   sites: RawSite[]
   /** Contributions to the repo-wide cross-reference indexes. */
   tokens: Pick<TokenIndex, 'enums' | 'compared' | 'persisted' | 'identifiers'>
+  /**
+   * Byte spans the grammar could not parse.
+   *
+   * The visitor below reaches every node in the tree, so what it did NOT look
+   * at is exactly the regions tree-sitter failed on. Reporting them turns the
+   * AST tier's coverage from an assertion into a measurement — and lets the
+   * residual sweep run over precisely those regions, so a grammar that breaks
+   * down on unfamiliar syntax produces `unclassified` sites instead of silence.
+   */
+  errorSpans: Span[]
+  hasError: boolean
 }
 
 export function extractTs(
@@ -43,6 +54,8 @@ export function extractTs(
   const compared = new Map<string, string[]>()
   const persisted = new Map<string, string[]>()
   const identifiers = new Set<string>()
+  const identifierHits: { name: string; at: number }[] = []
+  const errorSpans: Span[] = []
   const inTest = TEST_FILE.test(file)
 
   const push = (
@@ -82,11 +95,20 @@ export function extractTs(
   }
 
   walkTree(tree.rootNode, (node) => {
+    // A region the grammar gave up on. Recorded and still descended into: an
+    // ERROR node often contains perfectly good children, and claiming the whole
+    // span as unreadable would throw away sites that are right there.
+    if (node.type === 'ERROR' || node.isMissing) {
+      errorSpans.push(byteSpan(node, map))
+      if (node.isMissing) return false
+    }
+
     switch (node.type) {
       case 'identifier':
       case 'type_identifier':
       case 'property_identifier':
-        identifiers.add(node.text)
+        // Byte offset, to match errorSpans — startIndex is a UTF-16 index.
+        identifierHits.push({ name: node.text, at: map.byteOf(node.startIndex) })
         return
 
       case 'comment': {
@@ -212,8 +234,23 @@ export function extractTs(
     }
   })
 
+  // An "identifier" the grammar only produced while recovering from a parse
+  // error is not evidence that the repository declares that name. Keeping them
+  // would be quietly self-defeating: the residual sweep treats a declared name
+  // as code, so a sentence sitting in an unparseable region would register its
+  // own words as identifiers and then suppress itself for containing them.
+  for (const hit of identifierHits) {
+    if (errorSpans.some((s) => hit.at >= s.start && hit.at < s.end)) continue
+    identifiers.add(hit.name)
+  }
+
   sites.sort((a, b) => a.span.start - b.span.start)
-  return { sites, tokens: { enums, compared, persisted, identifiers } }
+  return {
+    sites,
+    tokens: { enums, compared, persisted, identifiers },
+    errorSpans,
+    hasError: tree.rootNode.hasError || errorSpans.length > 0,
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -430,6 +467,22 @@ function classifyStringContainer(node: Node): Container {
     container.enumMember = true
   }
 
+  // `` css`…` ``, `` gql`…` ``, `` styled.div`…` `` — the tag decides what the
+  // template holds, and without it a stylesheet reads as a paragraph of words.
+  //
+  // Two node shapes, because the grammars disagree: some model a tagged
+  // template as its own node, and the shipped TSX grammar models it as a
+  // `call_expression` whose template is a DIRECT child. The direct-child part
+  // is what separates a tag from an ordinary argument, which always sits
+  // inside an `arguments` node.
+  const tagged =
+    parent.type === 'tagged_template_expression' ||
+    (parent.type === 'call_expression' && parent.child(0)?.id !== node.id)
+  if (tagged && node.type === 'template_string') {
+    const tag = parent.child(0)
+    if (tag) container.tag = tag.text
+  }
+
   const call = callContext(node)
   if (call) {
     container.callee = call.callee
@@ -501,9 +554,31 @@ function recordTokens(
   file: string,
 ): void {
   const at = `${file}:${node.startPosition.row + 1}`
-  if (container.enumMember) addToken(index.enums, value, at)
+  if (container.enumMember || inAsConstArray(node)) addToken(index.enums, value, at)
   if (container.compared) addToken(index.compared, value, at)
   if (container.persisted) addToken(index.persisted, value, at)
+}
+
+/**
+ * A member of an `as const` array — recorded as an enum ORIGIN, never verdicted
+ * as one.
+ *
+ * `['active', 'done'] as const` is an enum and `['Oui', 'Non'] as const` is
+ * copy, and nothing structural tells them apart. So this feeds the
+ * cross-reference index only: if the same text is also rendered somewhere, the
+ * dual-use hazard fires and a person decides. Setting `enumMember` here instead
+ * would silently protect every `as const` label array — and would run before
+ * the calendar-vocabulary check, which is exactly the case that needs it least.
+ */
+function inAsConstArray(node: Node): boolean {
+  const array = node.parent
+  if (!array || array.type !== 'array') return false
+  let cur: Node | null = array.parent
+  while (cur && (cur.type === 'as_expression' || cur.type === 'satisfies_expression')) {
+    if (/\bas\s+const\b/.test(cur.text.slice(array.text.length))) return true
+    cur = cur.parent
+  }
+  return false
 }
 
 function objectKeys(obj: Node): string[] {
@@ -578,11 +653,81 @@ export function anchorPath(node: Node): string {
 
   while (cur) {
     const segment = pathSegment(cur, child)
-    if (segment) segments.push(segment)
+    if (segment) {
+      segments.push(segment)
+    } else if (child && segments.length === 0 && ORDINAL_CONTAINERS.has(cur.type)) {
+      // Nothing below this point had a name, so the node is anonymous within an
+      // ordered container and its POSITION in that container is the only thing
+      // that identifies it. Three comments in one function body, three members
+      // of a union, two import specifiers — each of those used to collapse onto
+      // the same path, and a shared path is a shared site id, which `apply`
+      // resolves with a Map. One translation would land on another's bytes.
+      //
+      // The guard on `segments.length` is what keeps this from churning every
+      // existing anchor: an ordinal is emitted INSTEAD of a missing name, never
+      // in addition to one, so `WEEKDAY/[0]` and `default/…/manifest/name` are
+      // untouched.
+      segments.push(
+        `[${cur.type === 'union_type' ? unionOrdinal(cur, child) : namedOrdinal(cur, child)}]`,
+      )
+    }
     child = cur
     cur = cur.parent
   }
   return segments.reverse().join('/') || 'root'
+}
+
+/**
+ * Nodes whose children are an ordered list with no names of their own.
+ *
+ * `array` is absent because its own case already returns the ordinal directly.
+ */
+const ORDINAL_CONTAINERS = new Set([
+  'program',
+  'statement_block',
+  'union_type',
+  'class_body',
+  'arguments',
+  'object',
+])
+
+/**
+ * Position of a member within the WHOLE union, not within one link of it.
+ *
+ * `'a' | 'b' | 'c'` parses left-associatively as `union(union(a, b), c)`, so
+ * each link has exactly two named children and counting inside one link gives
+ * `[0] [1]` and then `[1]` again. Flattening first is the difference between an
+ * anchor that identifies a member and one that identifies two.
+ */
+function unionOrdinal(union: Node, child: Node): number {
+  let top = union
+  while (top.parent?.type === 'union_type') top = top.parent
+  const members: Node[] = []
+  const collect = (n: Node): void => {
+    for (let i = 0; i < n.childCount; i++) {
+      const c = n.child(i)!
+      if (!c.isNamed) continue
+      if (c.type === 'union_type') collect(c)
+      else members.push(c)
+    }
+  }
+  collect(top)
+  const index = members.findIndex(
+    (m) => child.startIndex >= m.startIndex && child.endIndex <= m.endIndex,
+  )
+  return index === -1 ? 0 : index
+}
+
+/** Position of `child` among its parent's named children. */
+function namedOrdinal(parent: Node, child: Node): number {
+  let index = 0
+  for (let i = 0; i < parent.childCount; i++) {
+    const c = parent.child(i)!
+    if (!c.isNamed) continue
+    if (c.id === child.id) return index
+    index++
+  }
+  return index
 }
 
 function pathSegment(node: Node, child: Node | null): string | null {
@@ -596,6 +741,12 @@ function pathSegment(node: Node, child: Node | null): string | null {
       return node.childForFieldName?.('name')?.text ?? node.type
     case 'variable_declarator':
       return node.child(0)?.text ?? null
+    // A type's name is as good an anchor as a function's, and without it every
+    // member of `type Status = 'a' | 'b'` anchors at the file root.
+    case 'type_alias_declaration':
+    case 'interface_declaration':
+    case 'enum_declaration':
+      return node.childForFieldName?.('name')?.text ?? null
     case 'export_statement':
       return node.text.startsWith('export default') ? 'default' : null
     case 'pair': {

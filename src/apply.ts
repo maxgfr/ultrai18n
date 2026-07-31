@@ -21,10 +21,35 @@ export interface Translation {
   text: string
 }
 
+/**
+ * A key that does not exist yet, written after one that does.
+ *
+ * The single case where replacing bytes cannot express the result. Russian
+ * needs `few` and `many`; an English source has neither, so there is no span to
+ * overwrite. Refusing outright would mean the tool can find the problem and not
+ * fix it, and pushing it to an agent would put a model back in charge of
+ * writing files — the one thing this design does not do.
+ *
+ * So: bounded insertion, JSON and YAML locale bundles only. The new entry is a
+ * sibling of an existing one, written directly after it, taking its
+ * indentation. Anything else refuses.
+ */
+export interface Insertion {
+  /** The site whose entry the new one follows. */
+  afterSiteId: string
+  /** The key to create — `item_few`, or just `few` inside a forms object. */
+  key: string
+  text: string
+  /** Ordering hint, so two new forms land in a deterministic order. */
+  order?: number
+}
+
 export interface ApplyOptions {
   repo: string
   inventory: Inventory
   translations: Translation[]
+  /** New sibling keys — plural forms the target locale needs and the source lacks. */
+  insertions?: Insertion[]
   write?: boolean
   /**
    * Recover a site whose recorded offsets no longer hold its raw text, when the
@@ -36,14 +61,21 @@ export interface ApplyOptions {
 }
 
 export type SiteOutcome =
-  | { id: string; status: 'applied'; file: string; recovered: boolean }
+  | { id: string; status: 'applied'; file: string; recovered: boolean; inserted?: boolean }
   | { id: string; status: 'skipped'; file: string; why: string }
   | { id: string; status: 'refused'; file: string; why: string }
 
 export interface ApplyReport {
   write: boolean
   ok: boolean
-  sites: { total: number; applied: number; skipped: number; refused: number; recovered: number }
+  sites: {
+    total: number
+    applied: number
+    skipped: number
+    refused: number
+    recovered: number
+    inserted: number
+  }
   files: { touched: number; written: number; skipped: number }
   groups: { total: number; applied: number; incomplete: number }
   outcomes: SiteOutcome[]
@@ -61,6 +93,11 @@ interface Patch {
   replacement: Buffer
   intended: string
   recovered: boolean
+  /** Reporting id: the site's, or `<site>+<key>` for an inserted sibling. */
+  id: string
+  /** How many entries this patch writes. Above 1 only for grouped insertions. */
+  writes: number
+  inserted?: boolean
 }
 
 export function apply(opts: ApplyOptions): ApplyReport {
@@ -73,6 +110,10 @@ export function apply(opts: ApplyOptions): ApplyReport {
   const byFile = new Map<string, Patch[]>()
   const refusedFiles = new Set<string>()
   let recoveredCount = 0
+  // Entries written, not patches applied: several new plural keys sharing one
+  // anchor are one patch, and reporting them as one write would make the total
+  // look short by however many forms the locale needed.
+  let appliedWrites = 0
 
   for (const t of opts.translations) {
     const site = byId.get(t.id)
@@ -95,15 +136,41 @@ export function apply(opts: ApplyOptions): ApplyReport {
     }
   }
 
+  // Every new sibling of one anchor becomes ONE patch. Two zero-width patches
+  // at the same offset would otherwise land in whichever order the sort
+  // happened to produce, and `few` before `many` is not something to leave to
+  // an unstable comparison.
+  for (const [afterSiteId, group] of groupBy(opts.insertions ?? [], (i) => i.afterSiteId)) {
+    const site = byId.get(afterSiteId)
+    if (!site) {
+      outcomes.push({
+        id: afterSiteId,
+        status: 'refused',
+        file: '?',
+        why: 'the site this new key would follow is not in the inventory',
+      })
+      continue
+    }
+    try {
+      const patch = buildInsertion(repo, site, group)
+      const list = byFile.get(site.file)
+      if (list) list.push(patch)
+      else byFile.set(site.file, [patch])
+    } catch (err) {
+      outcomes.push({ id: patch_id(afterSiteId, group), status: 'refused', file: site.file, why: (err as Error).message })
+      refusedFiles.add(site.file)
+    }
+  }
+
   // Overlapping patches mean the inventory is malformed — most often a template
   // whose fragments were not coalesced. Writing them would interleave bytes.
   for (const [file, patches] of byFile) {
-    patches.sort((a, b) => a.start - b.start)
+    patches.sort((a, b) => a.start - b.start || Number(a.inserted) - Number(b.inserted))
     for (let i = 0; i + 1 < patches.length; i++) {
       if (patches[i]!.end > patches[i + 1]!.start) {
         refusedFiles.add(file)
         outcomes.push({
-          id: patches[i]!.site.id,
+          id: patches[i]!.id,
           status: 'refused',
           file,
           why: `overlaps the next site at byte ${patches[i + 1]!.start} — the inventory is inconsistent`,
@@ -134,8 +201,8 @@ export function apply(opts: ApplyOptions): ApplyReport {
   for (const [file, patches] of [...byFile.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
     if (refusedFiles.has(file)) {
       for (const p of patches) {
-        if (!outcomes.some((o) => o.id === p.site.id)) {
-          outcomes.push({ id: p.site.id, status: 'skipped', file, why: 'another site in this file or group refused' })
+        if (!outcomes.some((o) => o.id === p.id)) {
+          outcomes.push({ id: p.id, status: 'skipped', file, why: 'another site in this file or group refused' })
         }
       }
       continue
@@ -148,14 +215,21 @@ export function apply(opts: ApplyOptions): ApplyReport {
       patched = applyPatches(before, patches)
     } catch (err) {
       for (const p of patches) {
-        outcomes.push({ id: p.site.id, status: 'refused', file, why: (err as Error).message })
+        outcomes.push({ id: p.id, status: 'refused', file, why: (err as Error).message })
       }
       continue
     }
 
     written.push({ file, sha256Before: digest(before), sha256After: digest(patched) })
     for (const p of patches) {
-      outcomes.push({ id: p.site.id, status: 'applied', file, recovered: p.recovered })
+      appliedWrites += p.writes
+      outcomes.push({
+        id: p.id,
+        status: 'applied',
+        file,
+        recovered: p.recovered,
+        ...(p.inserted ? { inserted: true } : {}),
+      })
     }
 
     if (write) {
@@ -177,14 +251,22 @@ export function apply(opts: ApplyOptions): ApplyReport {
     }
   }
 
-  const applied = outcomes.filter((o) => o.status === 'applied').length
+  const applied = appliedWrites
   const skipped = outcomes.filter((o) => o.status === 'skipped').length
   const refused = outcomes.filter((o) => o.status === 'refused').length
+  const inserted = (opts.insertions ?? []).length
 
   return {
     write,
     ok: refused === 0 && incompleteGroups === 0,
-    sites: { total: opts.translations.length, applied, skipped, refused, recovered: recoveredCount },
+    sites: {
+      total: opts.translations.length + inserted,
+      applied,
+      skipped,
+      refused,
+      recovered: recoveredCount,
+      inserted,
+    },
     files: { touched: byFile.size, written: write ? filesWritten : written.length, skipped: refusedFiles.size },
     groups: { total: groups.length, applied: groups.length - incompleteGroups, incomplete: incompleteGroups },
     outcomes: outcomes.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.id < b.id ? -1 : 1)),
@@ -231,7 +313,11 @@ function buildPatch(repo: string, site: Site, text: string, recover: boolean): P
   const valueEnd = end - (site.span.end - site.valueSpan.end)
 
   const asciiOnly = usesUnicodeEscapes(buf)
-  let escaped = escapeFor(syntax, text, { quote: site.quote, asciiOnly })
+  let escaped = escapeFor(syntax, text, {
+    quote: site.quote,
+    asciiOnly,
+    atLineStart: startsItsLine(buf, start),
+  })
 
   // Put the interpolations back. The translation carries ordinal placeholders,
   // which is what let the translator MOVE them; splicing happens after escaping
@@ -293,7 +379,96 @@ function buildPatch(repo: string, site: Site, text: string, recover: boolean): P
     replacement: Buffer.from(escaped, 'utf8'),
     intended: text,
     recovered,
+    id: site.id,
+    writes: 1,
   }
+}
+
+/**
+ * Write one or more new sibling entries after an existing one.
+ *
+ * Deliberately narrow. Only JSON and YAML, only a sibling of a key that is
+ * already there, only the indentation that key already uses. Everything about
+ * this is checkable from the anchor alone, which is what makes it safe to do at
+ * all — the alternative was refusing to complete a Russian family forever.
+ */
+function buildInsertion(repo: string, site: Site, insertions: Insertion[]): Patch {
+  const syntax = syntaxFor(site)
+  if (syntax !== 'json-string' && syntax !== 'yaml-scalar') {
+    throw new UnknownSyntaxError(
+      `${site.file}: a new plural form here would be a ${syntax} edit, and insertion is only supported in JSON and YAML locale bundles`,
+    )
+  }
+
+  const buf = readFileSync(join(repo, site.file))
+  // No recovery path, unlike a replacement. A replacement that has drifted can
+  // be relocated by its own text; an insertion has no text yet, and putting a
+  // new key after "roughly where that key used to be" is not a thing to guess.
+  if (buf.subarray(site.span.start, site.span.end).toString('utf8') !== site.raw) {
+    throw new Error(
+      `drift at ${site.file}:${site.line} — the anchor for a new key no longer matches, so its position is unknown`,
+    )
+  }
+
+  const indent = indentOfLine(buf, site.span.start)
+  const ordered = [...insertions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.key < b.key ? -1 : 1))
+  const entries = ordered.map((ins) => {
+    const escaped = escapeFor(syntax, ins.text, { quote: '"', asciiOnly: usesUnicodeEscapes(buf) })
+    return syntax === 'json-string'
+      ? `,\n${indent}${JSON.stringify(ins.key)}: "${escaped}"`
+      : `\n${indent}${ins.key}: "${escaped}"`
+  })
+
+  return {
+    site,
+    syntax,
+    // Zero-width, immediately after the anchor's closing delimiter. In JSON the
+    // comma leads, so this is correct whether the anchor was the last entry in
+    // its object or not.
+    start: site.span.end,
+    end: site.span.end,
+    replacement: Buffer.from(entries.join(''), 'utf8'),
+    intended: ordered.map((i) => i.text).join(' / '),
+    recovered: false,
+    id: patch_id(site.id, ordered),
+    writes: ordered.length,
+    inserted: true,
+  }
+}
+
+function patch_id(siteId: string, insertions: Insertion[]): string {
+  return `${siteId}+${insertions.map((i) => i.key).sort().join('+')}`
+}
+
+/** Is everything before this offset on its line whitespace? */
+function startsItsLine(buf: Buffer, at: number): boolean {
+  let i = at
+  while (i > 0 && buf[i - 1] !== 0x0a) {
+    const byte = buf[i - 1]!
+    if (byte !== 0x20 && byte !== 0x09) return false
+    i--
+  }
+  return true
+}
+
+/** The leading whitespace of the line a byte offset sits on. */
+function indentOfLine(buf: Buffer, at: number): string {
+  let start = at
+  while (start > 0 && buf[start - 1] !== 0x0a) start--
+  let end = start
+  while (end < buf.length && (buf[end] === 0x20 || buf[end] === 0x09)) end++
+  return buf.subarray(start, end).toString('utf8')
+}
+
+function groupBy<T>(items: T[], key: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const item of items) {
+    const k = key(item)
+    const list = out.get(k)
+    if (list) list.push(item)
+    else out.set(k, [item])
+  }
+  return out
 }
 
 /**
@@ -359,6 +534,9 @@ export function formatApply(r: ApplyReport): string {
     ? `ultrai18n apply: ${r.ok ? '✓' : '✗'} ${r.sites.applied}/${r.sites.total} applied, ${r.drift.hard} drift, ${r.files.written} files`
     : `ultrai18n apply: dry-run — would apply ${r.sites.applied}/${r.sites.total}, ${r.drift.hard} drift (pass --write)`
   const lines = [head]
+  if (r.sites.inserted) {
+    lines.push(`  ${r.sites.inserted} new plural form(s) written as keys their locale requires and the file did not have`)
+  }
   if (r.sites.recovered) lines.push(`  ${r.sites.recovered} site(s) recovered after their file shifted`)
   if (r.groups.incomplete) lines.push(`  ${r.groups.incomplete} group(s) held back so no partial group is written`)
   for (const o of r.outcomes) {

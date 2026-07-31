@@ -1,4 +1,5 @@
 import type { Inventory, Site, Verdict } from './types'
+import { PLURAL_SHAPES, pluralTier, type PluralFamily } from './plural'
 
 const ORDER: Verdict[] = ['translate', 'needs-judgment', 'unclassified', 'locale-marker', 'do-not-translate']
 
@@ -75,6 +76,69 @@ export function formatScan(inv: Inventory, opts: { limit?: number } = {}): strin
     }
   }
 
+  return lines.join('\n')
+}
+
+/**
+ * The plural report.
+ *
+ * Ordered by whether the family is BROKEN, not by where it lives. A catalog
+ * missing a form its own locale selects is rendering the wrong string right
+ * now, and it should not be somewhere on page two under an alphabetical sort.
+ */
+export function formatPlurals(inv: Inventory): string {
+  const families = (inv.plurals ?? []) as PluralFamily[]
+  const lines: string[] = [
+    `ultrai18n plurals  ${inv.repo}  → ${inv.targetLanguage}`,
+    '',
+  ]
+
+  if (families.length === 0) {
+    lines.push('  No plural families found.')
+    lines.push('')
+    lines.push('  The engine reads five arrangements, listed by `plurals --shapes`. If this')
+    lines.push('  repository pluralises some other way, declare a family in place with an')
+    lines.push('  `ultrai18n:plural` comment rather than teaching the engine to guess.')
+    return lines.join('\n')
+  }
+
+  const tier = pluralTier()
+  if (tier.tier !== 'icu') lines.push(`  ! ${tier.reason}`, '')
+
+  const broken = families.filter((f) => f.missing.length || f.extra.length)
+  lines.push(`  ${families.length} family(ies), ${broken.length} not complete for their own locale`)
+
+  if (broken.length) {
+    lines.push('')
+    lines.push(`INCOMPLETE (${broken.length}) — the wrong string renders for some numbers, today`)
+    for (const f of broken) {
+      lines.push(`  ${f.file}#${f.base}  [${f.shape}]  ${f.locale ?? '?'}`)
+      lines.push(
+        `      has ${f.sourceCategories.join(', ')} · ${f.locale ?? 'this locale'} selects ` +
+          `${f.ownRequired?.join(', ') ?? '?'}` +
+          (f.missing.length ? ` · missing ${f.missing.join(', ')}` : '') +
+          (f.extra.length ? ` · never selected: ${f.extra.join(', ')}` : ''),
+      )
+    }
+  }
+
+  lines.push('')
+  lines.push(`ALL FAMILIES (${families.length})`)
+  for (const f of families) {
+    lines.push(
+      `  ${f.file}#${f.base}\n` +
+        `      ${f.shape} · ${f.locale ?? '?'} → ${f.targetRequired?.join(', ') ?? '?'} · writes by ${f.writeMode}` +
+        (f.ordinal ? ' · ordinal' : '') +
+        (f.declaredBy === 'annotation' ? ' · declared by annotation' : '') +
+        (f.blocked ? `\n      blocked: ${f.blocked}` : ''),
+    )
+  }
+
+  lines.push('')
+  lines.push('SHAPES READ')
+  for (const shape of PLURAL_SHAPES) {
+    lines.push(`  ${shape.id.padEnd(16)} ${shape.title}\n      ${shape.docs}`)
+  }
   return lines.join('\n')
 }
 

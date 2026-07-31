@@ -6,7 +6,7 @@
 // emphasis, links or lists — a reconstruction that is wrong exactly often
 // enough to be dangerous.
 import type { Span } from '../types'
-import type { RawSite } from './raw'
+import { lineBytes, type RawSite } from './raw'
 import { OffsetMap } from '../vendor/text'
 
 export interface MarkdownExtractResult {
@@ -90,7 +90,7 @@ export function extractMarkdown(
 
   for (let i = 0; i < lines.length; i++) {
     const { text: line, start } = lines[i]!
-    claimed += line.length + 1
+    claimed += lineBytes(map, text, start, line.length)
 
     const fence = FENCE.exec(line)
     if (fence) {

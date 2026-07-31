@@ -6,13 +6,16 @@
 // manual` a first-class path rather than a fallback.
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Inventory } from './types'
+import type { Inventory, Site } from './types'
 import { plan as buildPlan, type Group, type Plan } from './plan'
+import {
+  keyForCategory, scanIcu, serializeArgument, splice, type PluralFamily,
+} from './plural'
 import {
   buildBatches, foldResults, runCliBackend, runApiBackend, parseResult, TRANSLATOR_CONTRACT,
   type Batch, type BatchResult,
 } from './translate'
-import { apply, type Translation } from './apply'
+import { apply, type Insertion, type Translation } from './apply'
 
 export interface RunDir {
   root: string
@@ -302,8 +305,11 @@ export function cmdTranslateApply(out: string): {
   refused: number
   missing: number
   translations: Translation[]
+  insertions: Insertion[]
+  structural: number
 } {
   const dirs = runDir(out)
+  const inventory = readJson<Inventory>(dirs.inventory, 'inventory.json')
   const p = readJson<Plan>(dirs.plan, 'PLAN.json')
   const batches = readBatches(dirs.batches)
   const results = readResults(dirs.results)
@@ -312,10 +318,29 @@ export function cmdTranslateApply(out: string): {
   const report = foldResults(results, { groups: p.groups, glossary, batches })
 
   const byGroup = new Map(p.groups.map((g) => [g.id, g]))
+  const families = new Map(
+    ((inventory.plurals ?? []) as PluralFamily[]).map((f) => [f.id, f]),
+  )
+  const bySiteId = new Map(inventory.sites.map((s) => [s.id, s]))
+
   const translations: Translation[] = []
+  const insertions: Insertion[] = []
+  const structural: StructuralTodo[] = []
+
   for (const accepted of report.accepted) {
     const group = byGroup.get(accepted.groupId)
     if (!group) continue
+
+    if (group.plural && accepted.forms) {
+      const family = families.get(group.plural.familyId)
+      if (!family) continue
+      const written = writeFamily(family, accepted.forms, bySiteId)
+      translations.push(...written.translations)
+      insertions.push(...written.insertions)
+      if (written.todo) structural.push(written.todo)
+      continue
+    }
+
     // One translation, every site it belongs to — including the test
     // assertions that mirror it, so CI never sees a half-translated state.
     for (const id of [...group.sites, ...group.mirrors]) {
@@ -330,14 +355,134 @@ export function cmdTranslateApply(out: string): {
     }
   }
 
-  writeJson(dirs.translations, { schemaVersion: 1, translations, report })
+  writeJson(dirs.translations, { schemaVersion: 1, translations, insertions, report })
+  if (structural.length) writeJson(join(out, 'PLURALS.todo.json'), { schemaVersion: 1, families: structural })
+
   return {
     accepted: report.accepted.length,
     rejected: report.rejected.length,
     refused: report.refused.length,
     missing: report.missing.length,
     translations,
+    insertions,
+    structural: structural.length,
   }
+}
+
+/** A family whose forms are translated and whose write is a code edit. */
+export interface StructuralTodo {
+  familyId: string
+  file: string
+  anchor: string
+  shape: string
+  why: string
+  count: string | null
+  forms: Record<string, string>
+  targetCategories: string[]
+}
+
+/**
+ * Turn a family's translated forms into writes.
+ *
+ * Three outcomes, and which one applies is decided by the shape, not by the
+ * translation:
+ *
+ *  - `replace` — every form lives inside one value. Rebuild that value whole,
+ *    which is how an ICU family can go from two branches to four without
+ *    anything special happening.
+ *  - `insert`  — each form is its own key. Forms that exist are rewritten in
+ *    place; forms the target needs and the file has never had become new
+ *    siblings.
+ *  - `code-edit` — the forms are correct and cannot be written from here. They
+ *    go to a worklist WITH their translations, because the person or agent
+ *    making that edit should not have to translate it again.
+ */
+function writeFamily(
+  family: PluralFamily,
+  forms: Record<string, string>,
+  bySiteId: Map<string, Site>,
+): { translations: Translation[]; insertions: Insertion[]; todo?: StructuralTodo } {
+  const target = family.targetRequired ?? family.sourceCategories
+
+  if (family.writeMode === 'code-edit') {
+    return {
+      translations: [],
+      insertions: [],
+      todo: {
+        familyId: family.id,
+        file: family.file,
+        anchor: family.anchor,
+        shape: family.shape,
+        why: family.blocked ?? 'this family cannot be written by byte offset',
+        count: family.count,
+        forms,
+        targetCategories: [...target],
+      },
+    }
+  }
+
+  if (family.writeMode === 'replace') {
+    const siteId = family.sites[0]
+    const site = siteId ? bySiteId.get(siteId) : undefined
+    if (!site) return { translations: [], insertions: [] }
+    const rebuilt =
+      family.shape === 'inline-select'
+        ? rebuildIcu(site.value, family, forms, target)
+        : [...target].map((c) => forms[c] ?? '').join(' | ')
+    return rebuilt === null
+      ? { translations: [], insertions: [] }
+      : { translations: [{ id: site.id, text: rebuilt }], insertions: [] }
+  }
+
+  // insert
+  const byCategory = new Map(family.forms.map((f) => [f.category, f]))
+  const translations: Translation[] = []
+  const insertions: Insertion[] = []
+  const anchor = family.insertAfterSiteId
+  let order = 0
+  for (const category of target) {
+    const text = forms[category]
+    if (text === undefined) continue
+    const existing = byCategory.get(category)
+    if (existing) {
+      translations.push({ id: existing.siteId, text })
+      continue
+    }
+    const key = keyForCategory(family, category)
+    if (!anchor || !key) continue
+    insertions.push({ afterSiteId: anchor, key, text, order: order++ })
+  }
+  return { translations, insertions }
+}
+
+/** Rebuild an ICU message with the target's branches in place of the source's. */
+function rebuildIcu(
+  value: string,
+  family: PluralFamily,
+  forms: Record<string, string>,
+  target: readonly string[],
+): string | null {
+  const scan = scanIcu(value)
+  if (!scan.ok) return null
+  const at = /@(\d+)$/.exec(family.base)
+  const argument = at
+    ? scan.arguments.find((a) => a.start === Number(at[1]))
+    : scan.arguments.find((a) => a.type !== 'select')
+  if (!argument) return null
+
+  const bodies: Record<string, string> = {}
+  for (const branch of argument.branches) {
+    // `=0` and friends are exact matches the engine never asked anyone to
+    // rewrite; they ride through unchanged.
+    if (branch.selector.startsWith('=')) bodies[branch.selector] = branch.body
+  }
+  for (const category of target) {
+    if (forms[category] !== undefined) bodies[category] = forms[category]!
+  }
+
+  return splice(value, [
+    { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) },
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -348,13 +493,16 @@ export function cmdApply(repo: string, out: string, write: boolean, recover: boo
   const dirs = runDir(out)
   const inventory = readJson<Inventory>(dirs.inventory, 'inventory.json')
   const p = readJson<Plan>(dirs.plan, 'PLAN.json')
-  const { translations } = readJson<{ translations: Translation[] }>(dirs.translations, 'TRANSLATIONS.json')
+  const { translations, insertions = [] } = readJson<{
+    translations: Translation[]
+    insertions?: Insertion[]
+  }>(dirs.translations, 'TRANSLATIONS.json')
 
   const groups = p.groups
     .filter((g) => g.status === 'pending' || g.status === 'memo')
     .map((g) => [...g.sites, ...g.mirrors])
 
-  const report = apply({ repo, inventory, translations, write, recover, groups })
+  const report = apply({ repo, inventory, translations, insertions, write, recover, groups })
   writeJson(dirs.applyReport, report)
   return report
 }

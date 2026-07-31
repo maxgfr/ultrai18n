@@ -1,0 +1,16 @@
+{
+  "greeting": "Welcome back to your workspace",
+  "save": "Save changes",
+  "cart": {
+    "item_one": "{{count}} item",
+    "item_other": "{{count}} items"
+  },
+  "inbox": "You have {count, plural, one {# unread message} other {# unread messages}}",
+  "place": "You finished {rank, selectordinal, one {#st} two {#nd} few {#rd} other {#th}}",
+  "notice_one": "One notice is waiting for you",
+  "notice_other": "{{count}} notices are waiting for you",
+  "notice_few": "A few notices are waiting for you",
+  "cars": "no cars available | one car available | {count} cars available",
+  "invite_ordinal_one": "This is your {{count}}st invitation",
+  "invite_ordinal_other": "This is your {{count}}th invitation"
+}

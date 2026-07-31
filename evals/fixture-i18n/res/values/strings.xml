@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Workspace</string>
+    <string name="empty_state">Nothing here yet, add your first task</string>
+    <plurals name="task_count">
+        <item quantity="one">One task remaining</item>
+        <item quantity="other">%d tasks remaining</item>
+    </plurals>
+</resources>

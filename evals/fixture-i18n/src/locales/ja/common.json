@@ -1,0 +1,6 @@
+{
+  "greeting": "ワークスペースへおかえりなさい",
+  "cart": {
+    "item_other": "{{count}}件"
+  }
+}

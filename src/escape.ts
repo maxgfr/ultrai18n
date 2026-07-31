@@ -79,6 +79,16 @@ export interface EscapeOptions {
   asciiOnly?: boolean
   /** Indentation to re-apply to each line of a YAML block scalar. */
   blockIndent?: string
+  /**
+   * Whether the site begins its own line.
+   *
+   * Only meaningful for Markdown, and it decides whether a leading `*` or `-`
+   * needs escaping at all. A block construct can only start at the start of a
+   * block, so text sitting inside a table cell or after other prose cannot
+   * begin one — and escaping it there inserts a backslash the reader sees.
+   * Defaults to true, which is the cautious reading when nobody said.
+   */
+  atLineStart?: boolean
 }
 
 /**
@@ -127,8 +137,10 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
         : text
     case 'md-text':
       // Escape only where a character would START a construct at that position.
-      // Escaping every `*` would turn prose into a thicket of backslashes.
-      return text.replace(/^(\s*)([#>*+-]|\d+[.)])/, '$1\\$2')
+      // Escaping every `*` would turn prose into a thicket of backslashes, and
+      // escaping one mid-line — in a table cell, say — turns `**bold**` into a
+      // visible `\**bold**`, which is the same class of damage in miniature.
+      return opts.atLineStart === false ? text : text.replace(/^(\s*)([#>*+-]|\d+[.)])/, '$1\\$2')
     case 'html-text':
       return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     case 'html-attr':

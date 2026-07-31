@@ -12,7 +12,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { Group } from './plan'
-import { validate, rejects, type Violation } from './validate'
+import { validate, validatePlural, rejects, type Violation } from './validate'
 
 export interface BatchItem {
   id: string
@@ -24,6 +24,20 @@ export interface BatchItem {
   holes?: Record<string, string>
   /** How many places this text appears — a hint to translate conservatively. */
   sites?: number
+  /**
+   * Present when the item is a plural family rather than a single string.
+   *
+   * The item then asks for `forms`, not `text`. Everything the answer needs is
+   * here: which forms exist, which the target selects, and which placeholders
+   * are real. The model is never shown the ICU skeleton or the key names — the
+   * engine owns those, exactly as it owns the file.
+   */
+  plural?: {
+    op: 'translate' | 'complete'
+    forms: Record<string, string>
+    targetCategories: string[]
+    placeholders: string[]
+  }
 }
 
 export interface Batch {
@@ -41,7 +55,7 @@ export interface Batch {
 export interface BatchResult {
   batchId: string
   batchDigest?: string
-  items: { id: string; text?: string; refuse?: string }[]
+  items: { id: string; text?: string; forms?: Record<string, string>; refuse?: string }[]
 }
 
 export const BATCH_SIZE = 8
@@ -68,6 +82,16 @@ export function buildBatches(groups: Group[], opts: BuildBatchesOptions): Batch[
       ...(g.max !== null ? { max: g.max } : {}),
       ...(Object.keys(g.holeGloss).length ? { holes: g.holeGloss } : {}),
       ...(g.sites.length + g.mirrors.length > 1 ? { sites: g.sites.length + g.mirrors.length } : {}),
+      ...(g.plural
+        ? {
+            plural: {
+              op: g.plural.op,
+              forms: g.plural.forms,
+              targetCategories: g.plural.targetCategories,
+              placeholders: g.plural.placeholders,
+            },
+          }
+        : {}),
     }))
 
     // Only the glossary entries this batch can actually use, so the envelope
@@ -134,6 +158,8 @@ export interface FoldOptions {
 export interface FoldedTranslation {
   groupId: string
   text: string
+  /** Set when the group is a plural family: the target's forms, by category. */
+  forms?: Record<string, string>
   violations: Violation[]
 }
 
@@ -173,6 +199,35 @@ export function foldResults(results: BatchResult[], opts: FoldOptions): FoldRepo
         report.refused.push({ groupId: item.id, why: item.refuse })
         continue
       }
+      // A plural family answers with `forms`, never with `text`: there is no
+      // single string to return when the target decides how many there are.
+      if (group.plural) {
+        const forms = item.forms
+        if (!forms) {
+          report.rejected.push({
+            groupId: item.id,
+            text: '',
+            violations: [
+              {
+                validator: 'V9',
+                severity: 'reject',
+                message: `this is a plural family — answer with forms for ${group.plural.targetCategories.join(', ')}, not a single text`,
+              },
+            ],
+          })
+          continue
+        }
+        const violations = validatePlural(
+          forms,
+          group.plural.targetCategories,
+          group.plural.placeholders,
+        )
+        const entry = { groupId: item.id, text: forms.other ?? Object.values(forms)[0] ?? '', forms, violations }
+        if (rejects(violations)) report.rejected.push(entry)
+        else report.accepted.push(entry)
+        continue
+      }
+
       if (item.text === undefined) {
         report.rejected.push({
           groupId: item.id,
@@ -354,6 +409,28 @@ ids, nothing else.
   - \`heading\`, \`doc-heading\` — noun phrase, no final period
 - If a string cannot be translated without restructuring the surrounding code,
   return \`{id, refuse: "<one line why>"}\` rather than guessing.
+
+## Items with a \`plural\` field
+
+These are plural FAMILIES. Answer with \`{id, forms: {...}}\` — never \`text\`.
+
+- \`plural.forms\` is what the source has, keyed by CLDR category.
+- \`plural.targetCategories\` is exactly the set of keys your answer must have.
+  Not a subset, not a superset. It is often a different SIZE from the source:
+  English has two forms and Russian needs four, Japanese needs one. Write each
+  form so it is correct for the numbers that category actually covers — Russian
+  \`few\` covers 2–4, \`many\` covers 0 and 5–20. Do not copy one form into the
+  others to fill the shape.
+- \`plural.op\` is \`translate\` when you are moving the family into another
+  language, and \`complete\` when the family is already in the target language and
+  is missing forms that language needs. For \`complete\`, keep the existing forms
+  as they are written and supply only what is absent, in the same voice.
+- \`plural.placeholders\` lists every placeholder the source uses. You may use
+  any of them and you may leave one out — "One item" is better English than
+  "1 item" — but never invent one that is not in that list. \`#\` is the number
+  itself and is a placeholder like any other.
+- Return no ICU syntax, no braces of your own, and no key names. You are writing
+  the text of each form; the engine writes the syntax around it.
 
 **Do not open any repository file. Do not write, edit or delete anything.** The
 batch is the whole context you need and the whole context you get: the

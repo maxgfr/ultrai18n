@@ -20,5 +20,5 @@
   // The fixture is INPUT, not source. It deliberately imports packages that are
   // not installed and contains code shaped like the mistakes under test;
   // typechecking it would be typechecking the test data.
-  "exclude": ["evals/fixture"]
+  "exclude": ["evals/fixture", "evals/fixture-i18n"]
 }

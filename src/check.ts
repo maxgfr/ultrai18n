@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import type { Inventory, Site } from './types'
 import { runCensus } from './census'
 import { slugify } from './extract/markdown'
+import { danglingSidecarKeys, type PluralFamily } from './plural'
 
 export interface Exception {
   siteKey: string
@@ -291,6 +292,41 @@ function gateCoherence(inv: Inventory, repo: string): Gate {
         })
       }
     }
+  }
+
+  // A plural family that does not have the forms its own locale selects.
+  //
+  // Unlike every other check here, this one does not need a translation to have
+  // happened. A Russian bundle carrying only `one` and `other` renders the
+  // wrong string for 2, 3 and 4 right now, and an English one carrying `few`
+  // has a key nothing will ever select. Both are findings about the repository
+  // as it stands, which makes this the most valuable thing an audit run
+  // produces.
+  for (const family of (inv.plurals ?? []) as PluralFamily[]) {
+    if (family.missing.length === 0 && family.extra.length === 0) continue
+    const parts: string[] = []
+    if (family.missing.length) parts.push(`no ${family.missing.join(' or ')} form`)
+    if (family.extra.length) {
+      parts.push(`a ${family.extra.join(' and ')} form that ${family.locale ?? 'this locale'} never selects`)
+    }
+    findings.push({
+      file: family.file,
+      siteKey: family.anchor,
+      kind: 'plural-incomplete',
+      message:
+        `${family.base} is a plural family in ${family.locale ?? 'an unknown locale'}, which selects ` +
+        `${family.ownRequired?.join(', ') ?? '?'} — and it has ${parts.join(', and ')}`,
+    })
+  }
+
+  // A declaration pointing at a site that no longer exists. Usually the code
+  // moved and the annotation did not.
+  for (const key of danglingSidecarKeys(join(repo, '.ultrai18n', 'plurals.json'), inv.sites)) {
+    findings.push({
+      siteKey: key,
+      kind: 'plural-dangling',
+      message: 'a plural declaration names a site that is not in the inventory',
+    })
   }
 
   // A length budget blown — a store listing that will be rejected, or a button

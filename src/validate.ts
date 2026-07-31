@@ -12,7 +12,7 @@
 import type { Group } from './plan'
 import { isCognate } from './lang/detect'
 
-export type ValidatorId = 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6' | 'V8'
+export type ValidatorId = 'V1' | 'V2' | 'V3' | 'V4' | 'V5' | 'V6' | 'V8' | 'V9'
 
 export interface Violation {
   validator: ValidatorId
@@ -53,14 +53,26 @@ export function validate(group: Group, translation: string, opts: ValidateOption
     }
   }
 
-  // V2 — a brace that is not a well-formed placeholder. `{O}` with a letter O
-  // is the classic near-miss, and it renders literally.
-  const stray = translation.replace(HOLE, '')
-  if (/[{}]/.test(stray)) {
+  // V2 — brace structure, measured against the SOURCE.
+  //
+  // The point is still `{O}` with a letter O, which is the classic near-miss
+  // and renders literally. But "any brace left over is a reject" was the wrong
+  // way to catch it: an ICU message is nothing but braces, and so is a bundle
+  // string carrying `{{count}}`. Every one of them was rejected outright, which
+  // meant no repository using ICU could ship a translation through this tool at
+  // all. Comparing the brace skeleton instead catches the typo — `{0}` is a
+  // hole and `{O}` is not, so the skeletons differ — and leaves correct syntax
+  // alone.
+  const wantBraces = braceSkeleton(source)
+  const gotBraces = braceSkeleton(translation)
+  if (wantBraces !== gotBraces) {
     out.push({
       validator: 'V2',
       severity: 'reject',
-      message: `stray brace outside a placeholder: ${JSON.stringify(stray.match(/.{0,12}[{}].{0,12}/)?.[0] ?? '')}`,
+      message:
+        `brace structure changed: the source has ${wantBraces.length || 'none'}` +
+        `${wantBraces ? ` (${wantBraces})` : ''} and the translation has ${gotBraces.length || 'none'}` +
+        `${gotBraces ? ` (${gotBraces})` : ''}`,
     })
   }
 
@@ -129,6 +141,17 @@ export function validate(group: Group, translation: string, opts: ValidateOption
   return out
 }
 
+/**
+ * The braces a text has once its ordinal placeholders are removed.
+ *
+ * `Move {0} up` → `` (the hole is not structure). `{{count}} items` → `{{}}`.
+ * `{n, plural, one {#} other {#}}` → `{{}{}}`. Two texts with the same
+ * skeleton have the same syntax, whatever their words.
+ */
+export function braceSkeleton(text: string): string {
+  return text.replace(HOLE, '').replace(/[^{}]/g, '')
+}
+
 function holeCounts(text: string): Map<string, number> {
   const counts = new Map<string, number>()
   for (const m of text.matchAll(HOLE)) {
@@ -150,3 +173,78 @@ function containsWord(haystack: string, needle: string): boolean {
 export function rejects(violations: Violation[]): boolean {
   return violations.some((v) => v.severity === 'reject')
 }
+
+// ---------------------------------------------------------------------------
+// Plurals
+// ---------------------------------------------------------------------------
+
+/**
+ * V9 — a plural answer has to have exactly the forms the target locale uses.
+ *
+ * Both directions are failures and only one of them is obvious. A MISSING form
+ * is a string the runtime cannot find, so it falls back — usually to the key
+ * itself, in front of a user. An EXTRA form is quieter and just as wrong: a
+ * `few` key in an English bundle is dead weight the runtime will never select,
+ * and it reads to the next person as though English had a `few` form.
+ *
+ * The placeholder rule is deliberately one-sided. A target form may legitimately
+ * drop the number — English writes "One item", not "1 item" — so a form
+ * carrying FEWER placeholders than the source is fine. Inventing one that
+ * appears in no source form is not: nothing will substitute it and it renders
+ * raw.
+ */
+export function validatePlural(
+  forms: Record<string, string>,
+  expected: readonly string[],
+  sourcePlaceholders: readonly string[],
+): Violation[] {
+  const out: Violation[] = []
+  const got = Object.keys(forms)
+
+  for (const category of expected) {
+    if (forms[category] === undefined) {
+      out.push({
+        validator: 'V9',
+        severity: 'reject',
+        message: `the ${category} form is missing, and the target locale selects it`,
+      })
+    } else if (!forms[category]!.trim()) {
+      out.push({ validator: 'V9', severity: 'reject', message: `the ${category} form is empty` })
+    }
+  }
+  for (const category of got) {
+    if (category.startsWith('=')) continue
+    if (!expected.includes(category)) {
+      out.push({
+        validator: 'V9',
+        severity: 'reject',
+        message: `there is a ${category} form, and the target locale never selects it`,
+      })
+    }
+  }
+
+  const allowed = new Set(sourcePlaceholders)
+  for (const [category, text] of Object.entries(forms)) {
+    for (const m of text.matchAll(PLACEHOLDER)) {
+      if (!allowed.has(m[0])) {
+        out.push({
+          validator: 'V9',
+          severity: 'reject',
+          message: `the ${category} form introduced ${m[0]}, which no source form has — nothing will substitute it`,
+        })
+      }
+    }
+    for (const [pattern, what] of [
+      [/\$\{/, 'a JavaScript interpolation'],
+      [/`/, 'a backtick'],
+    ] as const) {
+      if (pattern.test(text)) {
+        out.push({ validator: 'V3', severity: 'reject', message: `the ${category} form introduced ${what}` })
+      }
+    }
+  }
+
+  return out
+}
+
+const PLACEHOLDER = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g

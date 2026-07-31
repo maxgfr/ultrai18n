@@ -56,7 +56,7 @@ export function extractText(file: string, text: string, map: OffsetMap): TextExt
   }
   flush()
 
-  return { sites, claimedBytes: text.length }
+  return { sites, claimedBytes: map.byteOf(text.length) }
 }
 
 function makeSite(

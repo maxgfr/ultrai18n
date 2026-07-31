@@ -12,6 +12,7 @@
 // incompatible verdicts becomes a HAZARD the engine refuses to plan at all.
 import type { Inventory, Site, Surface } from './types'
 import { sha256, normalizeForGrouping } from './identity'
+import type { Category, PluralFamily, WriteMode } from './plural'
 
 /** Register vocabulary handed to a translator. One token replaces a paragraph of instructions. */
 export type Role =
@@ -24,6 +25,38 @@ export type Role =
 export type RoleClass = 'ui-short' | 'ui-long' | 'a11y' | 'doc'
 
 export type GroupStatus = 'pending' | 'memo' | 'hazard' | 'structural' | 'skip'
+
+/**
+ * A plural family as a unit of work.
+ *
+ * This is the field that makes plurals possible at all. Everywhere else a group
+ * is one source text and one target text, and that shape simply cannot express
+ * the operation: English has two forms and Russian needs four, so there is no
+ * single string to return. The family carries every form in and expects every
+ * form the TARGET requires back.
+ *
+ * `op` distinguishes the two jobs that look alike from the outside. Translating
+ * an English family into Russian is one. COMPLETING a Russian family that only
+ * ever had `one` and `other` — a bug already rendering the wrong string for 2,
+ * 3 and 4 — is the other, and a translator told to "translate ru to ru" would
+ * rightly be confused by it.
+ */
+export interface PluralPlan {
+  familyId: string
+  shape: string
+  writeMode: WriteMode
+  op: 'translate' | 'complete'
+  locale: string | null
+  /** Source forms, keyed by CLDR category. */
+  forms: Record<string, string>
+  sourceCategories: Category[]
+  /** Exactly the keys the answer must come back with. */
+  targetCategories: Category[]
+  /** `=0`-style ICU branches, carried through untouched. */
+  exact: { selector: string; value: string }[]
+  /** Placeholders that appear somewhere in the source forms. */
+  placeholders: string[]
+}
 
 export interface Group {
   id: string
@@ -45,6 +78,8 @@ export interface Group {
   blocked?: string
   /** Populated for `memo`: where the translation came from without a model call. */
   memo?: { text: string; origin: 'glossary' | 'tm' }
+  /** Set when this group is a plural family rather than a single string. */
+  plural?: PluralPlan
 }
 
 export interface Plan {
@@ -65,6 +100,9 @@ export interface Plan {
     hazard: number
     structural: number
     skipped: number
+    plural: number
+    /** Families that will gain forms their locale requires and does not have. */
+    pluralCompleting: number
   }
 }
 
@@ -83,7 +121,14 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
   const glossary = opts.glossary ?? new Map()
   const tm = opts.tm ?? new Map()
 
-  const translatable = inv.sites.filter((s) => s.verdict === 'translate')
+  // A site that is one form of a plural family is never grouped on its own.
+  // Grouping it by text would put `{{count}} item` and `{{count}} items` in
+  // two unrelated batches, and no answer to either can be right without the
+  // other: the target decides how many forms there are.
+  const families = (inv.plurals ?? []) as PluralFamily[]
+  const familySites = new Set(families.flatMap((f) => f.sites))
+
+  const translatable = inv.sites.filter((s) => s.verdict === 'translate' && !familySites.has(s.id))
   const excluded = inv.sites.filter((s) => s.verdict === 'do-not-translate')
 
   // A text asserted as copy in one place and as an IDENTIFIER in another is the
@@ -153,11 +198,18 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
     groups.push(group)
   }
 
+  const bySiteId = new Map(inv.sites.map((s) => [s.id, s]))
+  for (const family of families) {
+    const group = pluralGroup(family, inv.targetLanguage, bySiteId)
+    if (group) groups.push(group)
+  }
+
   attachMirrors(groups, inv)
 
   const unlinked = findUnlinked(inv, groups)
 
   const pending = groups.filter((g) => g.status === 'pending')
+  const plural = groups.filter((g) => g.plural)
   return {
     schemaVersion: 1,
     sourceLang: inv.sourceLanguage ?? 'unknown',
@@ -175,8 +227,85 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
       hazard: groups.filter((g) => g.status === 'hazard').length,
       structural: groups.filter((g) => g.status === 'structural').length,
       skipped: inv.sites.length - groups.reduce((n, g) => n + g.sites.length, 0),
+      plural: plural.length,
+      pluralCompleting: plural.filter((g) => g.plural!.op === 'complete').length,
     },
   }
+}
+
+/**
+ * One group per plural family, or none.
+ *
+ * A family is planned when its sites are translatable, and separately when an
+ * ANNOTATION declared it — because an annotated family sits on a site the
+ * engine has verdicted `grammar-hole`, which is a refusal to translate the
+ * string, not a refusal to act on forms someone supplied by hand.
+ */
+function pluralGroup(
+  family: PluralFamily,
+  targetLang: string,
+  bySiteId: Map<string, Site>,
+): Group | null {
+  const sites = family.sites.map((id) => bySiteId.get(id)).filter((s): s is Site => s !== undefined)
+  if (sites.length === 0) return null
+
+  const translatable = sites.some((s) => s.verdict === 'translate')
+  if (!translatable && family.declaredBy !== 'annotation') return null
+
+  const targetCategories = family.targetRequired ?? family.sourceCategories
+  const forms: Record<string, string> = {}
+  for (const form of family.forms) forms[form.category] = form.value
+
+  // A family already in the target locale is not being translated, it is being
+  // COMPLETED — which is a different instruction, and one the model needs.
+  const op = family.locale === targetLang ? 'complete' : 'translate'
+
+  const canonical = forms.other ?? family.forms[0]?.value ?? ''
+  const group: Group = {
+    id: 'g_' + family.id.slice(3, 15),
+    text: canonical,
+    role: 'label',
+    roleClass: 'ui-short',
+    status: 'pending',
+    max: null,
+    holes: [],
+    holeGloss: {},
+    sites: family.sites,
+    mirrors: [],
+    plural: {
+      familyId: family.id,
+      shape: family.shape,
+      writeMode: family.writeMode,
+      op,
+      locale: family.locale,
+      forms,
+      sourceCategories: family.sourceCategories,
+      targetCategories,
+      exact: family.exact,
+      placeholders: placeholdersIn(Object.values(forms)),
+    },
+  }
+
+  // A family needing a code edit is still translated: the forms are what the
+  // structural worklist is FOR, and withholding them would leave whoever makes
+  // that edit to translate by hand.
+  if (family.writeMode === 'code-edit') {
+    group.blocked =
+      family.blocked ?? 'the forms cannot be written mechanically here; they go to the structural worklist'
+  }
+
+  return group
+}
+
+const PLACEHOLDER = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g
+
+/** Every placeholder token appearing in any source form, deduplicated. */
+export function placeholdersIn(values: string[]): string[] {
+  const out = new Set<string>()
+  for (const value of values) {
+    for (const m of value.matchAll(PLACEHOLDER)) out.add(m[0])
+  }
+  return [...out].sort()
 }
 
 /**
@@ -328,6 +457,14 @@ export function formatPlan(p: Plan): string {
     `  ${p.counts.sites} sites → ${p.counts.groups} groups: ` +
       `${p.counts.toTranslate} to translate, ${p.counts.memo} already known`,
   )
+  if (p.counts.plural) {
+    lines.push(
+      `  ${p.counts.plural} plural family(ies)` +
+        (p.counts.pluralCompleting
+          ? `, ${p.counts.pluralCompleting} of them being completed for a locale that already needs more forms than it has`
+          : ''),
+    )
+  }
 
   if (p.hazards.length) {
     lines.push('')

@@ -1,0 +1,8 @@
+en:
+  tasks:
+    title: Everything on your plate
+    count:
+      one: One task is due today
+      other: "%{count} tasks are due today"
+  buttons:
+    archive: Archive this project

@@ -84,6 +84,7 @@ const inv = (): Inventory => ({
   advisories: [],
   limits: [],
   recallClaim: 'full',
+  plurals: [],
 })
 
 describe('check --semantic fails closed', () => {
