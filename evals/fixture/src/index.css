@@ -1,0 +1,8 @@
+/*
+ * Le thème vit ici, en CSS. Il n'y a plus de fichier de configuration.
+ * La rampe est nommée par rôle, pas par clarté.
+ */
+:root { --color-ink-950: #0b0f0e; }
+
+/* Le compte à rebours ne doit jamais danser : chiffres à chasse fixe. */
+.tabular { font-variant-numeric: tabular-nums; }

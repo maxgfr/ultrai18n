@@ -33,7 +33,11 @@ export interface CensusResult {
 export function gitLsFiles(root: string): string[] | null {
   const r = spawnSync('git', ['ls-files', '-z'], { cwd: root, maxBuffer: 1 << 28 })
   if (r.status !== 0 || !r.stdout) return null
-  return r.stdout.toString('utf8').split('\0').filter(Boolean).sort()
+  const files = r.stdout.toString('utf8').split('\0').filter(Boolean).sort()
+  // An empty result is not an empty repository — it is a directory whose files
+  // git does not track. Using it as the denominator would report every file as
+  // skipped while declaring the census complete, which is the worst of both.
+  return files.length > 0 ? files : null
 }
 
 export function runCensus(root: string): CensusResult {

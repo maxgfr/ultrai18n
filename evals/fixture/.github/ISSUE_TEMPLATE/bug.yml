@@ -1,0 +1,16 @@
+name: Bug
+description: Quelque chose ne marche pas comme prévu.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Ce qui se passe
+      placeholder: 1. Démarrer un focus
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Comment tu l'utilises
+      options:
+        - Onglet de navigateur
+        - Application installée

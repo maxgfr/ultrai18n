@@ -16,5 +16,9 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "tests", "evals", "*.config.ts"]
+  "include": ["src", "tests", "evals", "*.config.ts"],
+  // The fixture is INPUT, not source. It deliberately imports packages that are
+  // not installed and contains code shaped like the mistakes under test;
+  // typechecking it would be typechecking the test data.
+  "exclude": ["evals/fixture"]
 }

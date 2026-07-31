@@ -14,6 +14,7 @@ import { extractYaml } from './extract/yaml'
 import { extractMarkdown } from './extract/markdown'
 import { extractCss } from './extract/css'
 import { extractHtml } from './extract/html'
+import { extractText, isPlainText } from './extract/text'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
 import { prepareGrammars, parserForExt, AST_EXTENSIONS, grammarStatus } from './ast/parse'
 import { classify } from './classify'
@@ -157,6 +158,11 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map)
     for (const id of identifiers) tokens.identifiers.add(id)
     return { ...base, sites, extractor: 'html', bytesClaimed: claimedBytes }
+  }
+
+  if (isPlainText(file.rel, ext)) {
+    const { sites, claimedBytes } = extractText(file.rel, read.text, map)
+    return { ...base, sites, extractor: 'text', bytesClaimed: claimedBytes }
   }
 
   // No extractor yet. Not silently clean: the census records the gap, and the
