@@ -41,6 +41,8 @@ export interface RawSite {
   extractor: string
   tier: Tier
   container: Container
+  /** Sweep sites only: who owned the file and why the span went unclaimed. */
+  whyUnclaimed?: string
 }
 
 export interface Container {

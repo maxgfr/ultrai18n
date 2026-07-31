@@ -56,8 +56,8 @@ No build step, no API key, no network. The tree-sitter grammars ship with the en
 
 ## Status
 
-`scan`, `census` and `catalog` work. The mutation half — `plan`, `translate`, `apply`, `verify`,
-`check` — is not built yet, and each of those commands exits 1 naming what it still needs.
+The audit and swap pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `check`.
+Still to come: `verify`, `sync`, `orchestrate` and `init --ci`; each exits 1 naming what it needs.
 
 On a fully French reference repository, `scan` finds 2956 text sites across 91 files and separates
 them into what to translate, what is an identifier and must not be touched, and what it refuses to

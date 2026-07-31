@@ -102,6 +102,7 @@ export function classify(raw: RawSite, opts: ClassifyOptions): Site {
       siblingKeys: c.siblingKeys ?? [],
       enumOrigins: opts.tokens.enums.get(raw.value) ?? [],
     },
+    ...(raw.whyUnclaimed !== undefined ? { whyUnclaimed: raw.whyUnclaimed } : {}),
     links: {
       duplicateOf: null,
       producedBy: null,
@@ -130,6 +131,14 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   const c = raw.container
   const value = raw.value
   const key = raw.path.split('/').pop() ?? ''
+
+  // The sweep found this; no extractor understood the span it came from. It is
+  // deliberately NOT given a verdict — an unclassified site fails `check` until
+  // a person looks at it, which is the mechanism that makes a miss impossible
+  // to ignore.
+  if (raw.tier === 'sweep') {
+    return { surface: 'residual.unclassified', verdict: 'unclassified', reason: 'residual', confidence: 'low' }
+  }
 
   const matches = matchRules(rules, {
     file: raw.file,
@@ -240,7 +249,29 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
     return { surface: 'test.fixture', verdict: 'do-not-translate', reason: 'test-fixture', confidence: 'medium' }
   }
 
-  // 9 — no words at all.
+  // 9 — a bare single-word value in a configuration format.
+  //
+  // YAML and JSON are key-value: an unquoted one-word value with no catalog
+  // rule behind it is an enum, a schedule, a package manager — not copy. Every
+  // format whose values ARE copy (issue forms, manifests, locale bundles) has a
+  // rule that already matched above, so this only ever catches the residue.
+  if (
+    raw.tier === 'structural' &&
+    (raw.extractor === 'yaml' || raw.extractor === 'json') &&
+    raw.kind !== 'comment' &&
+    raw.kind !== 'block-scalar' &&
+    !/[\s]/.test(value)
+  ) {
+    return {
+      surface: 'token.api-contract',
+      verdict: 'do-not-translate',
+      reason: 'code-token',
+      confidence: 'medium',
+      skipDetection: true,
+    }
+  }
+
+  // 10 — no words at all.
   if (!/\p{L}{2,}/u.test(value)) {
     // A `label` whose value has no word is still a label. Saying so out loud
     // beats being right by accident: the real risk is a model "helpfully"
@@ -251,14 +282,14 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
     return { surface: 'token.url-slug', verdict: 'do-not-translate', reason: 'numeric-or-symbolic', confidence: 'high', skipDetection: true }
   }
 
-  // 10 — calendar vocabulary disguised as symbols.
+  // 11 — calendar vocabulary disguised as symbols.
   if (isCalendarSymbol(raw)) {
     return { surface: 'ui.string-literal', verdict: 'needs-judgment', reason: 'symbol-set', confidence: 'high' }
   }
 
   const surface = surfaceFor(raw)
 
-  // 11 — language. A cognate is a genuine ambiguity, not a missing translation.
+  // 12 — language. A cognate is a genuine ambiguity, not a missing translation.
   const lang = detect(value, opts.from ? { candidates: candidatesFor(opts.from, opts.to) } : {})
   if (lang.detected && lang.detected === opts.to && lang.confidence >= 0.7) {
     return { surface, verdict: 'do-not-translate', reason: 'already-target-language', confidence: 'medium' }

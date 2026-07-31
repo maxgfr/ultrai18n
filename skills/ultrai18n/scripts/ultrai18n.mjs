@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "fs";
-import { join as join25, resolve as resolve3 } from "path";
+import { join as join26, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -21692,6 +21692,109 @@ function makeSite2(file, path, startChar, endChar, value, map) {
   };
 }
 
+// src/sweep.ts
+function sweepFile(file, text, map, claimed, opts) {
+  const bytes = Buffer.from(text, "utf8");
+  const gaps = complement(merge(claimed), bytes.length);
+  const out2 = [];
+  let index = 0;
+  for (const gap of gaps) {
+    const slice = bytes.subarray(gap.start, gap.end).toString("utf8");
+    for (const run2 of humanLookingRuns(slice, opts.identifiers)) {
+      const startByte = gap.start + Buffer.byteLength(slice.slice(0, run2.at), "utf8");
+      const endByte = startByte + Buffer.byteLength(run2.text, "utf8");
+      const startChar = charIndexOfByte(text, startByte);
+      const s = map.lineColOf(startChar);
+      const e = map.lineColOf(startChar + run2.text.length);
+      out2.push({
+        file,
+        path: `~sweep[${index++}]`,
+        kind: "prose-run",
+        span: { start: startByte, end: endByte },
+        valueSpan: { start: startByte, end: endByte },
+        raw: run2.text,
+        value: run2.text,
+        quote: null,
+        escapes: false,
+        holes: [],
+        line: s.line,
+        col: s.col,
+        endLine: e.line,
+        endCol: e.col,
+        extractor: "residual-sweep",
+        tier: "sweep",
+        container: { isKey: false },
+        // Every residual is an extractor bug report: it names who owned the
+        // file and why the span went unclaimed.
+        whyUnclaimed: opts.reason ?? `${opts.extractor}: the span was not claimed`
+      });
+    }
+  }
+  return out2;
+}
+var SEPARATOR = /[^\p{L}\p{M}\p{Nd}.,;:!?'’"“”()[\]\-–—/&%…«»  ]+/u;
+var IDENTIFIER_SHAPE = /^(?:[A-Z][A-Z0-9_]*|[a-z]+(?:[A-Z][a-z0-9]*)+|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]*)+|[\w]+[-_][\w-]+)$/;
+var NOT_PROSE = /^(?:[0-9a-f]{7,}|[A-Za-z0-9+/=]{20,}|v?\d+(\.\d+)+|\d{4}-\d{2}-\d{2}|[\d.,%+-]+)$/i;
+function humanLookingRuns(text, identifiers) {
+  const out2 = [];
+  let offset = 0;
+  for (const chunk of text.split(SEPARATOR)) {
+    const at = text.indexOf(chunk, offset);
+    offset = at + chunk.length;
+    const trimmed = chunk.trim();
+    if (trimmed.length < 3) continue;
+    const words = trimmed.match(new RegExp("\\p{L}{2,}", "gu")) ?? [];
+    if (words.length === 0) continue;
+    const letters = (trimmed.match(new RegExp("\\p{L}", "gu")) ?? []).length;
+    if (letters / trimmed.length < 0.5) continue;
+    if (NOT_PROSE.test(trimmed)) continue;
+    if (IDENTIFIER_SHAPE.test(trimmed)) continue;
+    const known = (w) => identifiers.has(w) || identifiers.has(w.toLowerCase()) || [...identifiers].some((id) => id.length > w.length && id.split(/[-_.]/).includes(w));
+    const prose = words.filter((w) => !known(w));
+    if (words.length === 1) {
+      if (words[0].length < 4) continue;
+      if (prose.length === 0) continue;
+      if (trimmed.length < 12) continue;
+    } else {
+      if (!/[\s ]/.test(trimmed) && !/[,;:!?]/.test(trimmed)) continue;
+      if (prose.length < 2 || prose.length / words.length < 0.5) continue;
+    }
+    const start2 = at + (chunk.length - chunk.trimStart().length);
+    out2.push({ text: trimmed, at: start2 });
+  }
+  return out2;
+}
+function merge(spans) {
+  if (spans.length === 0) return [];
+  const sorted = [...spans].sort((a, b) => a.start - b.start);
+  const out2 = [{ ...sorted[0] }];
+  for (const span of sorted.slice(1)) {
+    const last = out2[out2.length - 1];
+    if (span.start <= last.end) last.end = Math.max(last.end, span.end);
+    else out2.push({ ...span });
+  }
+  return out2;
+}
+function complement(merged, total) {
+  const out2 = [];
+  let cursor = 0;
+  for (const span of merged) {
+    if (span.start > cursor) out2.push({ start: cursor, end: span.start });
+    cursor = Math.max(cursor, span.end);
+  }
+  if (cursor < total) out2.push({ start: cursor, end: total });
+  return out2;
+}
+function charIndexOfByte(text, byte) {
+  if (!/[^\x00-\x7F]/.test(text)) return byte;
+  let seen = 0;
+  for (let i2 = 0; i2 < text.length; i2++) {
+    if (seen >= byte) return i2;
+    seen += Buffer.byteLength(text[i2], "utf8");
+  }
+  return text.length;
+}
+
 // src/vendor/glob.ts
 function globToRegExp2(glob) {
   let re = "";
@@ -23043,6 +23146,7 @@ function classify2(raw, opts) {
       siblingKeys: c2.siblingKeys ?? [],
       enumOrigins: opts.tokens.enums.get(raw.value) ?? []
     },
+    ...raw.whyUnclaimed !== void 0 ? { whyUnclaimed: raw.whyUnclaimed } : {},
     links: {
       duplicateOf: null,
       producedBy: null,
@@ -23057,6 +23161,9 @@ function decide(raw, opts, rules, fileLocale2) {
   const c2 = raw.container;
   const value = raw.value;
   const key = raw.path.split("/").pop() ?? "";
+  if (raw.tier === "sweep") {
+    return { surface: "residual.unclassified", verdict: "unclassified", reason: "residual", confidence: "low" };
+  }
   const matches2 = matchRules(rules, {
     file: raw.file,
     path: raw.path,
@@ -23137,6 +23244,15 @@ function decide(raw, opts, rules, fileLocale2) {
   }
   if (c2.inTest && c2.callee && TEST_MATCHER.test(c2.callee.split(".").pop() ?? "")) {
     return { surface: "test.fixture", verdict: "do-not-translate", reason: "test-fixture", confidence: "medium" };
+  }
+  if (raw.tier === "structural" && (raw.extractor === "yaml" || raw.extractor === "json") && raw.kind !== "comment" && raw.kind !== "block-scalar" && !/[\s]/.test(value)) {
+    return {
+      surface: "token.api-contract",
+      verdict: "do-not-translate",
+      reason: "code-token",
+      confidence: "medium",
+      skipDetection: true
+    };
   }
   if (!new RegExp("\\p{L}{2,}", "u").test(value)) {
     if (LABEL_KEY.test(key)) {
@@ -23264,7 +23380,7 @@ async function extractFile(file, tokens, opts) {
       const tree = parser2.parse(read.text);
       if (tree) {
         const { sites, tokens: contributed } = extractTs(file.rel, read.text, tree, map);
-        merge(tokens, contributed);
+        merge2(tokens, contributed);
         return { ...base, sites, extractor: "ts-ast", bytesClaimed: read.bytes };
       }
     }
@@ -23303,9 +23419,20 @@ async function extractFile(file, tokens, opts) {
     const { sites, claimedBytes } = extractText(file.rel, read.text, map);
     return { ...base, sites, extractor: "text", bytesClaimed: claimedBytes };
   }
-  return { ...base, extractor: "none", reason: `no extractor for ${ext || "extensionless file"}` };
+  const residual = sweepFile(file.rel, read.text, map, [], {
+    identifiers: tokens.identifiers,
+    extractor: "none",
+    reason: `no extractor for ${ext || "extensionless file"}; found by the residual sweep`
+  });
+  return {
+    ...base,
+    sites: residual,
+    extractor: "residual-sweep",
+    bytesClaimed: read.bytes,
+    reason: `no extractor for ${ext || "extensionless file"}`
+  };
 }
-function merge(into, from) {
+function merge2(into, from) {
   for (const [k, v] of from.enums) into.enums.set(k, [...into.enums.get(k) ?? [], ...v]);
   for (const [k, v] of from.compared) into.compared.set(k, [...into.compared.get(k) ?? [], ...v]);
   for (const [k, v] of from.persisted) into.persisted.set(k, [...into.persisted.get(k) ?? [], ...v]);
@@ -24571,6 +24698,286 @@ function cmdApply(repo, out2, write, recover) {
   return report;
 }
 
+// src/check.ts
+import { existsSync as existsSync11, readFileSync as readFileSync13 } from "fs";
+import { join as join25 } from "path";
+var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
+  "identifier",
+  "module-specifier",
+  "enum-member",
+  "persisted-value",
+  "api-contract",
+  "interop-format",
+  "url-or-slug",
+  "style-token",
+  "aria-vocabulary",
+  "test-fixture",
+  "vendored-legal",
+  "code-token",
+  "numeric-or-symbolic",
+  "already-target-language",
+  "interpolation",
+  "explicitly-marked",
+  "proper-noun",
+  "escaping-fixture",
+  "genuinely-source-language"
+]);
+function check(opts) {
+  const { repo, inventory } = opts;
+  const exceptions = opts.exceptions ?? { entries: [] };
+  const excused = new Map(exceptions.entries.map((e) => [e.siteKey, e]));
+  const minConfidence = opts.confidence ?? 0.7;
+  const gates = [
+    gateCensus(repo),
+    gateResidual(inventory, excused),
+    gateUnadjudicated(inventory, excused),
+    gateSourceLanguage(inventory, excused, minConfidence),
+    gateExceptions(inventory, exceptions),
+    gateCoherence(inventory, repo)
+  ];
+  if (opts.baseline) {
+    for (const gate of gates) {
+      gate.findings = gate.findings.filter((f) => !opts.baseline.has(fingerprint(gate.id, f)));
+      gate.count = gate.findings.length;
+      gate.ok = gate.count === 0;
+    }
+  }
+  const ok = gates.every((g) => g.ok);
+  return {
+    repo,
+    from: inventory.sourceLanguage,
+    to: inventory.targetLanguage,
+    ok,
+    gates,
+    summary: tally2(inventory),
+    exitCode: ok ? 0 : 1
+  };
+}
+function fingerprint(gate, f) {
+  return `${gate}\0${f.siteKey ?? ""}\0${f.file ?? ""}\0${f.kind ?? ""}\0${f.message}`;
+}
+function gateCensus(repo) {
+  const census = runCensus(repo);
+  const findings = census.unaccounted.map((file) => ({
+    file,
+    message: "tracked by git, neither read nor explained"
+  }));
+  if (census.source !== "git") {
+    findings.push({
+      message: "the denominator came from the filesystem rather than git, so the claim is weaker"
+    });
+  }
+  return { id: "G1", name: "census-complete", ok: findings.length === 0, count: findings.length, findings };
+}
+function gateResidual(inv, excused) {
+  const findings = inv.sites.filter((s) => s.verdict === "unclassified" && !excused.has(s.siteKey)).map((s) => ({
+    file: s.file,
+    line: s.line,
+    siteKey: s.siteKey,
+    message: `unclassified: ${JSON.stringify(clip3(s.value))} \u2014 ${s.whyUnclaimed ?? "no extractor claimed this span"}`
+  }));
+  return { id: "G2", name: "no-residual", ok: findings.length === 0, count: findings.length, findings };
+}
+function gateUnadjudicated(inv, excused) {
+  const findings = inv.sites.filter((s) => s.verdict === "needs-judgment" && !excused.has(s.siteKey)).map((s) => ({
+    file: s.file,
+    line: s.line,
+    siteKey: s.siteKey,
+    kind: s.reason ?? "no-rule",
+    message: `${s.reason ?? "no-rule"}: ${JSON.stringify(clip3(s.value))}`
+  }));
+  return { id: "G3", name: "no-unadjudicated", ok: findings.length === 0, count: findings.length, findings };
+}
+function gateSourceLanguage(inv, excused, minConfidence) {
+  const from = inv.sourceLanguage;
+  const findings = [];
+  if (from && from !== inv.targetLanguage) {
+    for (const site3 of inv.sites) {
+      if (site3.verdict !== "translate") continue;
+      if (excused.has(site3.siteKey)) continue;
+      if (site3.lang.detected !== from) continue;
+      if (site3.lang.confidence < minConfidence) continue;
+      findings.push({
+        file: site3.file,
+        line: site3.line,
+        siteKey: site3.siteKey,
+        message: `still ${from} (${site3.lang.confidence}): ${JSON.stringify(clip3(site3.value))}`
+      });
+    }
+  }
+  return { id: "G4", name: "source-language-clear", ok: findings.length === 0, count: findings.length, findings };
+}
+function gateExceptions(inv, exceptions) {
+  const bySiteKey = new Map(inv.sites.map((s) => [s.siteKey, s]));
+  const findings = [];
+  for (const entry of exceptions.entries) {
+    const site3 = bySiteKey.get(entry.siteKey);
+    if (!site3) {
+      findings.push({ siteKey: entry.siteKey, message: "the site this excuses no longer exists" });
+      continue;
+    }
+    if (!EXCEPTION_REASONS.has(entry.reason)) {
+      findings.push({ siteKey: entry.siteKey, message: `reason ${JSON.stringify(entry.reason)} is outside the closed vocabulary` });
+    }
+    if (!entry.justification?.trim()) {
+      findings.push({ siteKey: entry.siteKey, message: "no justification \u2014 an exception without a reason is a place to hide" });
+    }
+    if (entry.pin && entry.contentHash && entry.contentHash !== site3.contentHash) {
+      findings.push({
+        siteKey: entry.siteKey,
+        file: site3.file,
+        line: site3.line,
+        message: "the pinned text changed since this exception was written, so the exception is void"
+      });
+    }
+  }
+  return { id: "G5", name: "exceptions-valid", ok: findings.length === 0, count: findings.length, findings };
+}
+function gateCoherence(inv, repo) {
+  const findings = [];
+  for (const site3 of inv.sites) {
+    if (site3.verdict !== "locale-marker") continue;
+    const declared = site3.value.split(/[-_]/)[0].toLowerCase();
+    if (declared && declared !== inv.targetLanguage) {
+      findings.push({
+        file: site3.file,
+        line: site3.line,
+        siteKey: site3.siteKey,
+        kind: "locale-drift",
+        message: `declares ${JSON.stringify(site3.value)}, expected ${inv.targetLanguage}`
+      });
+    }
+  }
+  const byDup = /* @__PURE__ */ new Map();
+  for (const site3 of inv.sites) {
+    if (site3.verdict !== "translate" && site3.reason !== "already-target-language") continue;
+    const list = byDup.get(site3.dupKey);
+    if (list) list.push(site3);
+    else byDup.set(site3.dupKey, [site3]);
+  }
+  for (const group of byDup.values()) {
+    if (group.length < 2) continue;
+    const langs = new Set(group.map((s) => s.lang.detected).filter(Boolean));
+    if (langs.size > 1) {
+      findings.push({
+        file: group[0].file,
+        line: group[0].line,
+        kind: "duplicate-divergence",
+        message: `the same text is now in ${[...langs].join(" and ")}: ${group.map((s) => `${s.file}:${s.line}`).join(", ")}`
+      });
+    }
+  }
+  const slugs = /* @__PURE__ */ new Set();
+  for (const site3 of inv.sites) {
+    if (site3.extractor === "markdown" && /^h\d/.test(site3.siteKey.split("#")[1] ?? "")) {
+      slugs.add(slugify2(site3.value));
+    }
+  }
+  for (const site3 of inv.sites) {
+    if (site3.extractor !== "markdown") continue;
+    for (const m of site3.raw.matchAll(/\]\(#([^)]+)\)/g)) {
+      const anchor2 = m[1].toLowerCase();
+      if (slugs.size > 0 && !slugs.has(anchor2)) {
+        findings.push({
+          file: site3.file,
+          line: site3.line,
+          kind: "anchor-drift",
+          message: `links to #${anchor2}, which no heading in the inventory produces`
+        });
+      }
+    }
+  }
+  for (const site3 of inv.sites) {
+    if (site3.constraints.mustKeepHoles.length === 0) continue;
+    for (const index of site3.constraints.mustKeepHoles) {
+      if (!site3.value.includes(`{${index}}`)) {
+        findings.push({
+          file: site3.file,
+          line: site3.line,
+          siteKey: site3.siteKey,
+          kind: "hole-loss",
+          message: `placeholder {${index}} is missing from ${JSON.stringify(clip3(site3.value))}`
+        });
+      }
+    }
+  }
+  for (const site3 of inv.sites) {
+    const max = site3.constraints.maxLength;
+    if (max !== null && site3.value.length > max) {
+      findings.push({
+        file: site3.file,
+        line: site3.line,
+        siteKey: site3.siteKey,
+        kind: "max-length",
+        message: `${site3.value.length} characters exceeds the ${max} this surface allows`
+      });
+    }
+  }
+  const from = inv.sourceLanguage;
+  if (from && from !== inv.targetLanguage) {
+    for (const rel2 of ["CONTRIBUTING.md", "README.md", "docs/CONTRIBUTING.md"]) {
+      const abs = join25(repo, rel2);
+      if (!existsSync11(abs)) continue;
+      const text = readFileSync13(abs, "utf8");
+      const policy = /\b(commit messages|comments|documentation|everything in this repository|tout(?:e)? (?:le|la)? ?(?:dépôt|projet)|les commentaires|les messages de commit)\b[^.\n]{0,80}\b(français|french|anglais|english|español|spanish|deutsch|german)\b/i;
+      const m = policy.exec(text);
+      if (m && namesLanguage(m[0], from)) {
+        findings.push({
+          file: rel2,
+          line: text.slice(0, m.index).split("\n").length,
+          kind: "policy-drift",
+          message: `the repository's own language policy still says ${JSON.stringify(m[0].trim())}`
+        });
+      }
+    }
+  }
+  return { id: "G6", name: "coherence", ok: findings.length === 0, count: findings.length, findings };
+}
+function namesLanguage(text, lang) {
+  const names = {
+    fr: /français|french/i,
+    en: /anglais|english/i,
+    es: /español|spanish|espagnol/i,
+    de: /deutsch|german|allemand/i
+  };
+  return names[lang]?.test(text) ?? false;
+}
+function tally2(inv) {
+  const out2 = {};
+  for (const site3 of inv.sites) out2[site3.verdict] = (out2[site3.verdict] ?? 0) + 1;
+  return out2;
+}
+function clip3(s, n = 56) {
+  const flat = s.replace(/\s+/g, " ").trim();
+  return flat.length > n ? flat.slice(0, n - 1) + "\u2026" : flat;
+}
+function readExceptions(path) {
+  if (!existsSync11(path)) return { entries: [] };
+  return JSON.parse(readFileSync13(path, "utf8"));
+}
+function formatCheck(r) {
+  const lines = [];
+  lines.push(`ultrai18n check  ${r.from ?? "?"} \u2192 ${r.to}  ${r.repo}`);
+  lines.push("");
+  for (const gate of r.gates) {
+    lines.push(`${gate.id} ${gate.name.padEnd(24)} ${gate.ok ? "ok" : `FAIL (${gate.count})`}`);
+    if (gate.ok) continue;
+    const shown = gate.findings.slice(0, 12);
+    for (const f of shown) {
+      const where = f.file ? `${f.file}${f.line ? ":" + f.line : ""}  ` : "";
+      lines.push(`   ${where}${f.message}`);
+    }
+    if (gate.findings.length > shown.length) {
+      lines.push(`   \u2026 and ${gate.findings.length - shown.length} more`);
+    }
+  }
+  lines.push("");
+  lines.push(
+    `VERDICT  ${r.ok ? "pass" : "fail"} \u2014 ` + Object.entries(r.summary).sort().map(([k, v]) => `${v} ${k}`).join(", ")
+  );
+  return lines.join("\n");
+}
+
 // src/cli.ts
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
@@ -24716,7 +25123,6 @@ var PENDING = {
   lang: "wired into `scan`; a standalone command is not built yet",
   adjudicate: "requires `scan`",
   verify: "requires `apply`",
-  check: "the six gates are not wired yet \u2014 run `census` for gate G1 and `scan` for the inventory",
   sync: "requires the catalog extractors",
   glossary: "requires `plan`",
   orchestrate: "requires `plan`",
@@ -24743,7 +25149,7 @@ async function main() {
       } else {
         process.stdout.write(formatCensus(result, repo) + "\n");
       }
-      if (!result.ok) process.exit(1);
+      if (!result.ok) process.exitCode = 1;
       return;
     }
     case "catalog": {
@@ -24776,11 +25182,11 @@ ${r.docs ? `    ${r.docs}
         for (const p2 of problems) process.stdout.write(`  ${p2.rule}: ${p2.problem}
 `);
       }
-      if (problems.length) process.exit(1);
+      if (problems.length) process.exitCode = 1;
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -24788,18 +25194,18 @@ ${r.docs ? `    ${r.docs}
         noAst: p.flags["no-ast"] === true
       });
       mkdirSync5(out2, { recursive: true });
-      writeFileSync7(join25(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      writeFileSync7(join26(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join25(out2, "inventory.json")}
+wrote ${join26(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -24809,11 +25215,11 @@ wrote ${join25(out2, "inventory.json")}
 wrote ${batches.length} batch(es) to ${runDir(out2).batches}
 `);
       }
-      if (result.hazards.length || result.unlinked.length) process.exit(1);
+      if (result.hazards.length || result.unlinked.length) process.exitCode = 1;
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -24823,7 +25229,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
 `
           );
         }
-        if (folded.rejected || folded.missing) process.exit(1);
+        if (folded.rejected || folded.missing) process.exitCode = 1;
         return;
       }
       const backend = String(p.flags.backend ?? (p.flags.translator ? "cli" : "subagent"));
@@ -24847,11 +25253,21 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join25(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatApply(report) + "\n");
-      if (!report.ok) process.exit(1);
+      if (!report.ok) process.exitCode = 1;
+      return;
+    }
+    case "check": {
+      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const exceptions = readExceptions(join26(out2, "exceptions.json"));
+      const report = check({ repo, inventory, exceptions });
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      else process.stdout.write(formatCheck(report) + "\n");
+      process.exitCode = report.exitCode;
       return;
     }
     default: {

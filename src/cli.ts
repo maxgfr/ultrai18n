@@ -8,7 +8,9 @@ import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
 import { formatPlan } from './plan'
 import { formatApply } from './apply'
-import { cmdPlan, cmdTranslate, cmdTranslateApply, cmdApply, runDir } from './commands'
+import { cmdPlan, cmdTranslate, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
+import { check, formatCheck, readExceptions } from './check'
+import type { Inventory } from './types'
 
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
@@ -115,7 +117,6 @@ const PENDING: Record<string, string> = {
   lang: 'wired into `scan`; a standalone command is not built yet',
   adjudicate: 'requires `scan`',
   verify: 'requires `apply`',
-  check: 'the six gates are not wired yet — run `census` for gate G1 and `scan` for the inventory',
   sync: 'requires the catalog extractors',
   glossary: 'requires `plan`',
   orchestrate: 'requires `plan`',
@@ -146,7 +147,7 @@ async function main(): Promise<void> {
       } else {
         process.stdout.write(formatCensus(result, repo) + '\n')
       }
-      if (!result.ok) process.exit(1)
+      if (!result.ok) process.exitCode = 1
       return
     }
 
@@ -174,7 +175,7 @@ async function main(): Promise<void> {
         process.stdout.write(`ultrai18n catalog: ${RULES.length} rules, ${problems.length} problem(s)\n`)
         for (const p of problems) process.stdout.write(`  ${p.rule}: ${p.problem}\n`)
       }
-      if (problems.length) process.exit(1)
+      if (problems.length) process.exitCode = 1
       return
     }
 
@@ -209,7 +210,7 @@ async function main(): Promise<void> {
       }
       // A hazard or an unlinked assertion is a decision the engine will not
       // make. Exiting 0 here would let a pipeline sail past it.
-      if (result.hazards.length || result.unlinked.length) process.exit(1)
+      if (result.hazards.length || result.unlinked.length) process.exitCode = 1
       return
     }
 
@@ -224,7 +225,7 @@ async function main(): Promise<void> {
               `${folded.refused} refused, ${folded.missing} missing → ${folded.translations.length} site patches\n`,
           )
         }
-        if (folded.rejected || folded.missing) process.exit(1)
+        if (folded.rejected || folded.missing) process.exitCode = 1
         return
       }
       const backend = String(p.flags.backend ?? (p.flags.translator ? 'cli' : 'subagent')) as
@@ -251,7 +252,18 @@ async function main(): Promise<void> {
       const report = cmdApply(repo, out, p.flags.write === true, p.flags['no-recover'] !== true)
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
       else process.stdout.write(formatApply(report) + '\n')
-      if (!report.ok) process.exit(1)
+      if (!report.ok) process.exitCode = 1
+      return
+    }
+
+    case 'check': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const exceptions = readExceptions(join(out, 'exceptions.json'))
+      const report = check({ repo, inventory, exceptions })
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+      else process.stdout.write(formatCheck(report) + '\n')
+      process.exitCode = report.exitCode
       return
     }
 

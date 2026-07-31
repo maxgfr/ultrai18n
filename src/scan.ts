@@ -15,6 +15,7 @@ import { extractMarkdown } from './extract/markdown'
 import { extractCss } from './extract/css'
 import { extractHtml } from './extract/html'
 import { extractText, isPlainText } from './extract/text'
+import { sweepFile } from './sweep'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
 import { prepareGrammars, parserForExt, AST_EXTENSIONS, grammarStatus } from './ast/parse'
 import { classify } from './classify'
@@ -165,9 +166,25 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     return { ...base, sites, extractor: 'text', bytesClaimed: claimedBytes }
   }
 
-  // No extractor yet. Not silently clean: the census records the gap, and the
-  // residual sweep is what will eventually claim these bytes.
-  return { ...base, extractor: 'none', reason: `no extractor for ${ext || 'extensionless file'}` }
+  // No extractor for this format. NOT silently clean: the residual sweep reads
+  // the whole file and forces anything human-looking into the inventory as
+  // `unclassified`, which fails `check` until somebody looks at it.
+  //
+  // Files that DO have an extractor are not swept: those extractors scan the
+  // whole file and assert that what they did not emit, they looked at and
+  // judged non-textual. That assertion is what `claimRatio` records.
+  const residual = sweepFile(file.rel, read.text, map, [], {
+    identifiers: tokens.identifiers,
+    extractor: 'none',
+    reason: `no extractor for ${ext || 'extensionless file'}; found by the residual sweep`,
+  })
+  return {
+    ...base,
+    sites: residual,
+    extractor: 'residual-sweep',
+    bytesClaimed: read.bytes,
+    reason: `no extractor for ${ext || 'extensionless file'}`,
+  }
 }
 
 function merge(into: TokenIndex, from: ReturnType<typeof extractTs>['tokens']): void {

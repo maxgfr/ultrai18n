@@ -87,14 +87,15 @@ and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework inte
 
 ## Status
 
-**Working today:** `scan` (the full inventory), `census` (gate G1), `catalog` and
-`catalog --explain`. Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML,
-Markdown, HTML, SVG, CSS and plain text through hand-written byte-indexed lexers. Classification,
-language detection and the surface catalog all run.
+**Working today:** the whole audit and swap pipeline — `scan`, `census`, `catalog`, `plan`,
+`translate`, `apply` and the six-gate `check`. Extraction covers TypeScript/JSX/TSX through
+tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS and plain text through hand-written
+byte-indexed lexers, with a residual sweep behind them so a format with no extractor surfaces as
+`unclassified` rather than as nothing.
 
-**Not built yet:** `plan`, `translate`, `apply`, `verify`, the six-gate `check`, `sync`, `glossary`,
-`orchestrate` and `init`. Each exits 1 naming what it still needs. A command that succeeds with no
-findings is indistinguishable from a clean repository, and removing that confusion is the point.
+**Not built yet:** `verify` (adversarial review of what shipped), `sync` (multi-locale diffing),
+`orchestrate` and `init --ci`. Each exits 1 naming what it still needs. A command that succeeds with
+no findings is indistinguishable from a clean repository, and removing that confusion is the point.
 
 On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
 `scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed
