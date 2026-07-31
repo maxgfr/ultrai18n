@@ -56,7 +56,10 @@ to fake; and a model does nothing but translate strings it is handed.
 - `translate [--backend subagent|cli|api|manual]` — hand batches out; fold results back.
 - `apply [--write]` — patch by byte offset. Dry-run by default.
 - `verify [--apply <verdicts.json>]` — adversarial review of what actually shipped.
-- `check [--semantic]` — the six gates. Exit 1 on any failure.
+- `check [--semantic] [--new-only]` — the six gates. Exit 1 on any failure.
+- `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
+- `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
+- `init --ci --baseline` — freeze today, so only new regressions block a pull request.
 
 ## Coverage
 
@@ -87,15 +90,15 @@ and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework inte
 
 ## Status
 
-**Working today:** the whole audit and swap pipeline — `scan`, `census`, `catalog`, `plan`,
-`translate`, `apply` and the six-gate `check`. Extraction covers TypeScript/JSX/TSX through
-tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS and plain text through hand-written
-byte-indexed lexers, with a residual sweep behind them so a format with no extractor surfaces as
-`unclassified` rather than as nothing.
+Every command in the cheat-sheet works, plus `sync`, `orchestrate` and `init`.
 
-**Not built yet:** `verify` (adversarial review of what shipped), `sync` (multi-locale diffing),
-`orchestrate` and `init --ci`. Each exits 1 naming what it still needs. A command that succeeds with
-no findings is indistinguishable from a clean repository, and removing that confusion is the point.
+Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS
+and plain text through hand-written byte-indexed lexers, with a residual sweep behind them so a
+format with no extractor surfaces as `unclassified` rather than as nothing.
+
+Two backends do not dispatch on their own, and say so rather than pretending: `subagent` writes the
+batches and the agent contract and hands over, because the engine cannot spawn a Claude Code agent;
+`api` is not implemented. `--translator '<command>'` and `--backend manual` are complete.
 
 On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
 `scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed

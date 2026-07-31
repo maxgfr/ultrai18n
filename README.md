@@ -56,8 +56,12 @@ No build step, no API key, no network. The tree-sitter grammars ship with the en
 
 ## Status
 
-The audit and swap pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `check`.
-Still to come: `verify`, `sync`, `orchestrate` and `init --ci`; each exits 1 naming what it needs.
+The pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `verify` → `check`, plus
+`sync`, `orchestrate` and `init --ci --baseline`.
+
+Two backends do not dispatch on their own and say so: `subagent` writes the batches and the agent
+contract and hands over, because the engine cannot spawn a Claude Code agent, and `api` is not
+implemented. `--translator '<command>'` and `--backend manual` are complete.
 
 On a fully French reference repository, `scan` finds 2956 text sites across 91 files and separates
 them into what to translate, what is an identifier and must not be touched, and what it refuses to

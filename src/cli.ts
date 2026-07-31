@@ -10,7 +10,14 @@ import { formatPlan } from './plan'
 import { formatApply } from './apply'
 import { cmdPlan, cmdTranslate, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
 import { check, formatCheck, readExceptions } from './check'
+import { buildVerify, applyVerdicts, checkSemantic, formatVerifyTodo, type VerifyTodo, type VerifyResult } from './verify'
+import { orchestrate, phaseStatuses, type PhaseName } from './orchestrate'
+import { sync, formatSync } from './sync'
+import { init, loadBaseline, type Baseline } from './init'
+import { writeJson } from './commands'
+import type { Plan } from './plan'
 import type { Inventory } from './types'
+import { existsSync } from 'node:fs'
 
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
@@ -116,11 +123,7 @@ const PENDING: Record<string, string> = {
   sites: 'requires `scan`',
   lang: 'wired into `scan`; a standalone command is not built yet',
   adjudicate: 'requires `scan`',
-  verify: 'requires `apply`',
-  sync: 'requires the catalog extractors',
   glossary: 'requires `plan`',
-  orchestrate: 'requires `plan`',
-  init: 'requires `check`',
 }
 
 async function main(): Promise<void> {
@@ -256,11 +259,146 @@ async function main(): Promise<void> {
       return
     }
 
+    case 'verify': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const todoPath = join(out, 'VERIFY.todo.json')
+      if (p.flags.apply !== undefined) {
+        const todo = readJson<VerifyTodo>(todoPath, 'VERIFY.todo.json')
+        const verdicts = readJson<{ verdicts?: unknown[] } | unknown[]>(
+          resolve(String(p.flags.apply)),
+          'the verdicts file',
+        )
+        const list = (Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? []) as never[]
+        const result = applyVerdicts({ todo, verdicts: list })
+        writeJson(join(out, 'VERIFY.json'), result)
+        if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+        else {
+          process.stdout.write(
+            `ultrai18n verify: ${result.ok ? '✓' : '✗'} ` +
+              Object.entries(result.counts).map(([k, v]) => `${k} ${v}`).join(' · ') + '\n',
+          )
+          for (const f of result.failures) process.stdout.write(`  ✗ ${f.claimId} (${f.citation}): ${f.note}\n`)
+        }
+        if (!result.ok) process.exitCode = 1
+        return
+      }
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const planned = readJson<Plan>(runDir(out).plan, 'PLAN.json')
+      const todo = buildVerify({
+        repo,
+        inventory,
+        plan: planned,
+        ...(p.flags['max-verify'] ? { maxVerify: Number(p.flags['max-verify']) } : {}),
+        ...(p.flags['sample-rate'] ? { sampleRate: Number(p.flags['sample-rate']) } : {}),
+      })
+      writeJson(todoPath, todo)
+      writeFileSync(join(out, 'VERIFY.md'), formatVerifyTodo(todo))
+      if (json) process.stdout.write(JSON.stringify(todo, null, 2) + '\n')
+      else {
+        process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate\n`)
+        process.stdout.write(`  not reviewed: ${todo.notReviewed.groups} — ${todo.notReviewed.reason}\n`)
+        process.stderr.write(`  wrote ${todoPath} and VERIFY.md\n`)
+      }
+      return
+    }
+
+    case 'orchestrate': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const engine = resolve(process.argv[1] ?? 'ultrai18n.mjs')
+      if (p.flags.list) {
+        const statuses = phaseStatuses(out)
+        process.stdout.write(JSON.stringify(statuses, null, 2) + '\n')
+        return
+      }
+      try {
+        const emitted = orchestrate({
+          repo,
+          out,
+          engine,
+          ...(p.flags.phase ? { phase: String(p.flags.phase) as PhaseName } : {}),
+          ...(p.flags.eco ? { eco: true } : {}),
+        })
+        if (json) process.stdout.write(JSON.stringify(emitted, null, 2) + '\n')
+        else {
+          process.stdout.write(`ultrai18n orchestrate: phase ${emitted.phase}\n`)
+          for (const f of emitted.files) process.stdout.write(`  wrote ${f}\n`)
+          if (emitted.advice) process.stdout.write(`  ${emitted.advice}\n`)
+        }
+        process.stderr.write(`\nlaunch:   ${emitted.launch}\njoin:     ${emitted.join}\n`)
+      } catch (err) {
+        const code = (err as Error & { exitCode?: number }).exitCode ?? 1
+        process.stderr.write(`ultrai18n: ${(err as Error).message}\n`)
+        process.exitCode = code
+      }
+      return
+    }
+
+    case 'sync': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const report = sync({
+        repo,
+        inventory,
+        ...(p.flags['source-locale'] ? { sourceLocale: String(p.flags['source-locale']) } : {}),
+        statePath: join(out, 'catalog-state.json'),
+      })
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+      else process.stdout.write(formatSync(report) + '\n')
+      if (!report.ok) process.exitCode = 1
+      return
+    }
+
+    case 'init': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const report = check({ repo, inventory, exceptions: readExceptions(join(out, 'exceptions.json')) })
+      const result = init({
+        repo,
+        out,
+        ci: p.flags.ci === true,
+        hook: p.flags.hook === true,
+        ...(p.flags.baseline ? { baseline: report } : {}),
+      })
+      if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+      else {
+        for (const f of result.written) process.stdout.write(`  wrote ${f}\n`)
+        for (const n of result.notes) process.stdout.write(`  ${n}\n`)
+        if (!result.written.length) process.stdout.write('  nothing to do — pass --ci, --hook or --baseline\n')
+      }
+      return
+    }
+
     case 'check': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
       const exceptions = readExceptions(join(out, 'exceptions.json'))
-      const report = check({ repo, inventory, exceptions })
+      const baselinePath = join(out, 'baseline.json')
+      const baseline = existsSync(baselinePath)
+        ? loadBaseline(readJson<Baseline>(baselinePath, 'baseline.json'))
+        : undefined
+      const report = check({ repo, inventory, exceptions, ...(baseline ? { baseline } : {}) })
+
+      if (p.flags.semantic) {
+        const todoPath = join(out, 'VERIFY.todo.json')
+        const resultPath = join(out, 'VERIFY.json')
+        const semantic = checkSemantic({
+          repo,
+          inventory,
+          todo: existsSync(todoPath) ? readJson<VerifyTodo>(todoPath, 'VERIFY.todo.json') : null,
+          result: existsSync(resultPath) ? readJson<VerifyResult>(resultPath, 'VERIFY.json') : null,
+        })
+        if (!semantic.ok) {
+          report.ok = false
+          report.exitCode = 1
+          report.gates.push({
+            id: 'G6',
+            name: 'semantic',
+            ok: false,
+            count: semantic.findings.length,
+            findings: semantic.findings.map((message) => ({ message })),
+          })
+        }
+      }
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
       else process.stdout.write(formatCheck(report) + '\n')
       process.exitCode = report.exitCode

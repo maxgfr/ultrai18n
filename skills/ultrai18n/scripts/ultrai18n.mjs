@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "fs";
-import { join as join26, resolve as resolve3 } from "path";
+import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
+import { join as join30, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -24978,7 +24978,657 @@ function formatCheck(r) {
   return lines.join("\n");
 }
 
+// src/verify.ts
+import { existsSync as existsSync12, readFileSync as readFileSync14 } from "fs";
+import { join as join26 } from "path";
+var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
+var VERIFY_MAX = 40;
+function buildVerify(opts) {
+  const { repo, inventory, plan: plan2 } = opts;
+  const max = opts.maxVerify ?? VERIFY_MAX;
+  const rate = opts.sampleRate ?? 0.1;
+  const bySite = new Map(inventory.sites.map((s) => [s.id, s]));
+  const translated = plan2.groups.filter((g) => g.status === "pending" || g.status === "memo");
+  const census = [];
+  const remainder = [];
+  for (const group of translated) {
+    const reason = censusReason(group);
+    if (reason) census.push({ group, because: reason });
+    else remainder.push(group);
+  }
+  const step = rate > 0 ? Math.max(1, Math.ceil(1 / rate)) : Infinity;
+  const sampled = remainder.slice().sort((a, b) => a.id < b.id ? -1 : 1).filter((_, i2) => i2 % step === 0).map((group) => ({ group, because: `sampled 1 in ${step}` }));
+  const chosen = [...census, ...sampled].slice(0, max);
+  const pairs = [];
+  for (const { group, because } of chosen) {
+    const siteId2 = group.sites[0];
+    const site3 = siteId2 ? bySite.get(siteId2) : void 0;
+    if (!site3) continue;
+    const digest2 = readLive(repo, site3);
+    if (digest2 === null) continue;
+    pairs.push({
+      claimId: group.id,
+      claim: `${JSON.stringify(group.text)} \u2192 ${JSON.stringify(currentValue(repo, site3) ?? "?")} (${group.role}${group.holes.length ? `, holes ${group.holes.join(",")}` : ""}) is correct, complete and idiomatic, preserves every placeholder, and fits its host site`,
+      src: group.text,
+      tgt: currentValue(repo, site3) ?? "",
+      role: group.role,
+      citation: `${site3.file}:${site3.line}`,
+      path: site3.file,
+      digest: digest2,
+      because,
+      verdict: null,
+      note: ""
+    });
+  }
+  const dropped = chosen.length < census.length + sampled.length;
+  return {
+    schemaVersion: 1,
+    repo,
+    pair: `${plan2.sourceLang}\u2192${plan2.targetLang}`,
+    pairs,
+    notReviewed: {
+      groups: translated.length - pairs.length,
+      reason: dropped ? `the ${max}-pair cap was reached; ${census.length} high-risk groups were prioritised over ${remainder.length} low-risk ones` : `${remainder.length - sampled.length} low-risk group(s) were sampled out: placeholder-free, test-free, single-site`
+    }
+  };
+}
+function censusReason(group) {
+  if (group.holes.length > 0) return "has a placeholder \u2014 where machine translation actually breaks";
+  if (group.mirrors.length > 0) return "a test asserts this text; a wrong call is a red build";
+  if (group.sites.length > 2) return `appears at ${group.sites.length} sites`;
+  if (group.max !== null && group.text.length >= group.max - 2) return "sits at its length budget";
+  return null;
+}
+function readLive(repo, site3) {
+  const abs = join26(repo, site3.file);
+  if (!existsSync12(abs)) return null;
+  const buf = readFileSync14(abs);
+  const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
+  return sha256(slice).slice(0, 16);
+}
+function currentValue(repo, site3) {
+  const abs = join26(repo, site3.file);
+  if (!existsSync12(abs)) return null;
+  const buf = readFileSync14(abs);
+  return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
+}
+function applyVerdicts(opts) {
+  const byId = new Map(opts.todo.pairs.map((p) => [p.claimId, p]));
+  const problems = [];
+  const adjudicated = [];
+  for (const v of opts.verdicts) {
+    const pair = byId.get(v.claimId);
+    if (!pair) {
+      problems.push(`${v.claimId}: no such claim in this worklist`);
+      continue;
+    }
+    if (!VALID_VERDICTS.includes(v.verdict)) {
+      problems.push(`${v.claimId}: verdict ${JSON.stringify(v.verdict)} \u2014 use exactly one of ${VALID_VERDICTS.join(", ")}`);
+      continue;
+    }
+    adjudicated.push({ ...pair, verdict: v.verdict, note: v.note ?? "" });
+  }
+  if (problems.length) {
+    throw new Error(`verify --apply refused ${problems.length} verdict(s):
+  ${problems.join("\n  ")}`);
+  }
+  const counts = {
+    supported: 0,
+    partial: 0,
+    refuted: 0,
+    unsupported: 0,
+    unadjudicated: 0
+  };
+  for (const pair of adjudicated) counts[pair.verdict]++;
+  counts.unadjudicated = opts.todo.pairs.length - adjudicated.length;
+  const failures = adjudicated.filter((p) => p.verdict === "refuted" || p.verdict === "unsupported").map((p) => ({ claimId: p.claimId, citation: p.citation, note: p.note }));
+  return { schemaVersion: 1, ok: failures.length === 0, counts, failures, verdicts: adjudicated };
+}
+function checkSemantic(opts) {
+  const findings = [];
+  if (!opts.todo || !opts.result) {
+    return {
+      ok: false,
+      findings: ["no adjudicated review was found \u2014 --semantic cannot pass without one"]
+    };
+  }
+  if (!Array.isArray(opts.result.verdicts)) {
+    return { ok: false, findings: ["the review has no verdicts array"] };
+  }
+  const recomputed = opts.result.verdicts.filter(
+    (p) => p.verdict === "refuted" || p.verdict === "unsupported"
+  );
+  if (recomputed.length !== opts.result.failures.length) {
+    findings.push(
+      `the stored summary claims ${opts.result.failures.length} failure(s); recomputing from the verdicts gives ${recomputed.length}. The recomputation wins.`
+    );
+  }
+  for (const failure of recomputed) {
+    findings.push(`${failure.claimId} (${failure.citation}): ${failure.verdict}${failure.note ? " \u2014 " + failure.note : ""}`);
+  }
+  const bySite = new Map(opts.inventory.sites.map((s) => [`${s.file}:${s.line}`, s]));
+  let matched = 0;
+  for (const pair of opts.result.verdicts) {
+    const site3 = bySite.get(pair.citation);
+    if (!site3) {
+      findings.push(`${pair.claimId}: its citation ${pair.citation} is not in the current inventory`);
+      continue;
+    }
+    const live = readLive(opts.repo, site3);
+    if (live === null) {
+      findings.push(`${pair.claimId}: ${pair.path} could not be read`);
+      continue;
+    }
+    if (live !== pair.digest) {
+      findings.push(`${pair.claimId} (${pair.citation}): the cited excerpt no longer matches the repository`);
+      continue;
+    }
+    matched++;
+  }
+  if (opts.result.verdicts.length > 0 && matched === 0) {
+    findings.push(
+      `none of the ${opts.result.verdicts.length} adjudicated pairs match this repository \u2014 the translation was not actually verified (a stale or foreign review)`
+    );
+  }
+  if (opts.result.counts.unadjudicated > 0) {
+    findings.push(`${opts.result.counts.unadjudicated} pair(s) in the worklist were never adjudicated`);
+  }
+  return { ok: findings.length === 0, findings };
+}
+function formatVerifyTodo(todo) {
+  const lines = [
+    `# Review \u2014 ${todo.pair}`,
+    "",
+    `${todo.pairs.length} pair(s) to adjudicate. Use exactly one of: ${VALID_VERDICTS.join(", ")}.`,
+    "",
+    `Not reviewed: ${todo.notReviewed.groups} group(s) \u2014 ${todo.notReviewed.reason}`,
+    ""
+  ];
+  for (const pair of todo.pairs) {
+    lines.push(`## ${pair.claimId} \xB7 ${pair.citation}`);
+    lines.push("");
+    lines.push(`**Chosen because:** ${pair.because}`);
+    lines.push(`**Claim:** ${pair.claim}`);
+    lines.push("");
+    lines.push("**Verdict:** _____ \xB7 **Note:** _____");
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+// src/orchestrate.ts
+import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync15, writeFileSync as writeFileSync7 } from "fs";
+import { join as join27 } from "path";
+var BATCH_SIZE2 = 8;
+var SMALL_WORKLIST = 3;
+function phaseStatuses(out2) {
+  const planPath = join27(out2, "PLAN.json");
+  const plan2 = existsSync13(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
+  const batches = existsSync13(join27(out2, "batches"));
+  const todo = existsSync13(join27(out2, "VERIFY.todo.json"));
+  const applied = existsSync13(join27(out2, "APPLY.json"));
+  const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
+  const hazards = plan2?.hazards?.length ?? 0;
+  const structural = plan2?.structural?.length ?? 0;
+  return [
+    {
+      name: "adjudicate",
+      ready: !!plan2 && hazards > 0,
+      ...plan2 ? {} : { reason: `no plan yet \u2014 run: ${"`plan`"}` },
+      worklist: planPath,
+      items: hazards,
+      writes: false
+    },
+    {
+      name: "translate",
+      // Blocked, not merely unready: a hazard reaching a batch is the failure
+      // the hazard rule exists to prevent.
+      ready: !!plan2 && batches && hazards === 0 && pending > 0,
+      ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
+      worklist: join27(out2, "batches"),
+      items: Math.ceil(pending / BATCH_SIZE2),
+      writes: false
+    },
+    {
+      name: "review",
+      ready: todo,
+      ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
+      worklist: join27(out2, "VERIFY.todo.json"),
+      items: todo ? JSON.parse(readOr(join27(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      writes: false
+    },
+    {
+      name: "structural",
+      ready: structural > 0 && applied,
+      ...structural === 0 ? { reason: "nothing structural in this plan" } : !applied ? { reason: "structural edits run after `apply --write`, never alongside it" } : {},
+      worklist: planPath,
+      items: structural,
+      writes: true
+    }
+  ];
+}
+function orchestrate(opts) {
+  const statuses = phaseStatuses(opts.out);
+  const phase = opts.phase ?? statuses.find((s) => s.ready)?.name;
+  if (!phase) throw new Error("no phase is ready \u2014 run `scan` and `plan` first");
+  const status2 = statuses.find((s) => s.name === phase);
+  if (!status2.ready) {
+    const err2 = new Error(`phase "${phase}" is not ready \u2014 ${status2.reason ?? "its worklist does not exist"}`);
+    err2.exitCode = 2;
+    throw err2;
+  }
+  const dir = join27(opts.out, "orchestration");
+  const agents = join27(dir, "agents");
+  mkdirSync5(agents, { recursive: true });
+  const files = [];
+  const contract = CONTRACTS[phase];
+  const contractPath = join27(agents, `${contract.role}.md`);
+  writeFileSync7(contractPath, contract.body);
+  files.push(contractPath);
+  const workflowPath = join27(dir, `${phase}.workflow.mjs`);
+  writeFileSync7(workflowPath, workflowScript(phase, opts, status2, contract.role));
+  files.push(workflowPath);
+  const runbookPath = join27(dir, "RUNBOOK.md");
+  writeFileSync7(runbookPath, runbook(statuses, opts));
+  files.push(runbookPath);
+  return {
+    phase,
+    files,
+    launch: `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
+    join: JOINS[phase](opts),
+    ...status2.items < SMALL_WORKLIST ? { advice: `only ${status2.items} item(s) \u2014 the sequential path in RUNBOOK.md is cheaper than a fan-out` } : {}
+  };
+}
+var CONTRACTS = {
+  translate: { role: "translator", body: TRANSLATOR_CONTRACT },
+  adjudicate: {
+    role: "adjudicator",
+    body: `# Contract: adjudicator
+
+You resolve hazards: texts that are both displayed copy and an identifier.
+
+For each hazard in the worklist, read the sites it names and rule **per site**,
+not per string. Both readings are usually correct \u2014 the label should be
+translated and the identifier must not be \u2014 and the point is to say which site
+is which.
+
+Return \`{groupId, sites: [{siteId, verdict, reason}]}\` where verdict is
+\`translate\` or \`exclude\` and reason is one line grounded in the code you read.
+
+If the two roles cannot be separated without renaming something, say so: that
+is a real finding about the code, not a failure to decide.
+
+**Return your ruling. Do not edit any file.**
+`
+  },
+  review: {
+    role: "reviewer",
+    body: `# Contract: reviewer
+
+You adjudicate translations that have ALREADY been written to the repository.
+
+For each pair, read the cited file at the cited line and judge what is actually
+there \u2014 not what was intended. Escaping mistakes and wrong-span writes are in
+scope precisely because they only exist on disk.
+
+Use exactly one of: \`supported\`, \`partial\`, \`refuted\`, \`unsupported\`.
+
+- \`supported\` \u2014 correct, idiomatic, complete; placeholders and host syntax intact
+- \`partial\` \u2014 the meaning survives but the phrasing is off; counts as support
+- \`refuted\` \u2014 wrong: mistranslated, inverted, off-glossary, or broken syntax
+- \`unsupported\` \u2014 not judgeable from the citation, which usually means the
+  citation itself is wrong
+
+When unsure, choose the harsher verdict. A false pass is worse than a false fail.
+
+**Return \`{claimId, citation, verdict, note}\`. Do not edit any file.**
+`
+  },
+  structural: {
+    role: "structuralist",
+    body: `# Contract: structuralist
+
+You handle the sites the engine refused, because they need a code edit rather
+than a translated string \u2014 a plural or agreement rule baked into an expression.
+
+The target language may need a different NUMBER of agreement sites than the
+source. French agrees the adjective as well as the noun, so an English
+\`\${n > 1 ? 's' : ''}\` becomes two conditionals, not one.
+
+Edit **only the one file named in your prompt**. This is the single place in
+this pipeline where an agent writes, and it runs after \`apply --write\`, never
+alongside it.
+
+Return \`{siteId, file, note}\` describing what you changed and why.
+`
+  }
+};
+var JOINS = {
+  adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
+  translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
+  review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
+  structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
+};
+function workflowScript(phase, o, status2, role) {
+  return `export const meta = {
+  name: 'ultrai18n-${phase}',
+  description: 'ultrai18n ${phase} phase \u2014 ${status2.items} item(s)',
+  phases: [{ title: '${phase}' }],
+}
+
+// Constants are baked in at emit time so this script is reproducible on its
+// own, without the state that produced it.
+const OUT = ${JSON.stringify(o.out)}
+const REPO = ${JSON.stringify(o.repo)}
+const ENGINE = ${JSON.stringify(o.engine)}
+const WORKLIST = ${JSON.stringify(status2.worklist)}
+const AGENTS = OUT + '/orchestration/agents'
+
+// ${status2.writes ? "This phase WRITES, one file per agent, each owned exclusively." : "This phase RETURNS fragments. It writes nothing: the fold stays with the orchestrator, because `apply` is the sole writer and runs exactly once after the join."}
+// Do not run \`scan\` or \`plan\` while this fan-out is in flight \u2014 replanning
+// re-derives group ids, and results would fold into the wrong groups.
+
+const ITEMS = ${JSON.stringify(chunkHint(status2.items))}
+
+const results = await parallel(
+  ITEMS.map((item, i) => () =>
+    agent(
+      'Read and follow the dispatch contract at ' + AGENTS + '/${role}.md VERBATIM.\\n' +
+      'Constants: OUT=' + OUT + '  REPO=' + REPO + '  WORKLIST=' + WORKLIST + '.\\n' +
+      'Your items: ' + item + '\\n' +
+      'Invoke the engine only by its absolute path: node ' + ENGINE + ' <cmd> \u2014 read-only commands only.',
+      { label: '${role}:' + item, phase: '${phase}' },
+    ),
+  ),
+)
+
+// Fold with: ${JOINS[phase](o)}
+return results.filter(Boolean)
+`;
+}
+function chunkHint(items) {
+  const out2 = [];
+  for (let i2 = 0; i2 < Math.max(1, Math.ceil(items / BATCH_SIZE2)); i2++) {
+    out2.push(String(i2).padStart(3, "0"));
+  }
+  return out2;
+}
+function runbook(statuses, o) {
+  const rows = statuses.map((s) => `| ${s.name} | ${s.ready ? "ready" : "not ready"} | ${s.items} | ${s.reason ?? ""} |`).join("\n");
+  return `# Runbook
+
+Every phase can be played by hand. The fan-out is an optimisation, never a
+requirement, and the sequential path produces an identical result \u2014 only the
+wall-clock differs.
+
+| phase | state | items | note |
+|---|---|---|---|
+${rows}
+
+## Sequential
+
+1. \`node ${o.engine} scan --repo ${o.repo} --out ${o.out}\`
+2. \`node ${o.engine} plan --repo ${o.repo} --out ${o.out}\`
+3. Resolve anything under HAZARDS. The engine will not guess these: a text that
+   is both a label and an identifier has two correct readings and one of them
+   destroys stored data.
+4. \`node ${o.engine} translate --repo ${o.repo} --out ${o.out} --translator '<cmd>'\`
+   \u2014 or fill \`${o.out}/results/<id>.result.json\` yourself.
+5. \`node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results\`
+6. \`node ${o.engine} apply --repo ${o.repo} --out ${o.out}\` to see the diff, then
+   add \`--write\`.
+7. \`node ${o.engine} verify --repo ${o.repo} --out ${o.out}\`, adjudicate, then
+   \`verify --apply verdicts.json\`.
+8. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
+`;
+}
+function readOr(path, fallback) {
+  try {
+    return readFileSync15(path, "utf8");
+  } catch {
+    return fallback;
+  }
+}
+
+// src/sync.ts
+import { existsSync as existsSync14, readFileSync as readFileSync16 } from "fs";
+import "path";
+var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
+function sync(opts) {
+  const sourceLocale = opts.sourceLocale ?? opts.inventory.targetLanguage;
+  const state = readState(opts.statePath);
+  const baselineOnly = state === null;
+  const byLocale = /* @__PURE__ */ new Map();
+  for (const site3 of opts.inventory.sites) {
+    const locale = fileLocale(site3.file);
+    if (!locale) continue;
+    if (site3.kind === "key") continue;
+    const key = site3.siteKey.split("#")[1] ?? site3.siteKey;
+    let map = byLocale.get(locale);
+    if (!map) {
+      map = /* @__PURE__ */ new Map();
+      byLocale.set(locale, map);
+    }
+    map.set(key, site3);
+  }
+  const source = byLocale.get(sourceLocale) ?? /* @__PURE__ */ new Map();
+  const targets = [...byLocale.keys()].filter((l) => l !== sourceLocale).sort();
+  const findings = [];
+  const counts = {};
+  for (const locale of targets) {
+    const target = byLocale.get(locale);
+    const tally3 = {
+      missing: 0,
+      stale: 0,
+      orphan: 0,
+      untranslated: 0,
+      "identical-ok": 0,
+      "arity-mismatch": 0,
+      ok: 0
+    };
+    for (const [key, srcSite] of source) {
+      const tgtSite = target.get(key);
+      if (!tgtSite) {
+        tally3.missing++;
+        findings.push({ key, locale, class: "missing", source: srcSite.value });
+        continue;
+      }
+      const srcHoles = holeSet(srcSite.value);
+      const tgtHoles = holeSet(tgtSite.value);
+      if (!sameSet(srcHoles, tgtHoles)) {
+        tally3["arity-mismatch"]++;
+        findings.push({
+          key,
+          locale,
+          class: "arity-mismatch",
+          source: srcSite.value,
+          target: tgtSite.value,
+          detail: `source has ${[...srcHoles].join(", ") || "none"}; target has ${[...tgtHoles].join(", ") || "none"}`
+        });
+        continue;
+      }
+      const record = state?.keys[key]?.locales[locale];
+      if (record && record.srcHashAtTranslation !== sha256(srcSite.value).slice(0, 16)) {
+        tally3.stale++;
+        findings.push({
+          key,
+          locale,
+          class: "stale",
+          source: srcSite.value,
+          target: tgtSite.value,
+          detail: "the source changed after this was translated \u2014 revise rather than retranslate"
+        });
+        continue;
+      }
+      if (tgtSite.value === srcSite.value && new RegExp("\\p{L}{2,}", "u").test(srcSite.value)) {
+        const cognate = tgtSite.reason === "already-target-language" || tgtSite.lang.detected === null;
+        if (cognate) {
+          tally3["identical-ok"]++;
+        } else {
+          tally3.untranslated++;
+          findings.push({ key, locale, class: "untranslated", source: srcSite.value, target: tgtSite.value });
+        }
+        continue;
+      }
+      tally3.ok++;
+    }
+    for (const key of target.keys()) {
+      if (source.has(key)) continue;
+      tally3.orphan++;
+      findings.push({
+        key,
+        locale,
+        class: "orphan",
+        source: "",
+        detail: "absent from the source catalog; it may still be referenced dynamically, so it is reported and never pruned"
+      });
+    }
+    counts[locale] = tally3;
+  }
+  const arity2 = findings.filter((f) => f.class === "arity-mismatch").length;
+  return {
+    sourceLocale,
+    locales: targets,
+    totals: { keys: source.size },
+    byLocale: counts,
+    findings: sortFindings(findings),
+    baselineOnly,
+    ok: arity2 === 0
+  };
+}
+var ORDER2 = ["arity-mismatch", "stale", "missing", "untranslated", "orphan", "identical-ok", "ok"];
+function sortFindings(findings) {
+  return findings.sort(
+    (a, b) => ORDER2.indexOf(a.class) - ORDER2.indexOf(b.class) || (a.locale < b.locale ? -1 : a.locale > b.locale ? 1 : 0) || (a.key < b.key ? -1 : 1)
+  );
+}
+function holeSet(text) {
+  const out2 = /* @__PURE__ */ new Set();
+  for (const m of text.matchAll(HOLE2)) out2.add(m[0]);
+  return out2;
+}
+function sameSet(a, b) {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+function readState(path) {
+  if (!path || !existsSync14(path)) return null;
+  try {
+    return JSON.parse(readFileSync16(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+function formatSync(r) {
+  const lines = [`ultrai18n sync  source ${r.sourceLocale}  \u2192  ${r.locales.join(", ") || "(no other locale found)"}`, ""];
+  if (r.baselineOnly) {
+    lines.push(
+      "  No prior state: this run records the baseline. Presence and placeholder",
+      "  arity are checked; staleness cannot be, and no heuristic is offered for it.",
+      ""
+    );
+  }
+  for (const [locale, tally3] of Object.entries(r.byLocale)) {
+    const parts2 = ORDER2.filter((c2) => tally3[c2] > 0).map((c2) => `${tally3[c2]} ${c2}`);
+    lines.push(`  ${locale}: ${parts2.join(", ") || "nothing to do"}`);
+  }
+  const arity2 = r.findings.filter((f) => f.class === "arity-mismatch");
+  if (arity2.length) {
+    lines.push("");
+    lines.push(`ARITY MISMATCH (${arity2.length}) \u2014 a runtime bug already in the repository`);
+    for (const f of arity2.slice(0, 10)) {
+      lines.push(`  ${f.locale} ${f.key}: ${f.detail}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// src/init.ts
+import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync8 } from "fs";
+import { dirname as dirname7, join as join29 } from "path";
+function buildBaseline(report) {
+  const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
+  return { schemaVersion: 1, from: report.from, to: report.to, accepted };
+}
+function loadBaseline(baseline) {
+  return new Set(baseline.accepted);
+}
+function init2(opts) {
+  const written = [];
+  const notes = [];
+  if (opts.baseline) {
+    const path = join29(opts.out, "baseline.json");
+    mkdirSync6(dirname7(path), { recursive: true });
+    writeFileSync8(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
+    written.push(path);
+    notes.push(
+      `froze ${opts.baseline.gates.reduce((n, g) => n + g.count, 0)} existing finding(s) \u2014 from here only new ones block`
+    );
+  }
+  if (opts.ci) {
+    const path = join29(opts.repo, ".github/workflows/ultrai18n.yml");
+    mkdirSync6(dirname7(path), { recursive: true });
+    writeFileSync8(path, WORKFLOW);
+    written.push(path);
+  }
+  if (opts.hook) {
+    const path = join29(opts.repo, ".git/hooks/pre-commit");
+    mkdirSync6(dirname7(path), { recursive: true });
+    writeFileSync8(path, HOOK, { mode: 493 });
+    written.push(path);
+    notes.push("a local hook is bypassable and does not see other people's commits; --ci is the durable guard");
+  }
+  return { written, notes };
+}
+var WORKFLOW = `name: ultrai18n
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  language:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The census denominator is \`git ls-files\`, so the checkout has to be real.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install ultrai18n
+        run: npx -y skills add maxgfr/ultrai18n
+
+      - name: Inventory every human-readable string
+        run: node .agents/skills/ultrai18n/scripts/ultrai18n.mjs scan --repo .
+
+      # Fails on anything NOT in the frozen baseline: a new hardcoded string in
+      # the old language, a locale marker left behind, a placeholder dropped.
+      - name: Check
+        run: node .agents/skills/ultrai18n/scripts/ultrai18n.mjs check --repo .
+`;
+var HOOK = `#!/bin/sh
+# Installed by \`ultrai18n init --hook\`.
+#
+# Only new findings block: the baseline in .ultrai18n/baseline.json holds what
+# was already there when the guard went up.
+set -e
+ENGINE=.agents/skills/ultrai18n/scripts/ultrai18n.mjs
+[ -f "$ENGINE" ] || exit 0
+node "$ENGINE" scan --repo . >/dev/null
+node "$ENGINE" check --repo . || {
+  echo
+  echo "ultrai18n: commit blocked. Fix the findings above, or record a justified"
+  echo "exception in .ultrai18n/exceptions.json, or re-baseline with:"
+  echo "  node $ENGINE init --baseline"
+  exit 1
+}
+`;
+
 // src/cli.ts
+import { existsSync as existsSync15 } from "fs";
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
 Usage:
@@ -25122,11 +25772,7 @@ var PENDING = {
   sites: "requires `scan`",
   lang: "wired into `scan`; a standalone command is not built yet",
   adjudicate: "requires `scan`",
-  verify: "requires `apply`",
-  sync: "requires the catalog extractors",
-  glossary: "requires `plan`",
-  orchestrate: "requires `plan`",
-  init: "requires `check`"
+  glossary: "requires `plan`"
 };
 async function main() {
   const p = parseArgs(process.argv.slice(2));
@@ -25186,26 +25832,26 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
         to: String(p.flags.to ?? "en"),
         noAst: p.flags["no-ast"] === true
       });
-      mkdirSync5(out2, { recursive: true });
-      writeFileSync7(join26(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      mkdirSync7(out2, { recursive: true });
+      writeFileSync9(join30(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join26(out2, "inventory.json")}
+wrote ${join30(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -25219,7 +25865,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -25253,18 +25899,158 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatApply(report) + "\n");
       if (!report.ok) process.exitCode = 1;
       return;
     }
-    case "check": {
-      const out2 = resolve3(String(p.flags.out ?? join26(repo, ".ultrai18n")));
+    case "verify": {
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const todoPath = join30(out2, "VERIFY.todo.json");
+      if (p.flags.apply !== void 0) {
+        const todo2 = readJson2(todoPath, "VERIFY.todo.json");
+        const verdicts = readJson2(
+          resolve3(String(p.flags.apply)),
+          "the verdicts file"
+        );
+        const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
+        const result = applyVerdicts({ todo: todo2, verdicts: list });
+        writeJson(join30(out2, "VERIFY.json"), result);
+        if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        else {
+          process.stdout.write(
+            `ultrai18n verify: ${result.ok ? "\u2713" : "\u2717"} ` + Object.entries(result.counts).map(([k, v]) => `${k} ${v}`).join(" \xB7 ") + "\n"
+          );
+          for (const f of result.failures) process.stdout.write(`  \u2717 ${f.claimId} (${f.citation}): ${f.note}
+`);
+        }
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join26(out2, "exceptions.json"));
-      const report = check({ repo, inventory, exceptions });
+      const planned = readJson2(runDir(out2).plan, "PLAN.json");
+      const todo = buildVerify({
+        repo,
+        inventory,
+        plan: planned,
+        ...p.flags["max-verify"] ? { maxVerify: Number(p.flags["max-verify"]) } : {},
+        ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
+      });
+      writeJson(todoPath, todo);
+      writeFileSync9(join30(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
+      else {
+        process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
+`);
+        process.stdout.write(`  not reviewed: ${todo.notReviewed.groups} \u2014 ${todo.notReviewed.reason}
+`);
+        process.stderr.write(`  wrote ${todoPath} and VERIFY.md
+`);
+      }
+      return;
+    }
+    case "orchestrate": {
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const engine = resolve3(process.argv[1] ?? "ultrai18n.mjs");
+      if (p.flags.list) {
+        const statuses = phaseStatuses(out2);
+        process.stdout.write(JSON.stringify(statuses, null, 2) + "\n");
+        return;
+      }
+      try {
+        const emitted = orchestrate({
+          repo,
+          out: out2,
+          engine,
+          ...p.flags.phase ? { phase: String(p.flags.phase) } : {},
+          ...p.flags.eco ? { eco: true } : {}
+        });
+        if (json) process.stdout.write(JSON.stringify(emitted, null, 2) + "\n");
+        else {
+          process.stdout.write(`ultrai18n orchestrate: phase ${emitted.phase}
+`);
+          for (const f of emitted.files) process.stdout.write(`  wrote ${f}
+`);
+          if (emitted.advice) process.stdout.write(`  ${emitted.advice}
+`);
+        }
+        process.stderr.write(`
+launch:   ${emitted.launch}
+join:     ${emitted.join}
+`);
+      } catch (err2) {
+        const code = err2.exitCode ?? 1;
+        process.stderr.write(`ultrai18n: ${err2.message}
+`);
+        process.exitCode = code;
+      }
+      return;
+    }
+    case "sync": {
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const report = sync({
+        repo,
+        inventory,
+        ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
+        statePath: join30(out2, "catalog-state.json")
+      });
+      if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
+      else process.stdout.write(formatSync(report) + "\n");
+      if (!report.ok) process.exitCode = 1;
+      return;
+    }
+    case "init": {
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const report = check({ repo, inventory, exceptions: readExceptions(join30(out2, "exceptions.json")) });
+      const result = init2({
+        repo,
+        out: out2,
+        ci: p.flags.ci === true,
+        hook: p.flags.hook === true,
+        ...p.flags.baseline ? { baseline: report } : {}
+      });
+      if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+      else {
+        for (const f of result.written) process.stdout.write(`  wrote ${f}
+`);
+        for (const n of result.notes) process.stdout.write(`  ${n}
+`);
+        if (!result.written.length) process.stdout.write("  nothing to do \u2014 pass --ci, --hook or --baseline\n");
+      }
+      return;
+    }
+    case "check": {
+      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const exceptions = readExceptions(join30(out2, "exceptions.json"));
+      const baselinePath = join30(out2, "baseline.json");
+      const baseline = existsSync15(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
+      const report = check({ repo, inventory, exceptions, ...baseline ? { baseline } : {} });
+      if (p.flags.semantic) {
+        const todoPath = join30(out2, "VERIFY.todo.json");
+        const resultPath = join30(out2, "VERIFY.json");
+        const semantic = checkSemantic({
+          repo,
+          inventory,
+          todo: existsSync15(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
+          result: existsSync15(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
+        });
+        if (!semantic.ok) {
+          report.ok = false;
+          report.exitCode = 1;
+          report.gates.push({
+            id: "G6",
+            name: "semantic",
+            ok: false,
+            count: semantic.findings.length,
+            findings: semantic.findings.map((message) => ({ message }))
+          });
+        }
+      }
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatCheck(report) + "\n");
       process.exitCode = report.exitCode;
