@@ -501,7 +501,8 @@ function buildLineStarts(text) {
 function gitLsFiles(root) {
   const r = spawnSync("git", ["ls-files", "-z"], { cwd: root, maxBuffer: 1 << 28 });
   if (r.status !== 0 || !r.stdout) return null;
-  return r.stdout.toString("utf8").split("\0").filter(Boolean).sort();
+  const files = r.stdout.toString("utf8").split("\0").filter(Boolean).sort();
+  return files.length > 0 ? files : null;
 }
 function runCensus(root) {
   const tracked = gitLsFiles(root);
@@ -21548,6 +21549,79 @@ function findTagEnd(text, from) {
   return -1;
 }
 
+// src/extract/text.ts
+var PLAIN_TEXT_BASENAMES = /* @__PURE__ */ new Set([
+  "LICENSE",
+  "LICENCE",
+  "COPYING",
+  "NOTICE",
+  "AUTHORS",
+  "CONTRIBUTORS",
+  "CHANGELOG",
+  "README",
+  "INSTALL",
+  "TODO",
+  "CODEOWNERS",
+  "Dockerfile",
+  "Makefile"
+]);
+var PLAIN_TEXT_EXT = /* @__PURE__ */ new Set([".txt", ".text", ".rst", ".adoc", ".asciidoc"]);
+function isPlainText(rel2, ext) {
+  if (PLAIN_TEXT_EXT.has(ext)) return true;
+  if (ext !== "") return false;
+  const base = rel2.slice(rel2.lastIndexOf("/") + 1);
+  return PLAIN_TEXT_BASENAMES.has(base) || PLAIN_TEXT_BASENAMES.has(base.toUpperCase());
+}
+function extractText(file, text, map) {
+  const sites = [];
+  let index = 0;
+  let start2 = 0;
+  let buffer = null;
+  const flush = () => {
+    if (!buffer) return;
+    const value = text.slice(buffer.from, buffer.to);
+    if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+      sites.push(makeSite2(file, `p[${index++}]`, buffer.from, buffer.to, value, map));
+    }
+    buffer = null;
+  };
+  for (let i2 = 0; i2 <= text.length; i2++) {
+    if (i2 === text.length || text[i2] === "\n") {
+      const line = text.slice(start2, i2);
+      if (line.trim() === "") flush();
+      else if (buffer) buffer.to = i2;
+      else buffer = { from: start2 + (line.length - line.trimStart().length), to: i2 };
+      start2 = i2 + 1;
+    }
+  }
+  flush();
+  return { sites, claimedBytes: text.length };
+}
+function makeSite2(file, path, startChar, endChar, value, map) {
+  const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+  const s = map.lineColOf(startChar);
+  const e = map.lineColOf(endChar);
+  return {
+    file,
+    path,
+    kind: "prose-run",
+    span,
+    valueSpan: span,
+    raw: value,
+    value,
+    quote: null,
+    escapes: false,
+    holes: [],
+    line: s.line,
+    col: s.col,
+    endLine: e.line,
+    endCol: e.col,
+    extractor: "text",
+    tier: "structural",
+    container: { isKey: false }
+  };
+}
+
 // src/vendor/glob.ts
 function globToRegExp2(glob) {
   let re = "";
@@ -23151,6 +23225,10 @@ async function extractFile(file, tokens, opts) {
     const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map);
     for (const id of identifiers) tokens.identifiers.add(id);
     return { ...base, sites, extractor: "html", bytesClaimed: claimedBytes };
+  }
+  if (isPlainText(file.rel, ext)) {
+    const { sites, claimedBytes } = extractText(file.rel, read.text, map);
+    return { ...base, sites, extractor: "text", bytesClaimed: claimedBytes };
   }
   return { ...base, extractor: "none", reason: `no extractor for ${ext || "extensionless file"}` };
 }
