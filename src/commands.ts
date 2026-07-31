@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Inventory } from './types'
 import { plan as buildPlan, type Group, type Plan } from './plan'
 import {
-  buildBatches, foldResults, runCliBackend, parseResult, TRANSLATOR_CONTRACT,
+  buildBatches, foldResults, runCliBackend, runApiBackend, parseResult, TRANSLATOR_CONTRACT,
   type Batch, type BatchResult,
 } from './translate'
 import { apply, type Translation } from './apply'
@@ -179,6 +179,46 @@ export interface TranslateOutcome {
   wrote: string[]
   /** Set when the engine cannot itself invoke the backend and hands over instead. */
   handoff?: string
+}
+
+export interface ApiConfig {
+  endpoint?: string
+  model?: string
+  keyEnv?: string
+  headers?: Record<string, string>
+}
+
+export async function cmdTranslateApi(opts: TranslateOptions & { api?: ApiConfig }): Promise<TranslateOutcome> {
+  const dirs = runDir(opts.out)
+  const p = readJson<Plan>(dirs.plan, 'PLAN.json')
+  const batches = readBatches(dirs.batches)
+  mkdirSync(dirs.results, { recursive: true })
+  const wrote: string[] = []
+  const failed: string[] = []
+  for (const batch of batches) {
+    try {
+      const result = await runApiBackend(batch, {
+        endpoint: opts.api?.endpoint ?? 'https://api.anthropic.com/v1/messages',
+        model: opts.api?.model ?? 'claude-haiku-4-5-20251001',
+        keyEnv: opts.api?.keyEnv ?? 'ANTHROPIC_API_KEY',
+        headers: { 'anthropic-version': '2023-06-01', ...opts.api?.headers },
+        sourceLang: p.sourceLang,
+        targetLang: p.targetLang,
+        contract: TRANSLATOR_CONTRACT,
+        ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
+      })
+      const path = join(dirs.results, `${batch.batchId}.result.json`)
+      writeJson(path, result)
+      wrote.push(path)
+    } catch (err) {
+      failed.push(`${batch.batchId}: ${(err as Error).message}`)
+    }
+  }
+  if (failed.length) {
+    writeJson(join(opts.out, 'FAILED.json'), { failed })
+    throw new Error(`${failed.length} of ${batches.length} batches failed — see FAILED.json; re-run to retry only those`)
+  }
+  return { backend: 'api', batches: batches.length, wrote }
 }
 
 export function cmdTranslate(opts: TranslateOptions): TranslateOutcome {

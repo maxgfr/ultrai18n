@@ -16,6 +16,7 @@ import { extractCss } from './extract/css'
 import { extractHtml } from './extract/html'
 import { extractText, isPlainText } from './extract/text'
 import { sweepFile } from './sweep'
+import { scanPaths, pathSites } from './paths'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
 import { prepareGrammars, parserForExt, AST_EXTENSIONS, grammarStatus } from './ast/parse'
 import { classify } from './classify'
@@ -79,6 +80,22 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
     a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start,
   )
 
+  // Paths are text too. The reference repository renamed reglages.png to
+  // settings.png as part of its language change, and a tool that treats every
+  // path as an untouchable slug reports that repository as clean.
+  const tracked = gitLsFiles(repo) ?? walked.files.map((f) => f.rel)
+  if (from && from !== to) {
+    sites.push(
+      ...pathSites(
+        scanPaths({ repo, files: tracked, from, to, identifiers: tokens.identifiers }),
+        to,
+      ),
+    )
+  }
+
+  sites.sort((a, b) =>
+    a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start,
+  )
   linkDuplicates(sites)
 
   return {

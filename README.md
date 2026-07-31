@@ -59,9 +59,9 @@ No build step, no API key, no network. The tree-sitter grammars ship with the en
 The pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `verify` → `check`, plus
 `sync`, `orchestrate` and `init --ci --baseline`.
 
-Two backends do not dispatch on their own and say so: `subagent` writes the batches and the agent
-contract and hands over, because the engine cannot spawn a Claude Code agent, and `api` is not
-implemented. `--translator '<command>'` and `--backend manual` are complete.
+Translation backends: a generic CLI (`--translator '<command>'`), direct HTTP (`--backend api`), and
+manual. `--backend subagent` writes the batches and the agent contract and hands over, because the
+engine cannot spawn a Claude Code agent and will not pretend to.
 
 On a fully French reference repository, `scan` finds 2956 text sites across 91 files and separates
 them into what to translate, what is an identifier and must not be touched, and what it refuses to

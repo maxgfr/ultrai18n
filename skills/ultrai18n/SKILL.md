@@ -96,9 +96,14 @@ Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdo
 and plain text through hand-written byte-indexed lexers, with a residual sweep behind them so a
 format with no extractor surfaces as `unclassified` rather than as nothing.
 
-Two backends do not dispatch on their own, and say so rather than pretending: `subagent` writes the
-batches and the agent contract and hands over, because the engine cannot spawn a Claude Code agent;
-`api` is not implemented. `--translator '<command>'` and `--backend manual` are complete.
+Backends: `--translator '<command>'` (batch JSON on stdin, result JSON on stdout — ollama, a Python
+script, anything), `--backend api` (direct HTTP on `fetch`, key from the environment), and
+`--backend manual`. `--backend subagent` writes the batches and the agent contract and hands over,
+because the engine cannot spawn a Claude Code agent and will not pretend to.
+
+Paths are a surface too: a filename written in the source language is found, its referrers are
+resolved, and it is **reported rather than renamed** — a rename that misses one referrer is a broken
+build, and no static tool can prove it found the last one.
 
 On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
 `scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed

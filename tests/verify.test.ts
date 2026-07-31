@@ -163,3 +163,45 @@ describe('baseline', () => {
     expect(survives.map((f) => f.file)).toEqual(['c.ts'])
   })
 })
+
+describe('path segments', () => {
+  it('finds a filename written in the source language', async () => {
+    // The reference repository renamed reglages.png to settings.png as part of
+    // its language change. A tool that treats every path as an untouchable slug
+    // reports that repository as clean.
+    const { scanPaths } = await import('../src/paths')
+    const found = scanPaths({
+      repo: '/nowhere',
+      files: ['docs/images/reglages.png', 'docs/images/timer-clair.png', 'src/index.ts'],
+      from: 'fr',
+      to: 'en',
+      identifiers: new Set(),
+    })
+    expect(found.map((f) => f.segment)).toEqual(['reglages', 'timer-clair'])
+  })
+
+  it('leaves ordinary structural directories alone', async () => {
+    const { scanPaths } = await import('../src/paths')
+    const found = scanPaths({
+      repo: '/nowhere',
+      files: ['src/components/Button.tsx', 'docs/images/screenshot.png'],
+      from: 'fr',
+      to: 'en',
+      identifiers: new Set(['Button']),
+    })
+    expect(found).toEqual([])
+  })
+
+  it('reports rather than renames, and says how many referrers it found', async () => {
+    // A rename that misses one referrer is a broken build or a dead link, and
+    // no static tool can prove it found the last one.
+    const { pathSites } = await import('../src/paths')
+    const [site] = pathSites(
+      [{ path: 'docs/reglages.png', segment: 'reglages', language: 'fr', confidence: 0.85, referrers: [{ file: 'README.md', line: 3 }] }],
+      'en',
+    )
+    expect(site!.verdict).toBe('needs-judgment')
+    expect(site!.reason).toBe('dual-use')
+    expect(site!.evidence.enumOrigins).toEqual(['README.md:3'])
+  })
+})

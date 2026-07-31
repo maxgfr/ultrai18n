@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
-import { join as join30, resolve as resolve3 } from "path";
+import { join as join31, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -21795,542 +21795,9 @@ function charIndexOfByte(text, byte) {
   return text.length;
 }
 
-// src/vendor/glob.ts
-function globToRegExp2(glob) {
-  let re = "";
-  for (let i2 = 0; i2 < glob.length; i2++) {
-    const c2 = glob[i2];
-    if (c2 === "*") {
-      if (glob[i2 + 1] === "*") {
-        i2++;
-        if (glob[i2 + 1] === "/") {
-          i2++;
-          re += "(?:.*/)?";
-        } else {
-          re += ".*";
-        }
-      } else {
-        re += "[^/]*";
-      }
-    } else if (c2 === "?") {
-      re += "[^/]";
-    } else {
-      re += escapeRegExp(c2);
-    }
-  }
-  return new RegExp(`^${re}$`);
-}
-function compileGlobs2(globs) {
-  if (!globs || globs.length === 0) return null;
-  const res = globs.map(globToRegExp2);
-  return (rel2) => res.some((r) => r.test(rel2));
-}
-
-// src/catalog/match.ts
-function matchRules(rules, candidate) {
-  const out2 = [];
-  for (const rule of [...rules].sort((a, b) => a.id < b.id ? -1 : 1)) {
-    if (matches(rule.when, candidate)) {
-      out2.push({ rule, emit: rule.emit, companion: false });
-      continue;
-    }
-    for (const companion of rule.companions ?? []) {
-      if (matches(companion.when, candidate)) {
-        out2.push({ rule, emit: companion.emit, companion: true });
-        break;
-      }
-    }
-  }
-  return out2;
-}
-function matches(matcher, c2) {
-  switch (matcher.kind) {
-    case "any":
-      return matcher.of.some((m) => matches(m, c2));
-    case "file":
-      return fileMatches(matcher.file, c2.file) && (matcher.confirm?.some((r) => r.test(c2.file)) ?? true);
-    case "pointer": {
-      if (!fileMatches(matcher.file, c2.file)) return false;
-      if (matcher.pointerRegex) return matcher.pointerRegex.test(c2.path);
-      if (!matcher.pointer) return true;
-      return matcher.pointer.some((p) => pointerMatches(p, c2.path));
-    }
-    case "keyName":
-      if (matcher.file && !fileMatches(matcher.file, c2.file)) return false;
-      return c2.key !== void 0 && matcher.key.test(c2.key);
-    case "attr":
-      if (matcher.file && !fileMatches(matcher.file, c2.file)) return false;
-      if (matcher.element && !matcher.element.test(c2.element ?? "")) return false;
-      return matcher.attr.test(c2.attr ?? "");
-    case "structural":
-      return fileMatches(matcher.file, c2.file) && matcher.path.test(c2.path);
-  }
-}
-var globCache = /* @__PURE__ */ new Map();
-function fileMatches(globs, file) {
-  const key = globs.join("\0");
-  let fn = globCache.get(key);
-  if (!fn) {
-    const positive = compileGlobs2(globs.filter((g) => !g.startsWith("!")));
-    const negative = compileGlobs2(globs.filter((g) => g.startsWith("!")).map((g) => g.slice(1)));
-    fn = (rel2) => (!positive || positive(rel2)) && !negative?.(rel2);
-    globCache.set(key, fn);
-  }
-  return fn(file);
-}
-function pointerMatches(pattern, path) {
-  const p = pattern.split("/");
-  const t = path.split("/");
-  return segMatch(p, 0, t, 0);
-}
-function segMatch(p, pi, t, ti) {
-  if (pi === p.length) return ti === t.length;
-  const seg = p[pi];
-  if (seg === "**") {
-    for (let k = ti; k <= t.length; k++) {
-      if (segMatch(p, pi + 1, t, k)) return true;
-    }
-    return false;
-  }
-  if (ti >= t.length) return false;
-  if (seg === "*" || seg === t[ti]) return segMatch(p, pi + 1, t, ti + 1);
-  return false;
-}
-function checkCatalog(rules) {
-  const problems = [];
-  const seen = /* @__PURE__ */ new Set();
-  for (const rule of rules) {
-    if (seen.has(rule.id)) problems.push({ rule: rule.id, problem: "duplicate rule id" });
-    seen.add(rule.id);
-    if (!/^[a-z0-9]+(\.[a-z0-9-]+)+$/.test(rule.id)) {
-      problems.push({ rule: rule.id, problem: "id must be dotted lowercase, e.g. npm.package-json.description" });
-    }
-    if (rule.emit.verdict === "translate" && !rule.docs) {
-      problems.push({
-        rule: rule.id,
-        problem: "a translate verdict needs a `docs` URL \u2014 a rule is evidence, not a hunch"
-      });
-    }
-    if (rule.emit.verdict === "do-not-translate" && !rule.emit.reason) {
-      problems.push({ rule: rule.id, problem: "a do-not-translate verdict needs a closed-vocabulary reason" });
-    }
-    for (const companion of rule.companions ?? []) {
-      if (companion.emit.verdict === "do-not-translate" && !companion.emit.reason) {
-        problems.push({ rule: rule.id, problem: "a companion do-not-translate needs a reason" });
-      }
-    }
-  }
-  return problems;
-}
-
-// src/catalog/rules.ts
-var NOT_VENDORED = ["!**/node_modules/**", "!**/vendor/**", "!**/dist/**", "!**/build/**"];
-var RULES17 = [
-  // --------------------------------------------------------------------- npm
-  {
-    id: "npm.package-json.description",
-    ecosystem: "npm",
-    title: 'package.json "description"',
-    docs: "https://docs.npmjs.com/cli/configuring-npm/package-json#description",
-    when: { kind: "pointer", file: ["**/package.json", ...NOT_VENDORED], pointer: ["/description"] },
-    emit: {
-      surface: "meta.package.description",
-      verdict: "translate",
-      flags: ["published-artifact", "registry-visible"]
-    },
-    companions: [
-      {
-        when: {
-          kind: "pointer",
-          file: ["**/package.json", ...NOT_VENDORED],
-          pointer: [
-            "/name",
-            "/version",
-            "/license",
-            "/main",
-            "/module",
-            "/types",
-            "/packageManager",
-            "/exports/**",
-            "/scripts/*",
-            "/dependencies/*",
-            "/devDependencies/*",
-            "/peerDependencies/*",
-            "/engines/*",
-            "/bin/*",
-            "/files/*",
-            "/repository/**",
-            "/publishConfig/**",
-            "/workspaces/*"
-          ]
-        },
-        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "identifier" }
-      },
-      {
-        when: { kind: "pointer", file: ["**/package.json"], pointer: ["/keywords/*"] },
-        emit: { surface: "meta.package.keywords", verdict: "needs-judgment", reason: "discovery-token" }
-      },
-      {
-        when: { kind: "pointer", file: ["**/package.json"], pointer: ["/author", "/contributors/*"] },
-        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "proper-noun" }
-      }
-    ],
-    mirrors: ["web.manifest.text-fields", "html.meta.prose"],
-    notes: "Rendered on npmjs.com and by `npm search`. An AI reads package.json as dependency config and never looks at /description \u2014 the miss that motivated this tool. Three of three were missed in the reference repo."
-  },
-  // --------------------------------------------------------------------- web
-  {
-    id: "web.manifest.inlined-in-build-config",
-    ecosystem: "web",
-    title: "Web app manifest inlined in a bundler config",
-    docs: "https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest",
-    when: {
-      kind: "structural",
-      file: [
-        "**/vite.config.*",
-        "**/nuxt.config.*",
-        "**/astro.config.*",
-        "**/next.config.*",
-        "**/svelte.config.*",
-        "**/webpack.config.*",
-        "**/rspack.config.*",
-        "**/quasar.conf.*",
-        "**/vue.config.*",
-        "**/gatsby-config.*"
-      ],
-      path: /manifest\/(name|short_name|description|categories|screenshots|shortcuts)/
-    },
-    emit: {
-      surface: "meta.webmanifest",
-      verdict: "translate",
-      flags: ["published-artifact", "invisible-to-filename-search"]
-    },
-    companions: [
-      {
-        when: {
-          kind: "structural",
-          file: ["**/vite.config.*", "**/nuxt.config.*", "**/astro.config.*", "**/next.config.*"],
-          path: /manifest\/(lang|dir)$/
-        },
-        emit: { surface: "locale.declaration", verdict: "locale-marker" }
-      },
-      {
-        when: {
-          kind: "structural",
-          file: ["**/vite.config.*", "**/nuxt.config.*", "**/astro.config.*", "**/next.config.*"],
-          path: /(manifest\/(id|start_url|scope|display|orientation|theme_color|background_color|icons)|cacheId|globPatterns|base)/
-        },
-        emit: { surface: "token.url-slug", verdict: "do-not-translate", reason: "url-or-slug" }
-      }
-    ],
-    notes: "The manifest exists only at build time, so `find -name manifest.json` returns nothing and a file-name-driven search misses the entire PWA listing."
-  },
-  {
-    id: "web.manifest.text-fields",
-    ecosystem: "web",
-    title: "Web app manifest",
-    docs: "https://developer.mozilla.org/en-US/docs/Web/Manifest",
-    when: {
-      kind: "pointer",
-      file: ["**/manifest.json", "**/manifest.webmanifest", "**/*.webmanifest"],
-      pointer: [
-        "/name",
-        "/short_name",
-        "/description",
-        "/categories/*",
-        "/shortcuts/*/name",
-        "/shortcuts/*/short_name",
-        "/shortcuts/*/description",
-        "/screenshots/*/label"
-      ]
-    },
-    emit: { surface: "meta.webmanifest", verdict: "translate", flags: ["published-artifact"] },
-    companions: [
-      {
-        when: { kind: "pointer", file: ["**/manifest*.json", "**/*.webmanifest"], pointer: ["/lang", "/dir"] },
-        emit: { surface: "locale.declaration", verdict: "locale-marker" }
-      }
-    ]
-  },
-  // ------------------------------------------------------------ webextension
-  {
-    id: "webext.manifest.text",
-    ecosystem: "webextension",
-    title: "Browser extension manifest",
-    docs: "https://developer.chrome.com/docs/extensions/reference/manifest",
-    when: {
-      kind: "pointer",
-      file: ["**/manifest.json", ...NOT_VENDORED],
-      requiresPointer: "/manifest_version",
-      pointer: [
-        "/name",
-        "/short_name",
-        "/description",
-        "/action/default_title",
-        "/browser_action/default_title",
-        "/page_action/default_title",
-        "/commands/*/description",
-        "/omnibox/keyword"
-      ]
-    },
-    emit: { surface: "meta.extension-manifest", verdict: "translate", flags: ["store-listing"], maxLength: 132 },
-    companions: [
-      {
-        when: {
-          kind: "pointer",
-          file: ["**/manifest.json"],
-          pointer: [
-            "/permissions/*",
-            "/host_permissions/*",
-            "/content_scripts/*/matches/*",
-            "/content_scripts/*/js/*",
-            "/background/service_worker",
-            "/key",
-            "/update_url",
-            "/web_accessible_resources/**",
-            "/content_security_policy/**",
-            "/icons/**"
-          ]
-        },
-        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract" }
-      },
-      {
-        when: { kind: "pointer", file: ["**/manifest.json"], pointer: ["/default_locale"] },
-        emit: { surface: "locale.declaration", verdict: "locale-marker" }
-      }
-    ],
-    notes: "A content_scripts match pattern looks like a URL because it is one; translating it silently disables the extension."
-  },
-  {
-    id: "webext.locales.messages",
-    ecosystem: "webextension",
-    title: "Extension _locales message bundle",
-    docs: "https://developer.chrome.com/docs/extensions/reference/api/i18n",
-    when: { kind: "pointer", file: ["**/_locales/*/messages.json"], pointer: ["/*/message", "/*/description"] },
-    emit: { surface: "i18n.message", verdict: "translate" },
-    companions: [
-      {
-        when: { kind: "pointer", file: ["**/_locales/*/messages.json"], pointer: ["/*/placeholders/**"] },
-        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "interpolation" }
-      }
-    ]
-  },
-  // ------------------------------------------------------------------ github
-  {
-    id: "github.issue-forms",
-    ecosystem: "github",
-    title: "GitHub issue form",
-    docs: "https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema",
-    when: {
-      kind: "pointer",
-      file: [".github/ISSUE_TEMPLATE/*.yml", ".github/ISSUE_TEMPLATE/*.yaml"],
-      pointer: [
-        "/name",
-        "/description",
-        "/title",
-        "/body/*/attributes/label",
-        "/body/*/attributes/description",
-        "/body/*/attributes/placeholder",
-        "/body/*/attributes/value",
-        "/body/*/attributes/options/*",
-        "/body/*/attributes/options/*/label",
-        "/contact_links/*/name",
-        "/contact_links/*/about"
-      ]
-    },
-    emit: { surface: "ui.issue-form", verdict: "translate", flags: ["public-facing"] },
-    companions: [
-      {
-        when: {
-          kind: "pointer",
-          file: [".github/ISSUE_TEMPLATE/*.yml", ".github/ISSUE_TEMPLATE/*.yaml"],
-          pointer: ["/body/*/id", "/body/*/type", "/labels/*", "/assignees/*", "/body/*/attributes/render"]
-        },
-        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "identifier" }
-      }
-    ],
-    notes: "A label in /labels/* must match a label that EXISTS in the repo; translating it silently breaks the template."
-  },
-  {
-    id: "github.release-notes-body",
-    ecosystem: "github",
-    title: "Release-notes body inside a workflow",
-    docs: "https://github.com/softprops/action-gh-release#-usage",
-    when: {
-      kind: "pointer",
-      file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
-      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)$/
-    },
-    emit: { surface: "ui.release-notes", verdict: "translate", flags: ["public-facing"] },
-    companions: [
-      {
-        when: {
-          kind: "pointer",
-          file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
-          pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/(uses|if|run|id)$|\/with\/(files|body_path|token|tag_name|node-version)$/
-        },
-        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token" }
-      }
-    ],
-    notes: "Markdown nested in YAML that renders on the public Releases page. Ordinary YAML tooling reports one opaque scalar."
-  },
-  {
-    id: "github.workflow-prose",
-    ecosystem: "github",
-    title: "Workflow and job names shown in the Actions UI",
-    docs: "https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#name",
-    when: {
-      kind: "pointer",
-      file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
-      pointerRegex: /^\/name$|^\/jobs\/[^/]+\/name$|^\/jobs\/[^/]+\/steps\/\d+\/name$/
-    },
-    emit: { surface: "meta.ci", verdict: "translate" }
-  },
-  // ------------------------------------------------------------------- html
-  {
-    id: "html.meta.prose",
-    ecosystem: "web",
-    title: "HTML head metadata and social preview",
-    docs: "https://ogp.me/",
-    when: {
-      kind: "attr",
-      file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro", "**/*.ejs", "**/*.hbs", "**/*.erb"],
-      element: /^meta$/,
-      attr: /^(description|keywords|author|application-name|apple-mobile-web-app-title|subject|abstract|og:title|og:description|og:site_name|og:image:alt|twitter:title|twitter:description|twitter:image:alt|article:section|article:tag)$/
-    },
-    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"], maxLength: 160 },
-    companions: [
-      {
-        when: {
-          kind: "attr",
-          file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro"],
-          element: /^meta$/,
-          attr: /^(viewport|theme-color|robots|color-scheme|referrer|format-detection|charset|content-type|msapplication-.*|google-site-verification|og:url|og:type|og:image|twitter:card|twitter:site|twitter:creator)$/
-        },
-        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token" }
-      },
-      {
-        when: {
-          kind: "attr",
-          file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro"],
-          element: /^(meta|html|link)$/,
-          attr: /^(og:locale|lang|hreflang|dir)$/
-        },
-        emit: { surface: "locale.declaration", verdict: "locale-marker" }
-      }
-    ]
-  },
-  {
-    id: "html.title",
-    ecosystem: "web",
-    title: "Document title",
-    docs: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title",
-    when: { kind: "attr", file: ["**/*.html", "**/*.htm"], element: /^title$/, attr: /^text$/ },
-    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"] }
-  },
-  // ------------------------------------------------------------------ i18n
-  {
-    id: "i18n.message-bundles",
-    ecosystem: "i18n",
-    title: "Locale message bundle",
-    docs: "https://www.i18next.com/misc/json-format",
-    when: {
-      kind: "file",
-      file: [
-        "**/locales/**/*.json",
-        "**/locale/**/*.json",
-        "**/messages/*.json",
-        "**/i18n/**/*.json",
-        "**/lang/**/*.json",
-        "**/translations/**/*.json",
-        "**/locales/**/*.yml",
-        "**/locales/**/*.yaml",
-        "**/*.arb",
-        "**/*.ftl",
-        ...NOT_VENDORED
-      ]
-    },
-    emit: { surface: "i18n.message", verdict: "translate" },
-    notes: "A bundle already IN the target locale is correct as it stands; the locale is read from its path, and gate G4 must not fire on it."
-  },
-  // ----------------------------------------------------------- other manifests
-  {
-    id: "cargo.package.description",
-    ecosystem: "rust",
-    title: "Cargo package description",
-    docs: "https://doc.rust-lang.org/cargo/reference/manifest.html#the-description-field",
-    when: { kind: "pointer", file: ["**/Cargo.toml", ...NOT_VENDORED], pointer: ["/package/description", "/package/keywords/*", "/package/categories/*"] },
-    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
-  },
-  {
-    id: "python.pyproject.description",
-    ecosystem: "python",
-    title: "pyproject project description",
-    docs: "https://packaging.python.org/en/latest/specifications/pyproject-toml/#description",
-    when: { kind: "pointer", file: ["**/pyproject.toml", ...NOT_VENDORED], pointer: ["/project/description", "/project/keywords/*"] },
-    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
-  },
-  {
-    id: "php.composer.description",
-    ecosystem: "php",
-    title: "Composer package description",
-    docs: "https://getcomposer.org/doc/04-schema.md#description",
-    when: { kind: "pointer", file: ["**/composer.json", ...NOT_VENDORED], pointer: ["/description", "/keywords/*"] },
-    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
-  },
-  {
-    id: "dart.pubspec.description",
-    ecosystem: "flutter",
-    title: "pubspec description",
-    docs: "https://dart.dev/tools/pub/pubspec#description",
-    when: { kind: "pointer", file: ["**/pubspec.yaml", ...NOT_VENDORED], pointer: ["/description"] },
-    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
-  },
-  {
-    id: "android.strings-xml",
-    ecosystem: "android",
-    title: "Android string resources",
-    docs: "https://developer.android.com/guide/topics/resources/string-resource",
-    when: { kind: "file", file: ["**/res/values*/strings.xml", "**/res/values*/plurals.xml", "**/res/values*/arrays.xml"] },
-    emit: { surface: "i18n.message", verdict: "translate" },
-    notes: 'translatable="false" is a platform-native, machine-readable exception and must win over any heuristic.'
-  },
-  {
-    id: "docker.label",
-    ecosystem: "docker",
-    title: "OCI image description label",
-    docs: "https://github.com/opencontainers/image-spec/blob/main/annotations.md",
-    when: { kind: "keyName", file: ["**/Dockerfile", "**/Dockerfile.*", "**/*.dockerfile"], key: /^org\.opencontainers\.image\.(description|title)$/ },
-    emit: { surface: "meta.oci-label", verdict: "translate" }
-  },
-  // ------------------------------------------------------------------ legal
-  {
-    id: "legal.vendored-verbatim",
-    ecosystem: "legal",
-    title: "Vendored legal text",
-    when: {
-      kind: "file",
-      file: [
-        "LICENSE*",
-        "LICENCE*",
-        "COPYING*",
-        "NOTICE*",
-        "CODE_OF_CONDUCT.md",
-        "**/third_party/**",
-        "**/licenses/**",
-        "**/*.LICENSE.txt"
-      ]
-    },
-    emit: {
-      surface: "legal.verbatim",
-      verdict: "do-not-translate",
-      reason: "vendored-legal",
-      hard: true
-    },
-    notes: 'Altering LICENSE breaks GitHub licence detection and the repository displays "Other". The Contributor Covenant has official translations: swap the whole file, never hand-translate it.'
-  }
-];
-var RULES_BY_ID = new Map(RULES17.map((r) => [r.id, r]));
+// src/paths.ts
+import { readFileSync as readFileSync11 } from "fs";
+import { join as join23 } from "path";
 
 // src/lang/detect.ts
 var SUPPORTED = [
@@ -23071,9 +22538,922 @@ function detect(raw, opts = {}) {
 function round(n) {
   return Math.round(n * 100) / 100;
 }
+var PATH_WORDS = {
+  fr: [
+    "reglages",
+    "r\xE9glages",
+    "parametres",
+    "param\xE8tres",
+    "accueil",
+    "connexion",
+    "deconnexion",
+    "inscription",
+    "recherche",
+    "resultats",
+    "r\xE9sultats",
+    "clair",
+    "sombre",
+    "gris",
+    "rouge",
+    "vert",
+    "bleu",
+    "jaune",
+    "noir",
+    "blanc",
+    "grand",
+    "petit",
+    "moyen",
+    "nouveau",
+    "nouvelle",
+    "ancien",
+    "page",
+    "pages",
+    "image",
+    "images",
+    "capture",
+    "captures",
+    "ecran",
+    "\xE9cran",
+    "exemple",
+    "exemples",
+    "modele",
+    "mod\xE8le",
+    "brouillon",
+    "apercu",
+    "aper\xE7u",
+    "utilisateur",
+    "utilisateurs",
+    "compte",
+    "comptes",
+    "profil",
+    "tableau",
+    "graphique",
+    "statistiques",
+    "minuteur",
+    "tache",
+    "t\xE2che",
+    "taches",
+    "t\xE2ches",
+    "alerte",
+    "alertes",
+    "sonnerie",
+    "demarrage",
+    "d\xE9marrage",
+    "arret",
+    "arr\xEAt",
+    "pause",
+    "aide",
+    "guide",
+    "accessibilite",
+    "accessibilit\xE9",
+    "securite",
+    "s\xE9curit\xE9",
+    "donnees",
+    "donn\xE9es",
+    "fichier",
+    "dossier"
+  ],
+  es: [
+    "ajustes",
+    "configuracion",
+    "configuraci\xF3n",
+    "inicio",
+    "busqueda",
+    "b\xFAsqueda",
+    "claro",
+    "oscuro",
+    "rojo",
+    "verde",
+    "azul",
+    "negro",
+    "blanco",
+    "grande",
+    "pequeno",
+    "peque\xF1o",
+    "nuevo",
+    "nueva",
+    "pagina",
+    "p\xE1gina",
+    "imagen",
+    "imagenes",
+    "im\xE1genes",
+    "pantalla",
+    "ejemplo",
+    "usuario",
+    "usuarios",
+    "cuenta",
+    "perfil",
+    "datos",
+    "archivo",
+    "carpeta",
+    "tarea",
+    "tareas",
+    "ayuda",
+    "guia",
+    "gu\xEDa",
+    "seguridad"
+  ],
+  de: [
+    "einstellungen",
+    "anmeldung",
+    "abmeldung",
+    "suche",
+    "hell",
+    "dunkel",
+    "rot",
+    "gruen",
+    "gr\xFCn",
+    "blau",
+    "schwarz",
+    "weiss",
+    "wei\xDF",
+    "gross",
+    "gro\xDF",
+    "klein",
+    "neu",
+    "seite",
+    "seiten",
+    "bild",
+    "bilder",
+    "bildschirm",
+    "beispiel",
+    "benutzer",
+    "konto",
+    "profil",
+    "daten",
+    "datei",
+    "ordner",
+    "aufgabe",
+    "aufgaben",
+    "hilfe",
+    "sicherheit"
+  ],
+  it: [
+    "impostazioni",
+    "accesso",
+    "ricerca",
+    "chiaro",
+    "scuro",
+    "rosso",
+    "verde",
+    "blu",
+    "nero",
+    "bianco",
+    "grande",
+    "piccolo",
+    "nuovo",
+    "nuova",
+    "pagina",
+    "immagine",
+    "immagini",
+    "schermo",
+    "esempio",
+    "utente",
+    "account",
+    "profilo",
+    "dati",
+    "file",
+    "cartella",
+    "attivita",
+    "attivit\xE0",
+    "aiuto",
+    "sicurezza"
+  ],
+  pt: [
+    "configuracoes",
+    "configura\xE7\xF5es",
+    "ajustes",
+    "inicio",
+    "in\xEDcio",
+    "busca",
+    "claro",
+    "escuro",
+    "vermelho",
+    "verde",
+    "azul",
+    "preto",
+    "branco",
+    "grande",
+    "pequeno",
+    "novo",
+    "nova",
+    "pagina",
+    "p\xE1gina",
+    "imagem",
+    "imagens",
+    "tela",
+    "exemplo",
+    "usuario",
+    "usu\xE1rio",
+    "conta",
+    "perfil",
+    "dados",
+    "arquivo",
+    "pasta",
+    "tarefa",
+    "tarefas",
+    "ajuda",
+    "seguranca",
+    "seguran\xE7a"
+  ]
+};
+var PATH_INDEX = /* @__PURE__ */ new Map();
+for (const [lang, words] of Object.entries(PATH_WORDS)) {
+  for (const word of words) PATH_INDEX.set(word, lang);
+}
+function pathWordLanguage(word) {
+  return PATH_INDEX.get(word.normalize("NFC").toLowerCase()) ?? null;
+}
 function isCognate(value) {
   return COGNATES.has(value.normalize("NFC").trim().toLowerCase());
 }
+
+// src/paths.ts
+var IGNORED_SEGMENTS = /* @__PURE__ */ new Set([
+  "src",
+  "lib",
+  "dist",
+  "test",
+  "tests",
+  "docs",
+  "doc",
+  "assets",
+  "public",
+  "static",
+  "index",
+  "main",
+  "app",
+  "types",
+  "utils",
+  "config",
+  "scripts",
+  "e2e",
+  "images",
+  "img",
+  "components",
+  "features",
+  "pages",
+  "styles",
+  "hooks",
+  "api",
+  "server",
+  "client"
+]);
+function scanPaths(opts) {
+  const findings = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const file of opts.files) {
+    for (const segment of segmentsOf(file)) {
+      if (seen.has(`${file}\0${segment}`)) continue;
+      const words = splitWords(segment);
+      if (words.length === 0) continue;
+      if (words.every((w) => IGNORED_SEGMENTS.has(w) || opts.identifiers.has(w))) continue;
+      const probe = words.join(" ");
+      if (probe.replace(/\s/g, "").length < 5) continue;
+      const named = words.map(pathWordLanguage).find((l) => l === opts.from);
+      const guess = detect(probe, { candidates: [opts.from, opts.to] });
+      const language = named ?? (guess.detected === opts.from && guess.confidence >= 0.6 ? guess.detected : null);
+      if (!language) continue;
+      seen.add(`${file}\0${segment}`);
+      findings.push({
+        path: file,
+        segment,
+        language,
+        confidence: named ? 0.85 : guess.confidence,
+        referrers: findReferrers(opts.repo, opts.files, file)
+      });
+    }
+  }
+  return findings.sort((a, b) => a.path < b.path ? -1 : 1);
+}
+function segmentsOf(file) {
+  const parts2 = file.split("/");
+  const last = parts2.pop() ?? "";
+  const base = last.replace(/\.[^.]+$/, "");
+  return [...parts2, base].filter(Boolean);
+}
+function splitWords(segment) {
+  return segment.replace(/([a-z0-9])([A-Z])/g, "$1 $2").split(/[-_.\s]+/).map((w) => w.toLowerCase()).filter((w) => new RegExp("^\\p{L}{2,}$", "u").test(w));
+}
+function findReferrers(repo, files, target) {
+  const base = target.split("/").pop() ?? target;
+  const out2 = [];
+  for (const file of files) {
+    if (file === target) continue;
+    if (!/\.(md|mdx|html?|[cm]?[jt]sx?|json|ya?ml|css|txt)$/.test(file)) continue;
+    let text;
+    try {
+      text = readFileSync11(join23(repo, file), "utf8");
+    } catch {
+      continue;
+    }
+    if (!text.includes(base)) continue;
+    const lines = text.split("\n");
+    for (let i2 = 0; i2 < lines.length; i2++) {
+      if (lines[i2].includes(base)) out2.push({ file, line: i2 + 1 });
+      if (out2.length >= 20) return out2;
+    }
+  }
+  return out2;
+}
+function pathSites(findings, targetLanguage) {
+  return findings.map((f) => {
+    const siteKey = anchor(f.path, `~path/${f.segment}`);
+    return {
+      id: siteId(siteKey),
+      siteKey,
+      contentHash: contentHash(f.segment),
+      dupKey: dupKey(f.segment),
+      file: f.path,
+      line: 0,
+      col: 0,
+      endLine: 0,
+      endCol: 0,
+      span: { start: 0, end: 0 },
+      valueSpan: { start: 0, end: 0 },
+      raw: f.path,
+      value: f.segment,
+      quote: null,
+      escapes: false,
+      asciiOnlyFile: true,
+      holes: [],
+      kind: "key",
+      surface: "token.url-slug",
+      verdict: "needs-judgment",
+      reason: "dual-use",
+      decidedBy: "engine",
+      confidence: "medium",
+      rule: "path.segment",
+      hard: false,
+      extractor: "paths",
+      tier: "structural",
+      degraded: false,
+      lang: {
+        detected: f.language,
+        confidence: f.confidence,
+        method: "combined",
+        signals: [`path segment reads as ${f.language}`],
+        alternatives: [],
+        letters: f.segment.length,
+        bucket: "medium",
+        mixed: false,
+        inheritedFrom: null
+      },
+      flags: ["path-segment", ...f.referrers.length ? ["has-referrers"] : []],
+      constraints: { maxLength: null, mustKeepHoles: [] },
+      evidence: {
+        nearestComment: `renaming this path means updating ${f.referrers.length} referrer(s); the engine reports and never renames, because it cannot prove it found the last one`,
+        siblingKeys: [],
+        enumOrigins: f.referrers.map((r) => `${r.file}:${r.line}`)
+      },
+      links: {
+        duplicateOf: null,
+        producedBy: null,
+        pairedTests: [],
+        mirrors: [],
+        resolvedFrom: null,
+        parentSiteId: null
+      }
+    };
+  });
+}
+
+// src/vendor/glob.ts
+function globToRegExp2(glob) {
+  let re = "";
+  for (let i2 = 0; i2 < glob.length; i2++) {
+    const c2 = glob[i2];
+    if (c2 === "*") {
+      if (glob[i2 + 1] === "*") {
+        i2++;
+        if (glob[i2 + 1] === "/") {
+          i2++;
+          re += "(?:.*/)?";
+        } else {
+          re += ".*";
+        }
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c2 === "?") {
+      re += "[^/]";
+    } else {
+      re += escapeRegExp(c2);
+    }
+  }
+  return new RegExp(`^${re}$`);
+}
+function compileGlobs2(globs) {
+  if (!globs || globs.length === 0) return null;
+  const res = globs.map(globToRegExp2);
+  return (rel2) => res.some((r) => r.test(rel2));
+}
+
+// src/catalog/match.ts
+function matchRules(rules, candidate) {
+  const out2 = [];
+  for (const rule of [...rules].sort((a, b) => a.id < b.id ? -1 : 1)) {
+    if (matches(rule.when, candidate)) {
+      out2.push({ rule, emit: rule.emit, companion: false });
+      continue;
+    }
+    for (const companion of rule.companions ?? []) {
+      if (matches(companion.when, candidate)) {
+        out2.push({ rule, emit: companion.emit, companion: true });
+        break;
+      }
+    }
+  }
+  return out2;
+}
+function matches(matcher, c2) {
+  switch (matcher.kind) {
+    case "any":
+      return matcher.of.some((m) => matches(m, c2));
+    case "file":
+      return fileMatches(matcher.file, c2.file) && (matcher.confirm?.some((r) => r.test(c2.file)) ?? true);
+    case "pointer": {
+      if (!fileMatches(matcher.file, c2.file)) return false;
+      if (matcher.pointerRegex) return matcher.pointerRegex.test(c2.path);
+      if (!matcher.pointer) return true;
+      return matcher.pointer.some((p) => pointerMatches(p, c2.path));
+    }
+    case "keyName":
+      if (matcher.file && !fileMatches(matcher.file, c2.file)) return false;
+      return c2.key !== void 0 && matcher.key.test(c2.key);
+    case "attr":
+      if (matcher.file && !fileMatches(matcher.file, c2.file)) return false;
+      if (matcher.element && !matcher.element.test(c2.element ?? "")) return false;
+      return matcher.attr.test(c2.attr ?? "");
+    case "structural":
+      return fileMatches(matcher.file, c2.file) && matcher.path.test(c2.path);
+  }
+}
+var globCache = /* @__PURE__ */ new Map();
+function fileMatches(globs, file) {
+  const key = globs.join("\0");
+  let fn = globCache.get(key);
+  if (!fn) {
+    const positive = compileGlobs2(globs.filter((g) => !g.startsWith("!")));
+    const negative = compileGlobs2(globs.filter((g) => g.startsWith("!")).map((g) => g.slice(1)));
+    fn = (rel2) => (!positive || positive(rel2)) && !negative?.(rel2);
+    globCache.set(key, fn);
+  }
+  return fn(file);
+}
+function pointerMatches(pattern, path) {
+  const p = pattern.split("/");
+  const t = path.split("/");
+  return segMatch(p, 0, t, 0);
+}
+function segMatch(p, pi, t, ti) {
+  if (pi === p.length) return ti === t.length;
+  const seg = p[pi];
+  if (seg === "**") {
+    for (let k = ti; k <= t.length; k++) {
+      if (segMatch(p, pi + 1, t, k)) return true;
+    }
+    return false;
+  }
+  if (ti >= t.length) return false;
+  if (seg === "*" || seg === t[ti]) return segMatch(p, pi + 1, t, ti + 1);
+  return false;
+}
+function checkCatalog(rules) {
+  const problems = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const rule of rules) {
+    if (seen.has(rule.id)) problems.push({ rule: rule.id, problem: "duplicate rule id" });
+    seen.add(rule.id);
+    if (!/^[a-z0-9]+(\.[a-z0-9-]+)+$/.test(rule.id)) {
+      problems.push({ rule: rule.id, problem: "id must be dotted lowercase, e.g. npm.package-json.description" });
+    }
+    if (rule.emit.verdict === "translate" && !rule.docs) {
+      problems.push({
+        rule: rule.id,
+        problem: "a translate verdict needs a `docs` URL \u2014 a rule is evidence, not a hunch"
+      });
+    }
+    if (rule.emit.verdict === "do-not-translate" && !rule.emit.reason) {
+      problems.push({ rule: rule.id, problem: "a do-not-translate verdict needs a closed-vocabulary reason" });
+    }
+    for (const companion of rule.companions ?? []) {
+      if (companion.emit.verdict === "do-not-translate" && !companion.emit.reason) {
+        problems.push({ rule: rule.id, problem: "a companion do-not-translate needs a reason" });
+      }
+    }
+  }
+  return problems;
+}
+
+// src/catalog/rules.ts
+var NOT_VENDORED = ["!**/node_modules/**", "!**/vendor/**", "!**/dist/**", "!**/build/**"];
+var RULES17 = [
+  // --------------------------------------------------------------------- npm
+  {
+    id: "npm.package-json.description",
+    ecosystem: "npm",
+    title: 'package.json "description"',
+    docs: "https://docs.npmjs.com/cli/configuring-npm/package-json#description",
+    when: { kind: "pointer", file: ["**/package.json", ...NOT_VENDORED], pointer: ["/description"] },
+    emit: {
+      surface: "meta.package.description",
+      verdict: "translate",
+      flags: ["published-artifact", "registry-visible"]
+    },
+    companions: [
+      {
+        when: {
+          kind: "pointer",
+          file: ["**/package.json", ...NOT_VENDORED],
+          pointer: [
+            "/name",
+            "/version",
+            "/license",
+            "/main",
+            "/module",
+            "/types",
+            "/packageManager",
+            "/exports/**",
+            "/scripts/*",
+            "/dependencies/*",
+            "/devDependencies/*",
+            "/peerDependencies/*",
+            "/engines/*",
+            "/bin/*",
+            "/files/*",
+            "/repository/**",
+            "/publishConfig/**",
+            "/workspaces/*"
+          ]
+        },
+        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "identifier" }
+      },
+      {
+        when: { kind: "pointer", file: ["**/package.json"], pointer: ["/keywords/*"] },
+        emit: { surface: "meta.package.keywords", verdict: "needs-judgment", reason: "discovery-token" }
+      },
+      {
+        when: { kind: "pointer", file: ["**/package.json"], pointer: ["/author", "/contributors/*"] },
+        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "proper-noun" }
+      }
+    ],
+    mirrors: ["web.manifest.text-fields", "html.meta.prose"],
+    notes: "Rendered on npmjs.com and by `npm search`. An AI reads package.json as dependency config and never looks at /description \u2014 the miss that motivated this tool. Three of three were missed in the reference repo."
+  },
+  // --------------------------------------------------------------------- web
+  {
+    id: "web.manifest.inlined-in-build-config",
+    ecosystem: "web",
+    title: "Web app manifest inlined in a bundler config",
+    docs: "https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Manifest",
+    when: {
+      kind: "structural",
+      file: [
+        "**/vite.config.*",
+        "**/nuxt.config.*",
+        "**/astro.config.*",
+        "**/next.config.*",
+        "**/svelte.config.*",
+        "**/webpack.config.*",
+        "**/rspack.config.*",
+        "**/quasar.conf.*",
+        "**/vue.config.*",
+        "**/gatsby-config.*"
+      ],
+      path: /manifest\/(name|short_name|description|categories|screenshots|shortcuts)/
+    },
+    emit: {
+      surface: "meta.webmanifest",
+      verdict: "translate",
+      flags: ["published-artifact", "invisible-to-filename-search"]
+    },
+    companions: [
+      {
+        when: {
+          kind: "structural",
+          file: ["**/vite.config.*", "**/nuxt.config.*", "**/astro.config.*", "**/next.config.*"],
+          path: /manifest\/(lang|dir)$/
+        },
+        emit: { surface: "locale.declaration", verdict: "locale-marker" }
+      },
+      {
+        when: {
+          kind: "structural",
+          file: ["**/vite.config.*", "**/nuxt.config.*", "**/astro.config.*", "**/next.config.*"],
+          path: /(manifest\/(id|start_url|scope|display|orientation|theme_color|background_color|icons)|cacheId|globPatterns|base)/
+        },
+        emit: { surface: "token.url-slug", verdict: "do-not-translate", reason: "url-or-slug" }
+      }
+    ],
+    notes: "The manifest exists only at build time, so `find -name manifest.json` returns nothing and a file-name-driven search misses the entire PWA listing."
+  },
+  {
+    id: "web.manifest.text-fields",
+    ecosystem: "web",
+    title: "Web app manifest",
+    docs: "https://developer.mozilla.org/en-US/docs/Web/Manifest",
+    when: {
+      kind: "pointer",
+      file: ["**/manifest.json", "**/manifest.webmanifest", "**/*.webmanifest"],
+      pointer: [
+        "/name",
+        "/short_name",
+        "/description",
+        "/categories/*",
+        "/shortcuts/*/name",
+        "/shortcuts/*/short_name",
+        "/shortcuts/*/description",
+        "/screenshots/*/label"
+      ]
+    },
+    emit: { surface: "meta.webmanifest", verdict: "translate", flags: ["published-artifact"] },
+    companions: [
+      {
+        when: { kind: "pointer", file: ["**/manifest*.json", "**/*.webmanifest"], pointer: ["/lang", "/dir"] },
+        emit: { surface: "locale.declaration", verdict: "locale-marker" }
+      }
+    ]
+  },
+  // ------------------------------------------------------------ webextension
+  {
+    id: "webext.manifest.text",
+    ecosystem: "webextension",
+    title: "Browser extension manifest",
+    docs: "https://developer.chrome.com/docs/extensions/reference/manifest",
+    when: {
+      kind: "pointer",
+      file: ["**/manifest.json", ...NOT_VENDORED],
+      requiresPointer: "/manifest_version",
+      pointer: [
+        "/name",
+        "/short_name",
+        "/description",
+        "/action/default_title",
+        "/browser_action/default_title",
+        "/page_action/default_title",
+        "/commands/*/description",
+        "/omnibox/keyword"
+      ]
+    },
+    emit: { surface: "meta.extension-manifest", verdict: "translate", flags: ["store-listing"], maxLength: 132 },
+    companions: [
+      {
+        when: {
+          kind: "pointer",
+          file: ["**/manifest.json"],
+          pointer: [
+            "/permissions/*",
+            "/host_permissions/*",
+            "/content_scripts/*/matches/*",
+            "/content_scripts/*/js/*",
+            "/background/service_worker",
+            "/key",
+            "/update_url",
+            "/web_accessible_resources/**",
+            "/content_security_policy/**",
+            "/icons/**"
+          ]
+        },
+        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract" }
+      },
+      {
+        when: { kind: "pointer", file: ["**/manifest.json"], pointer: ["/default_locale"] },
+        emit: { surface: "locale.declaration", verdict: "locale-marker" }
+      }
+    ],
+    notes: "A content_scripts match pattern looks like a URL because it is one; translating it silently disables the extension."
+  },
+  {
+    id: "webext.locales.messages",
+    ecosystem: "webextension",
+    title: "Extension _locales message bundle",
+    docs: "https://developer.chrome.com/docs/extensions/reference/api/i18n",
+    when: { kind: "pointer", file: ["**/_locales/*/messages.json"], pointer: ["/*/message", "/*/description"] },
+    emit: { surface: "i18n.message", verdict: "translate" },
+    companions: [
+      {
+        when: { kind: "pointer", file: ["**/_locales/*/messages.json"], pointer: ["/*/placeholders/**"] },
+        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "interpolation" }
+      }
+    ]
+  },
+  // ------------------------------------------------------------------ github
+  {
+    id: "github.issue-forms",
+    ecosystem: "github",
+    title: "GitHub issue form",
+    docs: "https://docs.github.com/en/communities/using-templates-to-encourage-useful-issues-and-pull-requests/syntax-for-githubs-form-schema",
+    when: {
+      kind: "pointer",
+      file: [".github/ISSUE_TEMPLATE/*.yml", ".github/ISSUE_TEMPLATE/*.yaml"],
+      pointer: [
+        "/name",
+        "/description",
+        "/title",
+        "/body/*/attributes/label",
+        "/body/*/attributes/description",
+        "/body/*/attributes/placeholder",
+        "/body/*/attributes/value",
+        "/body/*/attributes/options/*",
+        "/body/*/attributes/options/*/label",
+        "/contact_links/*/name",
+        "/contact_links/*/about"
+      ]
+    },
+    emit: { surface: "ui.issue-form", verdict: "translate", flags: ["public-facing"] },
+    companions: [
+      {
+        when: {
+          kind: "pointer",
+          file: [".github/ISSUE_TEMPLATE/*.yml", ".github/ISSUE_TEMPLATE/*.yaml"],
+          pointer: ["/body/*/id", "/body/*/type", "/labels/*", "/assignees/*", "/body/*/attributes/render"]
+        },
+        emit: { surface: "identifier.binding", verdict: "do-not-translate", reason: "identifier" }
+      }
+    ],
+    notes: "A label in /labels/* must match a label that EXISTS in the repo; translating it silently breaks the template."
+  },
+  {
+    id: "github.release-notes-body",
+    ecosystem: "github",
+    title: "Release-notes body inside a workflow",
+    docs: "https://github.com/softprops/action-gh-release#-usage",
+    when: {
+      kind: "pointer",
+      file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
+      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)$/
+    },
+    emit: { surface: "ui.release-notes", verdict: "translate", flags: ["public-facing"] },
+    companions: [
+      {
+        when: {
+          kind: "pointer",
+          file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
+          pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/(uses|if|run|id)$|\/with\/(files|body_path|token|tag_name|node-version)$/
+        },
+        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token" }
+      }
+    ],
+    notes: "Markdown nested in YAML that renders on the public Releases page. Ordinary YAML tooling reports one opaque scalar."
+  },
+  {
+    id: "github.workflow-prose",
+    ecosystem: "github",
+    title: "Workflow and job names shown in the Actions UI",
+    docs: "https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions#name",
+    when: {
+      kind: "pointer",
+      file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
+      pointerRegex: /^\/name$|^\/jobs\/[^/]+\/name$|^\/jobs\/[^/]+\/steps\/\d+\/name$/
+    },
+    emit: { surface: "meta.ci", verdict: "translate" }
+  },
+  // ------------------------------------------------------------------- html
+  {
+    id: "html.meta.prose",
+    ecosystem: "web",
+    title: "HTML head metadata and social preview",
+    docs: "https://ogp.me/",
+    when: {
+      kind: "attr",
+      file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro", "**/*.ejs", "**/*.hbs", "**/*.erb"],
+      element: /^meta$/,
+      attr: /^(description|keywords|author|application-name|apple-mobile-web-app-title|subject|abstract|og:title|og:description|og:site_name|og:image:alt|twitter:title|twitter:description|twitter:image:alt|article:section|article:tag)$/
+    },
+    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"], maxLength: 160 },
+    companions: [
+      {
+        when: {
+          kind: "attr",
+          file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro"],
+          element: /^meta$/,
+          attr: /^(viewport|theme-color|robots|color-scheme|referrer|format-detection|charset|content-type|msapplication-.*|google-site-verification|og:url|og:type|og:image|twitter:card|twitter:site|twitter:creator)$/
+        },
+        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token" }
+      },
+      {
+        when: {
+          kind: "attr",
+          file: ["**/*.html", "**/*.htm", "**/*.vue", "**/*.svelte", "**/*.astro"],
+          element: /^(meta|html|link)$/,
+          attr: /^(og:locale|lang|hreflang|dir)$/
+        },
+        emit: { surface: "locale.declaration", verdict: "locale-marker" }
+      }
+    ]
+  },
+  {
+    id: "html.title",
+    ecosystem: "web",
+    title: "Document title",
+    docs: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title",
+    when: { kind: "attr", file: ["**/*.html", "**/*.htm"], element: /^title$/, attr: /^text$/ },
+    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"] }
+  },
+  // ------------------------------------------------------------------ i18n
+  {
+    id: "i18n.message-bundles",
+    ecosystem: "i18n",
+    title: "Locale message bundle",
+    docs: "https://www.i18next.com/misc/json-format",
+    when: {
+      kind: "file",
+      file: [
+        "**/locales/**/*.json",
+        "**/locale/**/*.json",
+        "**/messages/*.json",
+        "**/i18n/**/*.json",
+        "**/lang/**/*.json",
+        "**/translations/**/*.json",
+        "**/locales/**/*.yml",
+        "**/locales/**/*.yaml",
+        "**/*.arb",
+        "**/*.ftl",
+        ...NOT_VENDORED
+      ]
+    },
+    emit: { surface: "i18n.message", verdict: "translate" },
+    notes: "A bundle already IN the target locale is correct as it stands; the locale is read from its path, and gate G4 must not fire on it."
+  },
+  // ----------------------------------------------------------- other manifests
+  {
+    id: "cargo.package.description",
+    ecosystem: "rust",
+    title: "Cargo package description",
+    docs: "https://doc.rust-lang.org/cargo/reference/manifest.html#the-description-field",
+    when: { kind: "pointer", file: ["**/Cargo.toml", ...NOT_VENDORED], pointer: ["/package/description", "/package/keywords/*", "/package/categories/*"] },
+    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
+  },
+  {
+    id: "python.pyproject.description",
+    ecosystem: "python",
+    title: "pyproject project description",
+    docs: "https://packaging.python.org/en/latest/specifications/pyproject-toml/#description",
+    when: { kind: "pointer", file: ["**/pyproject.toml", ...NOT_VENDORED], pointer: ["/project/description", "/project/keywords/*"] },
+    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
+  },
+  {
+    id: "php.composer.description",
+    ecosystem: "php",
+    title: "Composer package description",
+    docs: "https://getcomposer.org/doc/04-schema.md#description",
+    when: { kind: "pointer", file: ["**/composer.json", ...NOT_VENDORED], pointer: ["/description", "/keywords/*"] },
+    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
+  },
+  {
+    id: "dart.pubspec.description",
+    ecosystem: "flutter",
+    title: "pubspec description",
+    docs: "https://dart.dev/tools/pub/pubspec#description",
+    when: { kind: "pointer", file: ["**/pubspec.yaml", ...NOT_VENDORED], pointer: ["/description"] },
+    emit: { surface: "meta.package.description", verdict: "translate", flags: ["registry-visible"] }
+  },
+  {
+    id: "android.strings-xml",
+    ecosystem: "android",
+    title: "Android string resources",
+    docs: "https://developer.android.com/guide/topics/resources/string-resource",
+    when: { kind: "file", file: ["**/res/values*/strings.xml", "**/res/values*/plurals.xml", "**/res/values*/arrays.xml"] },
+    emit: { surface: "i18n.message", verdict: "translate" },
+    notes: 'translatable="false" is a platform-native, machine-readable exception and must win over any heuristic.'
+  },
+  {
+    id: "docker.label",
+    ecosystem: "docker",
+    title: "OCI image description label",
+    docs: "https://github.com/opencontainers/image-spec/blob/main/annotations.md",
+    when: { kind: "keyName", file: ["**/Dockerfile", "**/Dockerfile.*", "**/*.dockerfile"], key: /^org\.opencontainers\.image\.(description|title)$/ },
+    emit: { surface: "meta.oci-label", verdict: "translate" }
+  },
+  // ------------------------------------------------------------------ legal
+  {
+    id: "legal.vendored-verbatim",
+    ecosystem: "legal",
+    title: "Vendored legal text",
+    when: {
+      kind: "file",
+      file: [
+        "LICENSE*",
+        "LICENCE*",
+        "COPYING*",
+        "NOTICE*",
+        "CODE_OF_CONDUCT.md",
+        "**/third_party/**",
+        "**/licenses/**",
+        "**/*.LICENSE.txt"
+      ]
+    },
+    emit: {
+      surface: "legal.verbatim",
+      verdict: "do-not-translate",
+      reason: "vendored-legal",
+      hard: true
+    },
+    notes: 'Altering LICENSE breaks GitHub licence detection and the repository displays "Other". The Contributor Covenant has official translations: swap the whole file, never hand-translate it.'
+  }
+];
+var RULES_BY_ID = new Map(RULES17.map((r) => [r.id, r]));
 
 // src/classify.ts
 var STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/;
@@ -23341,6 +23721,18 @@ async function scan2(opts) {
     for (const raw of result.sites) {
       sites.push(classify2(raw, { from, to, tokens, fileLocale }));
     }
+  }
+  sites.sort(
+    (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start
+  );
+  const tracked = gitLsFiles(repo) ?? walked.files.map((f) => f.rel);
+  if (from && from !== to) {
+    sites.push(
+      ...pathSites(
+        scanPaths({ repo, files: tracked, from, to, identifiers: tokens.identifiers }),
+        to
+      )
+    );
   }
   sites.sort(
     (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start
@@ -23856,8 +24248,8 @@ function formatPlan(p) {
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync11, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
-import { join as join23, dirname as dirname6 } from "path";
+import { readFileSync as readFileSync12, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
+import { join as join24, dirname as dirname6 } from "path";
 import { createHash as createHash5 } from "crypto";
 
 // src/escape.ts
@@ -24067,8 +24459,8 @@ function apply(opts) {
       }
       continue;
     }
-    const abs = join23(repo, file);
-    const before = readFileSync11(abs);
+    const abs = join24(repo, file);
+    const before = readFileSync12(abs);
     let patched;
     try {
       patched = applyPatches(before, patches);
@@ -24083,7 +24475,7 @@ function apply(opts) {
       outcomes.push({ id: p.site.id, status: "applied", file, recovered: p.recovered });
     }
     if (write) {
-      const tmp = join23(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
+      const tmp = join24(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
       try {
         writeFileSync5(tmp, patched);
         renameSync2(tmp, abs);
@@ -24112,7 +24504,7 @@ function apply(opts) {
   };
 }
 function buildPatch(repo, site3, text, recover) {
-  const buf = readFileSync11(join23(repo, site3.file));
+  const buf = readFileSync12(join24(repo, site3.file));
   const syntax = syntaxFor(site3);
   let start2 = site3.span.start;
   let end = site3.span.end;
@@ -24227,8 +24619,8 @@ function formatApply(r) {
 }
 
 // src/commands.ts
-import { existsSync as existsSync10, mkdirSync as mkdirSync4, readFileSync as readFileSync12, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
-import { join as join24 } from "path";
+import { existsSync as existsSync10, mkdirSync as mkdirSync4, readFileSync as readFileSync13, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { join as join25 } from "path";
 
 // src/translate.ts
 import { spawnSync as spawnSync3 } from "child_process";
@@ -24477,6 +24869,44 @@ function parseResult(stdout, batchId) {
     return null;
   }
 }
+async function runApiBackend(batch, opts) {
+  const key = process.env[opts.keyEnv];
+  if (!key) {
+    throw new Error(
+      `$${opts.keyEnv} is not set \u2014 set it, or use --translator '<command>', or --backend manual`
+    );
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 12e4);
+  try {
+    const response = await fetch(opts.endpoint, {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": key,
+        authorization: `Bearer ${key}`,
+        ...opts.headers
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: 4096,
+        system: opts.contract,
+        messages: [{ role: "user", content: JSON.stringify(batch, null, 2) }]
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`${opts.endpoint} returned ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    }
+    const body2 = await response.json();
+    const text = body2.content?.[0]?.text ?? body2.choices?.[0]?.message?.content ?? "";
+    const parsed = parseResult(text, batch.batchId);
+    if (!parsed) throw new Error(`batch ${batch.batchId}: the response was not the expected JSON`);
+    return parsed;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 var TRANSLATOR_CONTRACT = `# Contract: translator
 
 You translate short user-interface strings. Handle ONLY the batch files named in
@@ -24508,23 +24938,23 @@ orchestrator folds your results and the engine writes the files by byte offset.
 function runDir(out2) {
   return {
     root: out2,
-    inventory: join24(out2, "inventory.json"),
-    plan: join24(out2, "PLAN.json"),
-    batches: join24(out2, "batches"),
-    results: join24(out2, "results"),
-    translations: join24(out2, "TRANSLATIONS.json"),
-    glossary: join24(out2, "glossary.md"),
-    applyReport: join24(out2, "APPLY.json")
+    inventory: join25(out2, "inventory.json"),
+    plan: join25(out2, "PLAN.json"),
+    batches: join25(out2, "batches"),
+    results: join25(out2, "results"),
+    translations: join25(out2, "TRANSLATIONS.json"),
+    glossary: join25(out2, "glossary.md"),
+    applyReport: join25(out2, "APPLY.json")
   };
 }
 function readJson2(path, what) {
   if (!existsSync10(path)) {
     throw new Error(`${what} not found at ${path} \u2014 run the step that produces it first`);
   }
-  return JSON.parse(readFileSync12(path, "utf8"));
+  return JSON.parse(readFileSync13(path, "utf8"));
 }
 function writeJson(path, value) {
-  mkdirSync4(join24(path, ".."), { recursive: true });
+  mkdirSync4(join25(path, ".."), { recursive: true });
   writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
 }
 var GEN_OPEN = "<!-- ul:gen key=proposals -->";
@@ -24532,7 +24962,7 @@ var GEN_CLOSE = "<!-- /ul:gen key=proposals -->";
 function readGlossary(path) {
   const out2 = /* @__PURE__ */ new Map();
   if (!existsSync10(path)) return out2;
-  const text = readFileSync12(path, "utf8");
+  const text = readFileSync13(path, "utf8");
   for (const line of text.split("\n")) {
     const cells = line.split("|").map((c2) => c2.trim());
     if (cells.length < 4) continue;
@@ -24591,16 +25021,48 @@ function cmdPlan(out2, mode) {
   });
   mkdirSync4(dirs.batches, { recursive: true });
   for (const batch of batches) {
-    writeJson(join24(dirs.batches, `${batch.batchId}.batch.json`), batch);
+    writeJson(join25(dirs.batches, `${batch.batchId}.batch.json`), batch);
   }
-  mkdirSync4(join24(out2, "agents"), { recursive: true });
-  writeFileSync6(join24(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
-  const existing = existsSync10(dirs.glossary) ? readFileSync12(dirs.glossary, "utf8") : null;
+  mkdirSync4(join25(out2, "agents"), { recursive: true });
+  writeFileSync6(join25(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
+  const existing = existsSync10(dirs.glossary) ? readFileSync13(dirs.glossary, "utf8") : null;
   writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
   return { plan: p, batches };
 }
 function projectName(repo) {
   return repo.split("/").filter(Boolean).pop() ?? "project";
+}
+async function cmdTranslateApi(opts) {
+  const dirs = runDir(opts.out);
+  const p = readJson2(dirs.plan, "PLAN.json");
+  const batches = readBatches(dirs.batches);
+  mkdirSync4(dirs.results, { recursive: true });
+  const wrote = [];
+  const failed2 = [];
+  for (const batch of batches) {
+    try {
+      const result = await runApiBackend(batch, {
+        endpoint: opts.api?.endpoint ?? "https://api.anthropic.com/v1/messages",
+        model: opts.api?.model ?? "claude-haiku-4-5-20251001",
+        keyEnv: opts.api?.keyEnv ?? "ANTHROPIC_API_KEY",
+        headers: { "anthropic-version": "2023-06-01", ...opts.api?.headers },
+        sourceLang: p.sourceLang,
+        targetLang: p.targetLang,
+        contract: TRANSLATOR_CONTRACT,
+        ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
+      });
+      const path = join25(dirs.results, `${batch.batchId}.result.json`);
+      writeJson(path, result);
+      wrote.push(path);
+    } catch (err2) {
+      failed2.push(`${batch.batchId}: ${err2.message}`);
+    }
+  }
+  if (failed2.length) {
+    writeJson(join25(opts.out, "FAILED.json"), { failed: failed2 });
+    throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
+  }
+  return { backend: "api", batches: batches.length, wrote };
 }
 function cmdTranslate(opts) {
   const dirs = runDir(opts.out);
@@ -24623,7 +25085,7 @@ function cmdTranslate(opts) {
           targetLang: p.targetLang,
           ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
         });
-        const path = join24(dirs.results, `${batch.batchId}.result.json`);
+        const path = join25(dirs.results, `${batch.batchId}.result.json`);
         writeJson(path, result);
         wrote.push(path);
       } catch (err2) {
@@ -24631,7 +25093,7 @@ function cmdTranslate(opts) {
       }
     }
     if (failed2.length) {
-      writeJson(join24(opts.out, "FAILED.json"), { failed: failed2 });
+      writeJson(join25(opts.out, "FAILED.json"), { failed: failed2 });
       throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
     }
     return { backend: "cli", batches: batches.length, wrote };
@@ -24640,19 +25102,19 @@ function cmdTranslate(opts) {
     backend: opts.backend,
     batches: batches.length,
     wrote: [],
-    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join24(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
+    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join25(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
   };
 }
 function readBatches(dir) {
   if (!existsSync10(dir)) return [];
-  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync12(join24(dir, f), "utf8")));
+  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync13(join25(dir, f), "utf8")));
 }
 function readResults(dir) {
   if (!existsSync10(dir)) return [];
   return readdirSync4(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
-    const raw = readFileSync12(join24(dir, f), "utf8");
+    const raw = readFileSync13(join25(dir, f), "utf8");
     const parsed = parseResult(raw, f.replace(/\..*$/, ""));
-    if (!parsed) throw new Error(`${join24(dir, f)} is not a valid batch result`);
+    if (!parsed) throw new Error(`${join25(dir, f)} is not a valid batch result`);
     return parsed;
   });
 }
@@ -24699,8 +25161,8 @@ function cmdApply(repo, out2, write, recover) {
 }
 
 // src/check.ts
-import { existsSync as existsSync11, readFileSync as readFileSync13 } from "fs";
-import { join as join25 } from "path";
+import { existsSync as existsSync11, readFileSync as readFileSync14 } from "fs";
+import { join as join26 } from "path";
 var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "identifier",
   "module-specifier",
@@ -24916,9 +25378,9 @@ function gateCoherence(inv, repo) {
   const from = inv.sourceLanguage;
   if (from && from !== inv.targetLanguage) {
     for (const rel2 of ["CONTRIBUTING.md", "README.md", "docs/CONTRIBUTING.md"]) {
-      const abs = join25(repo, rel2);
+      const abs = join26(repo, rel2);
       if (!existsSync11(abs)) continue;
-      const text = readFileSync13(abs, "utf8");
+      const text = readFileSync14(abs, "utf8");
       const policy = /\b(commit messages|comments|documentation|everything in this repository|tout(?:e)? (?:le|la)? ?(?:dépôt|projet)|les commentaires|les messages de commit)\b[^.\n]{0,80}\b(français|french|anglais|english|español|spanish|deutsch|german)\b/i;
       const m = policy.exec(text);
       if (m && namesLanguage(m[0], from)) {
@@ -24953,7 +25415,7 @@ function clip3(s, n = 56) {
 }
 function readExceptions(path) {
   if (!existsSync11(path)) return { entries: [] };
-  return JSON.parse(readFileSync13(path, "utf8"));
+  return JSON.parse(readFileSync14(path, "utf8"));
 }
 function formatCheck(r) {
   const lines = [];
@@ -24979,8 +25441,8 @@ function formatCheck(r) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync12, readFileSync as readFileSync14 } from "fs";
-import { join as join26 } from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync15 } from "fs";
+import { join as join27 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 var VERIFY_MAX = 40;
 function buildVerify(opts) {
@@ -25040,16 +25502,16 @@ function censusReason(group) {
   return null;
 }
 function readLive(repo, site3) {
-  const abs = join26(repo, site3.file);
+  const abs = join27(repo, site3.file);
   if (!existsSync12(abs)) return null;
-  const buf = readFileSync14(abs);
+  const buf = readFileSync15(abs);
   const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
   return sha256(slice).slice(0, 16);
 }
 function currentValue(repo, site3) {
-  const abs = join26(repo, site3.file);
+  const abs = join27(repo, site3.file);
   if (!existsSync12(abs)) return null;
-  const buf = readFileSync14(abs);
+  const buf = readFileSync15(abs);
   return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
 }
 function applyVerdicts(opts) {
@@ -25157,16 +25619,16 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync15, writeFileSync as writeFileSync7 } from "fs";
-import { join as join27 } from "path";
+import { existsSync as existsSync13, mkdirSync as mkdirSync5, readFileSync as readFileSync16, writeFileSync as writeFileSync7 } from "fs";
+import { join as join28 } from "path";
 var BATCH_SIZE2 = 8;
 var SMALL_WORKLIST = 3;
 function phaseStatuses(out2) {
-  const planPath = join27(out2, "PLAN.json");
+  const planPath = join28(out2, "PLAN.json");
   const plan2 = existsSync13(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
-  const batches = existsSync13(join27(out2, "batches"));
-  const todo = existsSync13(join27(out2, "VERIFY.todo.json"));
-  const applied = existsSync13(join27(out2, "APPLY.json"));
+  const batches = existsSync13(join28(out2, "batches"));
+  const todo = existsSync13(join28(out2, "VERIFY.todo.json"));
+  const applied = existsSync13(join28(out2, "APPLY.json"));
   const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
   const hazards = plan2?.hazards?.length ?? 0;
   const structural = plan2?.structural?.length ?? 0;
@@ -25185,7 +25647,7 @@ function phaseStatuses(out2) {
       // the hazard rule exists to prevent.
       ready: !!plan2 && batches && hazards === 0 && pending > 0,
       ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
-      worklist: join27(out2, "batches"),
+      worklist: join28(out2, "batches"),
       items: Math.ceil(pending / BATCH_SIZE2),
       writes: false
     },
@@ -25193,8 +25655,8 @@ function phaseStatuses(out2) {
       name: "review",
       ready: todo,
       ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
-      worklist: join27(out2, "VERIFY.todo.json"),
-      items: todo ? JSON.parse(readOr(join27(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      worklist: join28(out2, "VERIFY.todo.json"),
+      items: todo ? JSON.parse(readOr(join28(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
       writes: false
     },
     {
@@ -25217,18 +25679,18 @@ function orchestrate(opts) {
     err2.exitCode = 2;
     throw err2;
   }
-  const dir = join27(opts.out, "orchestration");
-  const agents = join27(dir, "agents");
+  const dir = join28(opts.out, "orchestration");
+  const agents = join28(dir, "agents");
   mkdirSync5(agents, { recursive: true });
   const files = [];
   const contract = CONTRACTS[phase];
-  const contractPath = join27(agents, `${contract.role}.md`);
+  const contractPath = join28(agents, `${contract.role}.md`);
   writeFileSync7(contractPath, contract.body);
   files.push(contractPath);
-  const workflowPath = join27(dir, `${phase}.workflow.mjs`);
+  const workflowPath = join28(dir, `${phase}.workflow.mjs`);
   writeFileSync7(workflowPath, workflowScript(phase, opts, status2, contract.role));
   files.push(workflowPath);
-  const runbookPath = join27(dir, "RUNBOOK.md");
+  const runbookPath = join28(dir, "RUNBOOK.md");
   writeFileSync7(runbookPath, runbook(statuses, opts));
   files.push(runbookPath);
   return {
@@ -25384,14 +25846,14 @@ ${rows}
 }
 function readOr(path, fallback) {
   try {
-    return readFileSync15(path, "utf8");
+    return readFileSync16(path, "utf8");
   } catch {
     return fallback;
   }
 }
 
 // src/sync.ts
-import { existsSync as existsSync14, readFileSync as readFileSync16 } from "fs";
+import { existsSync as existsSync14, readFileSync as readFileSync17 } from "fs";
 import "path";
 var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
 function sync(opts) {
@@ -25515,7 +25977,7 @@ function sameSet(a, b) {
 function readState(path) {
   if (!path || !existsSync14(path)) return null;
   try {
-    return JSON.parse(readFileSync16(path, "utf8"));
+    return JSON.parse(readFileSync17(path, "utf8"));
   } catch {
     return null;
   }
@@ -25546,7 +26008,7 @@ function formatSync(r) {
 
 // src/init.ts
 import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync8 } from "fs";
-import { dirname as dirname7, join as join29 } from "path";
+import { dirname as dirname7, join as join30 } from "path";
 function buildBaseline(report) {
   const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
   return { schemaVersion: 1, from: report.from, to: report.to, accepted };
@@ -25558,7 +26020,7 @@ function init2(opts) {
   const written = [];
   const notes = [];
   if (opts.baseline) {
-    const path = join29(opts.out, "baseline.json");
+    const path = join30(opts.out, "baseline.json");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
     written.push(path);
@@ -25567,13 +26029,13 @@ function init2(opts) {
     );
   }
   if (opts.ci) {
-    const path = join29(opts.repo, ".github/workflows/ultrai18n.yml");
+    const path = join30(opts.repo, ".github/workflows/ultrai18n.yml");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, WORKFLOW);
     written.push(path);
   }
   if (opts.hook) {
-    const path = join29(opts.repo, ".git/hooks/pre-commit");
+    const path = join30(opts.repo, ".git/hooks/pre-commit");
     mkdirSync6(dirname7(path), { recursive: true });
     writeFileSync8(path, HOOK, { mode: 493 });
     written.push(path);
@@ -25832,7 +26294,7 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -25840,18 +26302,18 @@ ${r.docs ? `    ${r.docs}
         noAst: p.flags["no-ast"] === true
       });
       mkdirSync7(out2, { recursive: true });
-      writeFileSync9(join30(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      writeFileSync9(join31(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join30(out2, "inventory.json")}
+wrote ${join31(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -25865,7 +26327,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -25879,7 +26341,19 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         return;
       }
       const backend = String(p.flags.backend ?? (p.flags.translator ? "cli" : "subagent"));
-      if (backend === "api") fail("the api backend is not built yet \u2014 use --translator or --backend manual");
+      if (backend === "api") {
+        const outcome2 = await cmdTranslateApi({
+          out: out2,
+          backend,
+          repo,
+          ...p.flags["translator-timeout"] ? { timeoutMs: Number(p.flags["translator-timeout"]) * 1e3 } : {}
+        });
+        process.stdout.write(`ultrai18n translate: backend api, ${outcome2.batches} batch(es)
+`);
+        for (const w of outcome2.wrote) process.stdout.write(`  wrote ${w}
+`);
+        return;
+      }
       const outcome = cmdTranslate({
         out: out2,
         backend,
@@ -25899,7 +26373,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatApply(report) + "\n");
@@ -25907,8 +26381,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
-      const todoPath = join30(out2, "VERIFY.todo.json");
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
+      const todoPath = join31(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
@@ -25917,7 +26391,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         );
         const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
         const result = applyVerdicts({ todo: todo2, verdicts: list });
-        writeJson(join30(out2, "VERIFY.json"), result);
+        writeJson(join31(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else {
           process.stdout.write(
@@ -25939,7 +26413,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
       });
       writeJson(todoPath, todo);
-      writeFileSync9(join30(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      writeFileSync9(join31(out2, "VERIFY.md"), formatVerifyTodo(todo));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
@@ -25952,7 +26426,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const engine = resolve3(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
@@ -25989,13 +26463,13 @@ join:     ${emitted.join}
       return;
     }
     case "sync": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
         inventory,
         ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
-        statePath: join30(out2, "catalog-state.json")
+        statePath: join31(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatSync(report) + "\n");
@@ -26003,9 +26477,9 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const report = check({ repo, inventory, exceptions: readExceptions(join30(out2, "exceptions.json")) });
+      const report = check({ repo, inventory, exceptions: readExceptions(join31(out2, "exceptions.json")) });
       const result = init2({
         repo,
         out: out2,
@@ -26024,15 +26498,15 @@ join:     ${emitted.join}
       return;
     }
     case "check": {
-      const out2 = resolve3(String(p.flags.out ?? join30(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join31(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join30(out2, "exceptions.json"));
-      const baselinePath = join30(out2, "baseline.json");
+      const exceptions = readExceptions(join31(out2, "exceptions.json"));
+      const baselinePath = join31(out2, "baseline.json");
       const baseline = existsSync15(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({ repo, inventory, exceptions, ...baseline ? { baseline } : {} });
       if (p.flags.semantic) {
-        const todoPath = join30(out2, "VERIFY.todo.json");
-        const resultPath = join30(out2, "VERIFY.json");
+        const todoPath = join31(out2, "VERIFY.todo.json");
+        const resultPath = join31(out2, "VERIFY.json");
         const semantic = checkSemantic({
           repo,
           inventory,

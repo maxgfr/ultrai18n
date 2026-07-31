@@ -272,6 +272,66 @@ export function parseResult(stdout: string, batchId: string): BatchResult | null
   }
 }
 
+export interface ApiBackendOptions {
+  endpoint: string
+  model: string
+  keyEnv: string
+  headers?: Record<string, string>
+  sourceLang: string
+  targetLang: string
+  contract: string
+  timeoutMs?: number
+}
+
+/**
+ * Direct HTTP, using the same contract text the subagent path uses.
+ *
+ * One source of truth for the register rules matters more than it looks: a
+ * second copy drifts, and then the same repository translated through two
+ * backends comes out in two voices.
+ */
+export async function runApiBackend(batch: Batch, opts: ApiBackendOptions): Promise<BatchResult> {
+  const key = process.env[opts.keyEnv]
+  if (!key) {
+    throw new Error(
+      `$${opts.keyEnv} is not set — set it, or use --translator '<command>', or --backend manual`,
+    )
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 120_000)
+  try {
+    const response = await fetch(opts.endpoint, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': key,
+        authorization: `Bearer ${key}`,
+        ...opts.headers,
+      },
+      body: JSON.stringify({
+        model: opts.model,
+        max_tokens: 4096,
+        system: opts.contract,
+        messages: [{ role: 'user', content: JSON.stringify(batch, null, 2) }],
+      }),
+    })
+    if (!response.ok) {
+      throw new Error(`${opts.endpoint} returned ${response.status}: ${(await response.text()).slice(0, 200)}`)
+    }
+    const body = (await response.json()) as {
+      content?: { text?: string }[]
+      choices?: { message?: { content?: string } }[]
+    }
+    const text = body.content?.[0]?.text ?? body.choices?.[0]?.message?.content ?? ''
+    const parsed = parseResult(text, batch.batchId)
+    if (!parsed) throw new Error(`batch ${batch.batchId}: the response was not the expected JSON`)
+    return parsed
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** The contract handed to a translating agent. The register rules live here, once. */
 export const TRANSLATOR_CONTRACT = `# Contract: translator
 

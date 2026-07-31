@@ -311,6 +311,58 @@ function round(n: number): number {
   return Math.round(n * 100) / 100
 }
 
+/**
+ * Words that turn up in FILE NAMES, per language.
+ *
+ * A filename is the one place where general detection is structurally useless:
+ * `reglages` carries no accent, `clair` is five letters, and both are exactly
+ * the inputs the detector refuses on. But the vocabulary of filenames is small
+ * and repetitive — colours, sizes, states, screens — so a short list does what
+ * statistics cannot at this length.
+ *
+ * A hit is a hint, never a verdict: the path surface reports for judgment and
+ * never renames.
+ */
+const PATH_WORDS: Record<string, string[]> = {
+  fr: ['reglages', 'réglages', 'parametres', 'paramètres', 'accueil', 'connexion', 'deconnexion',
+    'inscription', 'recherche', 'resultats', 'résultats', 'clair', 'sombre', 'gris', 'rouge',
+    'vert', 'bleu', 'jaune', 'noir', 'blanc', 'grand', 'petit', 'moyen', 'nouveau', 'nouvelle',
+    'ancien', 'page', 'pages', 'image', 'images', 'capture', 'captures', 'ecran', 'écran',
+    'exemple', 'exemples', 'modele', 'modèle', 'brouillon', 'apercu', 'aperçu', 'utilisateur',
+    'utilisateurs', 'compte', 'comptes', 'profil', 'tableau', 'graphique', 'statistiques',
+    'minuteur', 'tache', 'tâche', 'taches', 'tâches', 'alerte', 'alertes', 'sonnerie',
+    'demarrage', 'démarrage', 'arret', 'arrêt', 'pause', 'aide', 'guide', 'accessibilite',
+    'accessibilité', 'securite', 'sécurité', 'donnees', 'données', 'fichier', 'dossier'],
+  es: ['ajustes', 'configuracion', 'configuración', 'inicio', 'busqueda', 'búsqueda', 'claro',
+    'oscuro', 'rojo', 'verde', 'azul', 'negro', 'blanco', 'grande', 'pequeno', 'pequeño',
+    'nuevo', 'nueva', 'pagina', 'página', 'imagen', 'imagenes', 'imágenes', 'pantalla',
+    'ejemplo', 'usuario', 'usuarios', 'cuenta', 'perfil', 'datos', 'archivo', 'carpeta',
+    'tarea', 'tareas', 'ayuda', 'guia', 'guía', 'seguridad'],
+  de: ['einstellungen', 'anmeldung', 'abmeldung', 'suche', 'hell', 'dunkel', 'rot', 'gruen',
+    'grün', 'blau', 'schwarz', 'weiss', 'weiß', 'gross', 'groß', 'klein', 'neu', 'seite',
+    'seiten', 'bild', 'bilder', 'bildschirm', 'beispiel', 'benutzer', 'konto', 'profil',
+    'daten', 'datei', 'ordner', 'aufgabe', 'aufgaben', 'hilfe', 'sicherheit'],
+  it: ['impostazioni', 'accesso', 'ricerca', 'chiaro', 'scuro', 'rosso', 'verde', 'blu', 'nero',
+    'bianco', 'grande', 'piccolo', 'nuovo', 'nuova', 'pagina', 'immagine', 'immagini',
+    'schermo', 'esempio', 'utente', 'account', 'profilo', 'dati', 'file', 'cartella',
+    'attivita', 'attività', 'aiuto', 'sicurezza'],
+  pt: ['configuracoes', 'configurações', 'ajustes', 'inicio', 'início', 'busca', 'claro',
+    'escuro', 'vermelho', 'verde', 'azul', 'preto', 'branco', 'grande', 'pequeno', 'novo',
+    'nova', 'pagina', 'página', 'imagem', 'imagens', 'tela', 'exemplo', 'usuario', 'usuário',
+    'conta', 'perfil', 'dados', 'arquivo', 'pasta', 'tarefa', 'tarefas', 'ajuda', 'seguranca',
+    'segurança'],
+}
+
+const PATH_INDEX = new Map<string, string>()
+for (const [lang, words] of Object.entries(PATH_WORDS)) {
+  for (const word of words) PATH_INDEX.set(word, lang)
+}
+
+/** Which shipped language a filename word belongs to, if any. */
+export function pathWordLanguage(word: string): string | null {
+  return PATH_INDEX.get(word.normalize('NFC').toLowerCase()) ?? null
+}
+
 export function isCognate(value: string): boolean {
   return COGNATES.has(value.normalize('NFC').trim().toLowerCase())
 }

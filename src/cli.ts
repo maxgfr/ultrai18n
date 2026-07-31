@@ -8,7 +8,7 @@ import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
 import { formatPlan } from './plan'
 import { formatApply } from './apply'
-import { cmdPlan, cmdTranslate, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
+import { cmdPlan, cmdTranslate, cmdTranslateApi, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
 import { check, formatCheck, readExceptions } from './check'
 import { buildVerify, applyVerdicts, checkSemantic, formatVerifyTodo, type VerifyTodo, type VerifyResult } from './verify'
 import { orchestrate, phaseStatuses, type PhaseName } from './orchestrate'
@@ -233,7 +233,15 @@ async function main(): Promise<void> {
       }
       const backend = String(p.flags.backend ?? (p.flags.translator ? 'cli' : 'subagent')) as
         'subagent' | 'cli' | 'api' | 'manual'
-      if (backend === 'api') fail('the api backend is not built yet — use --translator or --backend manual')
+      if (backend === 'api') {
+        const outcome = await cmdTranslateApi({
+          out, backend, repo,
+          ...(p.flags['translator-timeout'] ? { timeoutMs: Number(p.flags['translator-timeout']) * 1000 } : {}),
+        })
+        process.stdout.write(`ultrai18n translate: backend api, ${outcome.batches} batch(es)\n`)
+        for (const w of outcome.wrote) process.stdout.write(`  wrote ${w}\n`)
+        return
+      }
       const outcome = cmdTranslate({
         out,
         backend,
