@@ -16,7 +16,8 @@ import {
   buildBatches, foldResults, runCliBackend, runApiBackend, parseResult, TRANSLATOR_CONTRACT,
   type Batch, type BatchResult,
 } from './translate'
-import { apply, type Insertion, type Translation } from './apply'
+import { apply, type ApplyReport, type Insertion, type Translation } from './apply'
+import { guardWorkingTree } from './git'
 import { resolveProvider, type ProviderOverrides, type ResolvedProvider } from './provider'
 
 export interface RunDir {
@@ -28,6 +29,8 @@ export interface RunDir {
   translations: string
   glossary: string
   applyReport: string
+  exceptions: string
+  backup: string
 }
 
 export function runDir(out: string): RunDir {
@@ -40,6 +43,10 @@ export function runDir(out: string): RunDir {
     translations: join(out, 'TRANSLATIONS.json'),
     glossary: join(out, 'glossary.md'),
     applyReport: join(out, 'APPLY.json'),
+    exceptions: join(out, 'exceptions.json'),
+    // Inside the run directory, which the walker already ignores by name, so a
+    // kept original never becomes a site on the next scan.
+    backup: join(out, 'backup'),
   }
 }
 
@@ -540,7 +547,16 @@ function rebuildFluent(
 // apply
 // ---------------------------------------------------------------------------
 
-export function cmdApply(repo: string, out: string, write: boolean, recover: boolean) {
+export interface ApplyFlags {
+  write: boolean
+  recover: boolean
+  backup?: boolean
+  allowDirty?: boolean
+  noGit?: boolean
+}
+
+export function cmdApply(repo: string, out: string, flags: ApplyFlags) {
+  const { write, recover } = flags
   const dirs = runDir(out)
   const inventory = readJson<Inventory>(dirs.inventory, 'inventory.json')
   const p = readJson<Plan>(dirs.plan, 'PLAN.json')
@@ -553,7 +569,24 @@ export function cmdApply(repo: string, out: string, write: boolean, recover: boo
     .filter((g) => g.status === 'pending' || g.status === 'memo')
     .map((g) => [...g.sites, ...g.mirrors])
 
-  const report = apply({ repo, inventory, translations, insertions, write, recover, groups })
+  // Only `--write` is guarded: a dry run mutates nothing, and guarding it would
+  // be theatre. When the guard refuses, nothing is written and the caller
+  // reports it as a command that could not run.
+  let vcs: ApplyReport['vcs']
+  if (write) {
+    const guard = guardWorkingTree(repo, {
+      allowDirty: flags.allowDirty === true,
+      noGit: flags.noGit === true,
+    })
+    if (!guard.ok) throw new Error(guard.message)
+    vcs = { state: guard.state, bypassedBy: guard.bypassedBy }
+  }
+
+  const report = apply({
+    repo, inventory, translations, insertions, write, recover, groups,
+    ...(flags.backup ? { backupDir: dirs.backup } : {}),
+    ...(vcs ? { vcs } : {}),
+  })
   writeJson(dirs.applyReport, report)
   return report
 }

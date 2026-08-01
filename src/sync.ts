@@ -324,5 +324,11 @@ export function formatSync(r: SyncReport): string {
       lines.push(`  ${f.locale} ${f.key}: ${f.detail}`)
     }
   }
+  lines.push(
+    '',
+    r.ok
+      ? `VERDICT  ok — ${r.locales.length} locale(s) in step with ${r.sourceLocale}`
+      : `VERDICT  fail — ${r.findings.length} finding(s) across ${r.locales.length} locale(s)`,
+  )
   return lines.join('\n')
 }

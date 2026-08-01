@@ -215,7 +215,9 @@ describe('end to end, en → ru', () => {
       translator: `node ${join(import.meta.dirname, 'fake-translator.mjs')}`,
     })
     cmdTranslateApply(out)
-    cmdApply(repo, out, true, true)
+    // `--no-git`: the isolated fixture is a fresh commit, but the guard is not
+    // what this eval measures and a dirty tree in CI must not change its answer.
+    cmdApply(repo, out, { write: true, recover: true, noGit: true })
   }, 120_000)
 
   afterAll(() => removeRepo(repo))

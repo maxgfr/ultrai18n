@@ -481,5 +481,12 @@ export function formatPlan(p: Plan): string {
     lines.push(`UNLINKED TEST LITERALS (${p.unlinked.length}) — assert copy but match no group`)
     for (const u of p.unlinked.slice(0, 10)) lines.push(`  ${u.file}:${u.line}  ${JSON.stringify(u.value)}`)
   }
+  const blocked = p.hazards.length + p.unlinked.length
+  lines.push(
+    '',
+    blocked
+      ? `VERDICT  fail — ${p.counts.groups} group(s) planned, ${p.hazards.length} hazard(s) and ${p.unlinked.length} unlinked literal(s) blocking`
+      : `VERDICT  ok — ${p.counts.groups} group(s), ${p.counts.toTranslate} to translate`,
+  )
   return lines.join('\n')
 }

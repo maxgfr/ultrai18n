@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { mkdirSync as mkdirSync8, writeFileSync as writeFileSync10 } from "fs";
+import { mkdirSync as mkdirSync9, writeFileSync as writeFileSync10 } from "fs";
 import { join as join36, resolve as resolve3 } from "path";
 
 // src/version.ts
@@ -27444,7 +27444,14 @@ function formatScan(inv, opts = {}) {
       lines.push(`    ${String(n).padStart(5)}  ${ext}`);
     }
   }
+  lines.push("", verdictLine(inv, counts));
   return lines.join("\n");
+}
+function verdictLine(inv, counts) {
+  const unclassified = counts.get("unclassified") ?? 0;
+  const judgment = counts.get("needs-judgment") ?? 0;
+  const translate = counts.get("translate") ?? 0;
+  return `VERDICT  ${inv.sites.length} site(s) \u2014 ${translate} to translate, ${judgment} for judgment, ${unclassified} unclassified` + (unclassified || judgment ? "  (check will refuse)" : "");
 }
 function formatPlurals(inv) {
   const families = inv.plurals ?? [];
@@ -27458,6 +27465,7 @@ function formatPlurals(inv) {
     lines.push("  The engine reads five arrangements, listed by `plurals --shapes`. If this");
     lines.push("  repository pluralises some other way, declare a family in place with an");
     lines.push("  `ultrai18n:plural` comment rather than teaching the engine to guess.");
+    lines.push("", "VERDICT  ok \u2014 no plural families in this repository");
     return lines.join("\n");
   }
   const tier2 = pluralTier();
@@ -27491,6 +27499,10 @@ function formatPlurals(inv) {
     lines.push(`  ${dialect.id.padEnd(26)} ${dialect.title}
       ${dialect.docs}`);
   }
+  lines.push(
+    "",
+    broken.length ? `VERDICT  fail \u2014 ${broken.length} of ${families.length} family(ies) short of a form their own locale selects` : `VERDICT  ok \u2014 ${families.length} family(ies), each complete for its own locale`
+  );
   return lines.join("\n");
 }
 function tally(sites) {
@@ -27771,11 +27783,16 @@ function formatPlan(p) {
     lines.push(`UNLINKED TEST LITERALS (${p.unlinked.length}) \u2014 assert copy but match no group`);
     for (const u of p.unlinked.slice(0, 10)) lines.push(`  ${u.file}:${u.line}  ${JSON.stringify(u.value)}`);
   }
+  const blocked = p.hazards.length + p.unlinked.length;
+  lines.push(
+    "",
+    blocked ? `VERDICT  fail \u2014 ${p.counts.groups} group(s) planned, ${p.hazards.length} hazard(s) and ${p.unlinked.length} unlinked literal(s) blocking` : `VERDICT  ok \u2014 ${p.counts.groups} group(s), ${p.counts.toTranslate} to translate`
+  );
   return lines.join("\n");
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync15, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync, mkdirSync as mkdirSync4 } from "fs";
 import { join as join26, dirname as dirname6 } from "path";
 import { createHash as createHash5 } from "crypto";
 function apply(opts) {
@@ -27855,6 +27872,7 @@ function apply(opts) {
     }
   }
   const written = [];
+  const backups = [];
   let filesWritten = 0;
   for (const [file, patches] of [...byFile.entries()].sort((a, b) => a[0] < b[0] ? -1 : 1)) {
     if (refusedFiles.has(file)) {
@@ -27886,6 +27904,12 @@ function apply(opts) {
         recovered: p.recovered,
         ...p.inserted ? { inserted: true } : {}
       });
+    }
+    if (write && opts.backupDir) {
+      const dest = join26(opts.backupDir, file);
+      mkdirSync4(dirname6(dest), { recursive: true });
+      writeFileSync5(dest, before);
+      backups.push(dest);
     }
     if (write) {
       const tmp = join26(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
@@ -27921,7 +27945,9 @@ function apply(opts) {
     groups: { total: groups.length, applied: groups.length - incompleteGroups, incomplete: incompleteGroups },
     outcomes: outcomes.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.id < b.id ? -1 : 1),
     written,
-    drift: { hard: refusedFiles.size, recovered: recoveredCount, files: [...refusedFiles].sort() }
+    drift: { hard: refusedFiles.size, recovered: recoveredCount, files: [...refusedFiles].sort() },
+    backups,
+    ...opts.vcs ? { vcs: opts.vcs } : {}
   };
 }
 function buildPatch(repo, site3, text, recover) {
@@ -28111,11 +28137,19 @@ function formatApply(r) {
     if (o.status === "applied") continue;
     lines.push(`  ${o.status === "refused" ? "\u2717" : "\xB7"} ${o.file}  ${o.id}  ${o.why}`);
   }
+  if (r.backups.length) lines.push(`  ${r.backups.length} original(s) kept before writing`);
+  if (r.vcs?.bypassedBy) {
+    lines.push(`  ! working tree was ${r.vcs.state} and the guard was bypassed by --${r.vcs.bypassedBy}`);
+  }
+  lines.push(
+    "",
+    `VERDICT  ${r.ok ? "ok" : "fail"} \u2014 ${r.sites.applied}/${r.sites.total} applied, ${r.sites.refused} refused, ${r.files.written} file(s) ${r.write ? "written" : "would change"}`
+  );
   return lines.join("\n");
 }
 
 // src/commands.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync4, readFileSync as readFileSync17, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { existsSync as existsSync14, mkdirSync as mkdirSync5, readFileSync as readFileSync17, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
 import { join as join28 } from "path";
 
 // src/translate.ts
@@ -28673,6 +28707,45 @@ batch is the whole context you need and the whole context you get: the
 orchestrator folds your results and the engine writes the files by byte offset.
 `;
 
+// src/git.ts
+import { spawnSync as spawnSync4 } from "child_process";
+function gitState(repo) {
+  const out2 = spawnSync4("git", ["status", "--porcelain"], {
+    cwd: repo,
+    encoding: "utf8",
+    maxBuffer: 32 * 1024 * 1024
+  });
+  if (out2.status !== 0) return { kind: "not-a-repo" };
+  const paths = out2.stdout.split("\n").map((l) => l.slice(3).trim()).filter(Boolean);
+  return paths.length ? { kind: "dirty", paths } : { kind: "clean" };
+}
+function guardWorkingTree(repo, opts) {
+  const state = gitState(repo);
+  if (opts.noGit) {
+    return { ok: true, state: state.kind, bypassedBy: "no-git" };
+  }
+  if (state.kind === "not-a-repo") {
+    return {
+      ok: false,
+      state: state.kind,
+      message: `${repo} is not a git repository, so a bad run cannot be undone. Pass --no-git to write anyway, or --backup to keep the originals.`
+    };
+  }
+  if (state.kind === "dirty") {
+    if (opts.allowDirty) return { ok: true, state: state.kind, bypassedBy: "allow-dirty" };
+    const shown = state.paths.slice(0, 10);
+    const more = state.paths.length - shown.length;
+    return {
+      ok: false,
+      state: state.kind,
+      message: `${state.paths.length} path(s) have uncommitted changes, and \`apply --write\` rewrites files in place \u2014 its diff would be indistinguishable from yours:
+` + shown.map((p) => `    ${p}`).join("\n") + (more > 0 ? `
+    \u2026 and ${more} more` : "") + "\nCommit or stash first, or pass --allow-dirty."
+    };
+  }
+  return { ok: true, state: state.kind, bypassedBy: null };
+}
+
 // src/commands.ts
 function runDir(out2) {
   return {
@@ -28683,7 +28756,11 @@ function runDir(out2) {
     results: join28(out2, "results"),
     translations: join28(out2, "TRANSLATIONS.json"),
     glossary: join28(out2, "glossary.md"),
-    applyReport: join28(out2, "APPLY.json")
+    applyReport: join28(out2, "APPLY.json"),
+    exceptions: join28(out2, "exceptions.json"),
+    // Inside the run directory, which the walker already ignores by name, so a
+    // kept original never becomes a site on the next scan.
+    backup: join28(out2, "backup")
   };
 }
 function readJson2(path, what) {
@@ -28693,7 +28770,7 @@ function readJson2(path, what) {
   return JSON.parse(readFileSync17(path, "utf8"));
 }
 function writeJson(path, value) {
-  mkdirSync4(join28(path, ".."), { recursive: true });
+  mkdirSync5(join28(path, ".."), { recursive: true });
   writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
 }
 var GEN_OPEN = "<!-- ul:gen key=proposals -->";
@@ -28758,11 +28835,11 @@ function cmdPlan(out2, mode) {
     project: { name: projectName(inventory.repo) },
     glossary
   });
-  mkdirSync4(dirs.batches, { recursive: true });
+  mkdirSync5(dirs.batches, { recursive: true });
   for (const batch of batches) {
     writeJson(join28(dirs.batches, `${batch.batchId}.batch.json`), batch);
   }
-  mkdirSync4(join28(out2, "agents"), { recursive: true });
+  mkdirSync5(join28(out2, "agents"), { recursive: true });
   writeFileSync6(join28(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
   const existing = existsSync14(dirs.glossary) ? readFileSync17(dirs.glossary, "utf8") : null;
   writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
@@ -28776,7 +28853,7 @@ async function cmdTranslateApi(opts) {
   const dirs = runDir(opts.out);
   const p = readJson2(dirs.plan, "PLAN.json");
   const batches = readBatches(dirs.batches);
-  mkdirSync4(dirs.results, { recursive: true });
+  mkdirSync5(dirs.results, { recursive: true });
   const wrote = [];
   const failed2 = [];
   for (const batch of batches) {
@@ -28810,7 +28887,7 @@ function cmdTranslate(opts) {
   }
   if (opts.backend === "cli") {
     if (!opts.translator) throw new Error("--backend cli needs --translator '<command>'");
-    mkdirSync4(dirs.results, { recursive: true });
+    mkdirSync5(dirs.results, { recursive: true });
     const wrote = [];
     const failed2 = [];
     for (const batch of batches) {
@@ -28983,13 +29060,33 @@ function rebuildFluent(value, family, forms, target) {
   const rebuilt = serializeSelect(select, bodies, [...exactKeys, ...target]);
   return value.slice(0, select.start) + rebuilt + value.slice(select.end);
 }
-function cmdApply(repo, out2, write, recover) {
+function cmdApply(repo, out2, flags2) {
+  const { write, recover } = flags2;
   const dirs = runDir(out2);
   const inventory = readJson2(dirs.inventory, "inventory.json");
   const p = readJson2(dirs.plan, "PLAN.json");
   const { translations, insertions = [] } = readJson2(dirs.translations, "TRANSLATIONS.json");
   const groups = p.groups.filter((g) => g.status === "pending" || g.status === "memo").map((g) => [...g.sites, ...g.mirrors]);
-  const report = apply({ repo, inventory, translations, insertions, write, recover, groups });
+  let vcs;
+  if (write) {
+    const guard = guardWorkingTree(repo, {
+      allowDirty: flags2.allowDirty === true,
+      noGit: flags2.noGit === true
+    });
+    if (!guard.ok) throw new Error(guard.message);
+    vcs = { state: guard.state, bypassedBy: guard.bypassedBy };
+  }
+  const report = apply({
+    repo,
+    inventory,
+    translations,
+    insertions,
+    write,
+    recover,
+    groups,
+    ...flags2.backup ? { backupDir: dirs.backup } : {},
+    ...vcs ? { vcs } : {}
+  });
   writeJson(dirs.applyReport, report);
   return report;
 }
@@ -29027,12 +29124,13 @@ function check(opts) {
   const exceptions = opts.exceptions ?? { entries: [] };
   const excused = new Map(exceptions.entries.map((e) => [e.siteKey, e]));
   const minConfidence = opts.confidence ?? 0.7;
+  const strict = opts.strict === true;
   const gates = [
-    gateCensus(repo),
+    gateCensus(repo, inventory, strict),
     gateResidual(inventory, excused),
-    gateUnadjudicated(inventory, excused),
+    gateUnadjudicated(inventory, excused, strict),
     gateSourceLanguage(inventory, excused, minConfidence),
-    gateExceptions(inventory, exceptions),
+    gateExceptions(inventory, exceptions, strict),
     gateCoherence(inventory, repo),
     gatePluralsClaimed(inventory, excused)
   ];
@@ -29057,7 +29155,7 @@ function check(opts) {
 function fingerprint(gate, f) {
   return `${gate}\0${f.siteKey ?? ""}\0${f.file ?? ""}\0${f.kind ?? ""}\0${f.message}`;
 }
-function gateCensus(repo) {
+function gateCensus(repo, inv, strict) {
   const census = runCensus(repo);
   const findings = census.unaccounted.map((file) => ({
     file,
@@ -29067,6 +29165,23 @@ function gateCensus(repo) {
     findings.push({
       message: "the denominator came from the filesystem rather than git, so the claim is weaker"
     });
+  }
+  if (strict) {
+    for (const entry of inv.census) {
+      if (entry.byteAddressable === false) {
+        findings.push({
+          file: entry.file,
+          kind: "strict",
+          message: `read, but not byte-addressable (${entry.reason ?? "unknown encoding"}) \u2014 inventoried and refused by \`apply\``
+        });
+      } else if (entry.degraded) {
+        findings.push({
+          file: entry.file,
+          kind: "strict",
+          message: "read without its full tier, so the verdicts in it are weaker than elsewhere"
+        });
+      }
+    }
   }
   return { id: "G1", name: "census-complete", ok: findings.length === 0, count: findings.length, findings };
 }
@@ -29079,7 +29194,7 @@ function gateResidual(inv, excused) {
   }));
   return { id: "G2", name: "no-residual", ok: findings.length === 0, count: findings.length, findings };
 }
-function gateUnadjudicated(inv, excused) {
+function gateUnadjudicated(inv, excused, strict = false) {
   const findings = inv.sites.filter((s) => s.verdict === "needs-judgment" && !excused.has(s.siteKey)).map((s) => ({
     file: s.file,
     line: s.line,
@@ -29087,6 +29202,20 @@ function gateUnadjudicated(inv, excused) {
     kind: s.reason ?? "no-rule",
     message: `${s.reason ?? "no-rule"}: ${JSON.stringify(clip3(s.value))}`
   }));
+  if (strict) {
+    for (const s of inv.sites) {
+      if (excused.has(s.siteKey)) continue;
+      if (s.verdict !== "translate" && s.verdict !== "do-not-translate") continue;
+      if (s.confidence !== "low") continue;
+      findings.push({
+        file: s.file,
+        line: s.line,
+        siteKey: s.siteKey,
+        kind: "strict",
+        message: `decided at low confidence (${s.verdict}): ${JSON.stringify(clip3(s.value))}`
+      });
+    }
+  }
   return { id: "G3", name: "no-unadjudicated", ok: findings.length === 0, count: findings.length, findings };
 }
 function gateSourceLanguage(inv, excused, minConfidence) {
@@ -29108,7 +29237,7 @@ function gateSourceLanguage(inv, excused, minConfidence) {
   }
   return { id: "G4", name: "source-language-clear", ok: findings.length === 0, count: findings.length, findings };
 }
-function gateExceptions(inv, exceptions) {
+function gateExceptions(inv, exceptions, strict = false) {
   const bySiteKey = new Map(inv.sites.map((s) => [s.siteKey, s]));
   const findings = [];
   for (const entry of exceptions.entries) {
@@ -29122,6 +29251,15 @@ function gateExceptions(inv, exceptions) {
     }
     if (!entry.justification?.trim()) {
       findings.push({ siteKey: entry.siteKey, message: "no justification \u2014 an exception without a reason is a place to hide" });
+    }
+    if (strict && !entry.contentHash) {
+      findings.push({
+        siteKey: entry.siteKey,
+        file: site3.file,
+        line: site3.line,
+        kind: "strict",
+        message: "unpinned: with no contentHash this exception survives the text being rewritten"
+      });
     }
     if (entry.pin && entry.contentHash && entry.contentHash !== site3.contentHash) {
       findings.push({
@@ -29505,11 +29643,11 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync18, mkdirSync as mkdirSync6, readFileSync as readFileSync20, writeFileSync as writeFileSync8 } from "fs";
+import { existsSync as existsSync18, mkdirSync as mkdirSync7, readFileSync as readFileSync20, writeFileSync as writeFileSync8 } from "fs";
 import { join as join33 } from "path";
 
 // src/dialects.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "fs";
+import { existsSync as existsSync17, mkdirSync as mkdirSync6, writeFileSync as writeFileSync7 } from "fs";
 import { join as join31 } from "path";
 var SAMPLE = 40;
 function viewDialects(repo, inventory, dialectsPath) {
@@ -29670,7 +29808,7 @@ Write the rows to \`.ultrai18n/dialects.json\` as
 **Do not edit any other file.**
 `;
 function writeTodo(out2, todo) {
-  mkdirSync5(join31(out2, "agents"), { recursive: true });
+  mkdirSync6(join31(out2, "agents"), { recursive: true });
   const todoPath = join31(out2, "dialects.todo.json");
   const contractPath = join31(out2, "agents", "dialectician.md");
   writeFileSync7(todoPath, JSON.stringify(todo, null, 2) + "\n");
@@ -29812,7 +29950,7 @@ function orchestrate(opts) {
   }
   const dir = join33(opts.out, "orchestration");
   const agents = join33(dir, "agents");
-  mkdirSync6(agents, { recursive: true });
+  mkdirSync7(agents, { recursive: true });
   const files = [];
   const contract = CONTRACTS[phase];
   const contractPath = join33(agents, `${contract.role}.md`);
@@ -30237,11 +30375,15 @@ function formatSync(r) {
       lines.push(`  ${f.locale} ${f.key}: ${f.detail}`);
     }
   }
+  lines.push(
+    "",
+    r.ok ? `VERDICT  ok \u2014 ${r.locales.length} locale(s) in step with ${r.sourceLocale}` : `VERDICT  fail \u2014 ${r.findings.length} finding(s) across ${r.locales.length} locale(s)`
+  );
   return lines.join("\n");
 }
 
 // src/init.ts
-import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
+import { mkdirSync as mkdirSync8, writeFileSync as writeFileSync9 } from "fs";
 import { dirname as dirname7, join as join35 } from "path";
 function buildBaseline(report) {
   const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
@@ -30255,7 +30397,7 @@ function init2(opts) {
   const notes = [];
   if (opts.baseline) {
     const path = join35(opts.out, "baseline.json");
-    mkdirSync7(dirname7(path), { recursive: true });
+    mkdirSync8(dirname7(path), { recursive: true });
     writeFileSync9(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
     written.push(path);
     notes.push(
@@ -30264,13 +30406,13 @@ function init2(opts) {
   }
   if (opts.ci) {
     const path = join35(opts.repo, ".github/workflows/ultrai18n.yml");
-    mkdirSync7(dirname7(path), { recursive: true });
+    mkdirSync8(dirname7(path), { recursive: true });
     writeFileSync9(path, WORKFLOW);
     written.push(path);
   }
   if (opts.hook) {
     const path = join35(opts.repo, ".git/hooks/pre-commit");
-    mkdirSync7(dirname7(path), { recursive: true });
+    mkdirSync8(dirname7(path), { recursive: true });
     writeFileSync9(path, HOOK, { mode: 493 });
     written.push(path);
     notes.push("a local hook is bypassable and does not see other people's commits; --ci is the durable guard");
@@ -30382,6 +30524,21 @@ Options:
   --out <dir>    Run directory (default: <repo>/.ultrai18n)
   --json         Machine-readable output on stdout; human lines go to stderr
   --to <lang>    Target language (default: en)
+  --quiet        Print only each command's VERDICT line. Never changes --json
+                 output, never suppresses an error, never changes an exit code.
+  --strict       check: make a WEAKENED CLAIM a failure \u2014 a file read without
+                 its full tier, a decision taken at low confidence, an exception
+                 with no contentHash. Widens G1/G3/G5; adds no gate id.
+  --backup       apply --write: keep each original under <out>/backup/ first.
+                 Inside the run directory on purpose \u2014 a .bak beside the source
+                 is walked by the next scan and becomes a phantom duplicate.
+  --allow-dirty  apply --write: proceed although the working tree is dirty.
+  --no-git       apply --write: proceed although this is not a git repository,
+                 and skip the dirty check. You are asserting git is not the
+                 safety net here.
+
+There is deliberately no --no-sweep. The residual sweep is what makes G2
+checkable, and a run with it disabled looks clean while proving nothing.
 
 Exit codes:
   0  ok
@@ -30452,7 +30609,6 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "hook",
   "baseline",
   "quiet",
-  "no-sweep",
   "allow-dirty",
   "no-git",
   "backup",
@@ -30463,6 +30619,9 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "propose",
   "check"
 ]);
+var RETIRED = {
+  "no-sweep": 'the residual sweep is what makes G2 checkable \u2014 "nothing was dropped without a recorded reason". A run with it disabled looks clean and proves nothing, which is worse than a run that fails.'
+};
 function fail(msg) {
   process.stderr.write(`ultrai18n: ${msg}
 `);
@@ -30489,6 +30648,8 @@ function parseArgs(argv) {
         flags2[name2] = value;
       } else if (BOOL_FLAGS.has(name2)) {
         flags2[name2] = true;
+      } else if (RETIRED[name2]) {
+        usage(`--${name2} was removed: ${RETIRED[name2]}`);
       } else {
         usage(`unknown flag: --${name2}`);
       }
@@ -30514,6 +30675,14 @@ async function main() {
   if (!p.command) usage(`unknown command: ${p.positional[0]}`);
   const repo = resolve3(String(p.flags.repo ?? process.cwd()));
   const json = p.flags.json === true;
+  const quiet = p.flags.quiet === true;
+  const say = (full) => {
+    const text = quiet ? full.trimEnd().split("\n").pop() ?? "" : full;
+    process.stdout.write(text + "\n");
+  };
+  const note = (text) => {
+    if (!quiet) process.stderr.write(text);
+  };
   switch (p.command) {
     case "version":
       process.stdout.write(`${VERSION}
@@ -30524,7 +30693,7 @@ async function main() {
       if (json) {
         process.stdout.write(JSON.stringify(result, null, 2) + "\n");
       } else {
-        process.stdout.write(formatCensus(result, repo) + "\n");
+        say(formatCensus(result, repo));
       }
       if (!result.ok) process.exitCode = 1;
       return;
@@ -30570,12 +30739,12 @@ ${r.docs ? `    ${r.docs}
         to: String(p.flags.to ?? "en"),
         noAst: p.flags["no-ast"] === true
       });
-      mkdirSync8(out2, { recursive: true });
+      mkdirSync9(out2, { recursive: true });
       writeFileSync10(join36(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
-        process.stdout.write(formatScan(inv) + "\n");
-        process.stderr.write(`
+        say(formatScan(inv));
+        note(`
 wrote ${join36(out2, "inventory.json")}
 `);
       }
@@ -30587,8 +30756,8 @@ wrote ${join36(out2, "inventory.json")}
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
       else {
-        process.stdout.write(formatPlan(result) + "\n");
-        process.stderr.write(`
+        say(formatPlan(result));
+        note(`
 wrote ${batches.length} batch(es) to ${runDir(out2).batches}
 `);
       }
@@ -30619,7 +30788,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
           ...p.flags["max-tokens"] ? { maxTokens: Number(p.flags["max-tokens"]) } : {}
         };
         const resolved = resolveProvider(repo, overrides, p.flags.config ? String(p.flags.config) : void 0);
-        if (!json) process.stderr.write(formatProviders(resolved) + "\n\n");
+        if (!json) note(formatProviders(resolved) + "\n\n");
         const outcome2 = await cmdTranslateApi({
           out: out2,
           backend,
@@ -30656,9 +30825,15 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
     }
     case "apply": {
       const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
-      const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
+      const report = cmdApply(repo, out2, {
+        write: p.flags.write === true,
+        recover: p.flags["no-recover"] !== true,
+        backup: p.flags.backup === true,
+        allowDirty: p.flags["allow-dirty"] === true,
+        noGit: p.flags["no-git"] === true
+      });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-      else process.stdout.write(formatApply(report) + "\n");
+      else say(formatApply(report));
       if (!report.ok) process.exitCode = 1;
       return;
     }
@@ -30702,7 +30877,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
 `);
         process.stdout.write(`  not reviewed: ${todo.notReviewed.groups} \u2014 ${todo.notReviewed.reason}
 `);
-        process.stderr.write(`  wrote ${todoPath} and VERIFY.md
+        note(`  wrote ${todoPath} and VERIFY.md
 `);
       }
       return;
@@ -30732,7 +30907,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
           if (emitted.advice) process.stdout.write(`  ${emitted.advice}
 `);
         }
-        process.stderr.write(`
+        note(`
 launch:   ${emitted.launch}
 join:     ${emitted.join}
 `);
@@ -30750,7 +30925,7 @@ join:     ${emitted.join}
       if (p.flags.check === true) {
         const problems2 = runCheck(repo, inventory);
         if (json) process.stdout.write(JSON.stringify({ problems: problems2, ok: problems2.length === 0 }, null, 2) + "\n");
-        else process.stdout.write(formatProblems(problems2) + "\n");
+        else say(formatProblems(problems2));
         if (problems2.length) process.exitCode = 1;
         return;
       }
@@ -30758,7 +30933,7 @@ join:     ${emitted.join}
         const todo = buildTodo(repo, inventory);
         const paths = writeTodo(out2, todo);
         if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
-        else process.stdout.write(formatTodo(todo, paths) + "\n");
+        else say(formatTodo(todo, paths));
         return;
       }
       const explain = p.flags.explain;
@@ -30783,7 +30958,7 @@ join:     ${emitted.join}
       const problems = runCheck(repo, inventory);
       if (json) process.stdout.write(JSON.stringify({ dialects: views, problems }, null, 2) + "\n");
       else {
-        process.stdout.write(formatDialects(views) + "\n");
+        say(formatDialects(views));
         if (problems.length) process.stdout.write("\n" + formatProblems(problems) + "\n");
       }
       if (problems.length) process.exitCode = 1;
@@ -30818,7 +30993,7 @@ join:     ${emitted.join}
           ) + "\n"
         );
       } else {
-        process.stdout.write(formatPlurals(inventory) + "\n");
+        say(formatPlurals(inventory));
       }
       if (incomplete.length) process.exitCode = 1;
       return;
@@ -30833,7 +31008,7 @@ join:     ${emitted.join}
         statePath: join36(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-      else process.stdout.write(formatSync(report) + "\n");
+      else say(formatSync(report));
       if (!report.ok) process.exitCode = 1;
       return;
     }
@@ -30864,7 +31039,13 @@ join:     ${emitted.join}
       const exceptions = readExceptions(join36(out2, "exceptions.json"));
       const baselinePath = join36(out2, "baseline.json");
       const baseline = existsSync20(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
-      const report = check({ repo, inventory, exceptions, ...baseline ? { baseline } : {} });
+      const report = check({
+        repo,
+        inventory,
+        exceptions,
+        strict: p.flags.strict === true,
+        ...baseline ? { baseline } : {}
+      });
       if (p.flags.semantic) {
         const todoPath = join36(out2, "VERIFY.todo.json");
         const resultPath = join36(out2, "VERIFY.json");
@@ -30890,7 +31071,7 @@ join:     ${emitted.join}
         }
       }
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
-      else process.stdout.write(formatCheck(report) + "\n");
+      else say(formatCheck(report));
       process.exitCode = report.exitCode;
       return;
     }

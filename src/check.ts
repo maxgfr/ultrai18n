@@ -76,6 +76,16 @@ export interface CheckOptions {
   /** Report only findings absent from the frozen baseline. */
   baseline?: Set<string>
   confidence?: number
+  /**
+   * Make a WEAKENED CLAIM a failure.
+   *
+   * Widens three existing gates and deliberately adds no new id: two gates
+   * sharing an id made `fingerprint()` collide across them once already, and
+   * baselining one finding silently baselined the other. Every strict finding
+   * carries `kind: 'strict'` so a baseline frozen without the flag cannot
+   * excuse one by accident.
+   */
+  strict?: boolean
 }
 
 export function check(opts: CheckOptions): CheckReport {
@@ -84,12 +94,13 @@ export function check(opts: CheckOptions): CheckReport {
   const excused = new Map(exceptions.entries.map((e) => [e.siteKey, e]))
   const minConfidence = opts.confidence ?? 0.7
 
+  const strict = opts.strict === true
   const gates: Gate[] = [
-    gateCensus(repo),
+    gateCensus(repo, inventory, strict),
     gateResidual(inventory, excused),
-    gateUnadjudicated(inventory, excused),
+    gateUnadjudicated(inventory, excused, strict),
     gateSourceLanguage(inventory, excused, minConfidence),
-    gateExceptions(inventory, exceptions),
+    gateExceptions(inventory, exceptions, strict),
     gateCoherence(inventory, repo),
     gatePluralsClaimed(inventory, excused),
   ]
@@ -120,7 +131,7 @@ export function fingerprint(gate: string, f: Finding): string {
 
 // --------------------------------------------------------------------------
 
-function gateCensus(repo: string): Gate {
+function gateCensus(repo: string, inv: Inventory, strict: boolean): Gate {
   const census = runCensus(repo)
   const findings: Finding[] = census.unaccounted.map((file) => ({
     file,
@@ -130,6 +141,25 @@ function gateCensus(repo: string): Gate {
     findings.push({
       message: 'the denominator came from the filesystem rather than git, so the claim is weaker',
     })
+  }
+  if (strict) {
+    // A file that can be inventoried and not patched, or read without the AST
+    // tier. Both are accounted for; both make a weaker claim than the rest.
+    for (const entry of inv.census) {
+      if (entry.byteAddressable === false) {
+        findings.push({
+          file: entry.file,
+          kind: 'strict',
+          message: `read, but not byte-addressable (${entry.reason ?? 'unknown encoding'}) — inventoried and refused by \`apply\``,
+        })
+      } else if (entry.degraded) {
+        findings.push({
+          file: entry.file,
+          kind: 'strict',
+          message: 'read without its full tier, so the verdicts in it are weaker than elsewhere',
+        })
+      }
+    }
   }
   return { id: 'G1', name: 'census-complete', ok: findings.length === 0, count: findings.length, findings }
 }
@@ -146,8 +176,8 @@ function gateResidual(inv: Inventory, excused: Map<string, Exception>): Gate {
   return { id: 'G2', name: 'no-residual', ok: findings.length === 0, count: findings.length, findings }
 }
 
-function gateUnadjudicated(inv: Inventory, excused: Map<string, Exception>): Gate {
-  const findings = inv.sites
+function gateUnadjudicated(inv: Inventory, excused: Map<string, Exception>, strict = false): Gate {
+  const findings: Finding[] = inv.sites
     .filter((s) => s.verdict === 'needs-judgment' && !excused.has(s.siteKey))
     .map((s) => ({
       file: s.file,
@@ -156,6 +186,23 @@ function gateUnadjudicated(inv: Inventory, excused: Map<string, Exception>): Gat
       kind: s.reason ?? 'no-rule',
       message: `${s.reason ?? 'no-rule'}: ${JSON.stringify(clip(s.value))}`,
     }))
+  if (strict) {
+    // The engine records a confidence on every decision and nothing consumes
+    // it. Under `--strict` a low-confidence decision is one somebody should
+    // look at, which is what the field was recorded for.
+    for (const s of inv.sites) {
+      if (excused.has(s.siteKey)) continue
+      if (s.verdict !== 'translate' && s.verdict !== 'do-not-translate') continue
+      if (s.confidence !== 'low') continue
+      findings.push({
+        file: s.file,
+        line: s.line,
+        siteKey: s.siteKey,
+        kind: 'strict',
+        message: `decided at low confidence (${s.verdict}): ${JSON.stringify(clip(s.value))}`,
+      })
+    }
+  }
   return { id: 'G3', name: 'no-unadjudicated', ok: findings.length === 0, count: findings.length, findings }
 }
 
@@ -183,7 +230,7 @@ function gateSourceLanguage(inv: Inventory, excused: Map<string, Exception>, min
  * Exceptions have to be kept honest, or the file becomes a place to put things
  * one does not want to think about.
  */
-function gateExceptions(inv: Inventory, exceptions: Exceptions): Gate {
+function gateExceptions(inv: Inventory, exceptions: Exceptions, strict = false): Gate {
   const bySiteKey = new Map(inv.sites.map((s) => [s.siteKey, s]))
   const findings: Finding[] = []
   for (const entry of exceptions.entries) {
@@ -197,6 +244,18 @@ function gateExceptions(inv: Inventory, exceptions: Exceptions): Gate {
     }
     if (!entry.justification?.trim()) {
       findings.push({ siteKey: entry.siteKey, message: 'no justification — an exception without a reason is a place to hide' })
+    }
+    if (strict && !entry.contentHash) {
+      // `pin` voids an exception whose text CHANGED. An exception carrying no
+      // hash at all can never be voided, which is the loophole: it survives the
+      // text being rewritten underneath it.
+      findings.push({
+        siteKey: entry.siteKey,
+        file: site.file,
+        line: site.line,
+        kind: 'strict',
+        message: 'unpinned: with no contentHash this exception survives the text being rewritten',
+      })
     }
     if (entry.pin && entry.contentHash && entry.contentHash !== site.contentHash) {
       findings.push({

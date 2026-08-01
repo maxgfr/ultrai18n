@@ -76,7 +76,25 @@ export function formatScan(inv: Inventory, opts: { limit?: number } = {}): strin
     }
   }
 
+  lines.push('', verdictLine(inv, counts))
   return lines.join('\n')
+}
+
+/**
+ * The last line of every human report is its answer.
+ *
+ * A contract rather than a courtesy: `--quiet` prints exactly this line, so a
+ * formatter that trails off into narration reduces to a sentence fragment.
+ */
+function verdictLine(inv: Inventory, counts: Map<string, number>): string {
+  const unclassified = counts.get('unclassified') ?? 0
+  const judgment = counts.get('needs-judgment') ?? 0
+  const translate = counts.get('translate') ?? 0
+  return (
+    `VERDICT  ${inv.sites.length} site(s) — ${translate} to translate, ${judgment} for judgment, ` +
+    `${unclassified} unclassified` +
+    (unclassified || judgment ? '  (check will refuse)' : '')
+  )
 }
 
 /**
@@ -99,6 +117,7 @@ export function formatPlurals(inv: Inventory): string {
     lines.push('  The engine reads five arrangements, listed by `plurals --shapes`. If this')
     lines.push('  repository pluralises some other way, declare a family in place with an')
     lines.push('  `ultrai18n:plural` comment rather than teaching the engine to guess.')
+    lines.push('', 'VERDICT  ok — no plural families in this repository')
     return lines.join('\n')
   }
 
@@ -142,6 +161,12 @@ export function formatPlurals(inv: Inventory): string {
   for (const dialect of ordered(DIALECTS)) {
     lines.push(`  ${dialect.id.padEnd(26)} ${dialect.title}\n      ${dialect.docs}`)
   }
+  lines.push(
+    '',
+    broken.length
+      ? `VERDICT  fail — ${broken.length} of ${families.length} family(ies) short of a form their own locale selects`
+      : `VERDICT  ok — ${families.length} family(ies), each complete for its own locale`,
+  )
   return lines.join('\n')
 }
 

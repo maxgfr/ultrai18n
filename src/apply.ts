@@ -9,7 +9,7 @@
 // one buffer, one rename, so a file is either fully patched or untouched. Per
 // group: every file is validated before any file is written, so a translation
 // landing in four files never lands in three.
-import { readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createHash } from 'node:crypto'
 import type { Inventory, Site } from './types'
@@ -58,6 +58,16 @@ export interface ApplyOptions {
   recover?: boolean
   /** Groups whose members must all apply or none: [[siteId, ...], ...]. */
   groups?: string[][]
+  /**
+   * Where to keep each file's original before it is rewritten.
+   *
+   * Under the RUN directory, never beside the source: a `.bak` next to a file
+   * is walked by the next scan and becomes a phantom duplicate site, which
+   * fails G6 on a repository that is entirely correct.
+   */
+  backupDir?: string
+  /** Recorded on the report so a bypassed guard survives the terminal. */
+  vcs?: ApplyReport['vcs']
 }
 
 export type SiteOutcome =
@@ -82,6 +92,15 @@ export interface ApplyReport {
   /** Files that would change, with their before/after digests. */
   written: { file: string; sha256Before: string; sha256After: string }[]
   drift: { hard: number; recovered: number; files: string[] }
+  /** Originals kept under the run directory, when `--backup` was passed. */
+  backups: string[]
+  /**
+   * What git said, and whether a guard was bypassed.
+   *
+   * Recorded on the artifact rather than only printed: a bypassed safety check
+   * that exists solely in a terminal nobody kept is not a record of anything.
+   */
+  vcs?: { state: 'clean' | 'dirty' | 'not-a-repo'; bypassedBy: 'allow-dirty' | 'no-git' | null }
 }
 
 interface Patch {
@@ -196,6 +215,7 @@ export function apply(opts: ApplyOptions): ApplyReport {
   }
 
   const written: ApplyReport['written'] = []
+  const backups: string[] = []
   let filesWritten = 0
 
   for (const [file, patches] of [...byFile.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
@@ -230,6 +250,20 @@ export function apply(opts: ApplyOptions): ApplyReport {
         recovered: p.recovered,
         ...(p.inserted ? { inserted: true } : {}),
       })
+    }
+
+    if (write && opts.backupDir) {
+      // The original, from the buffer already in hand — the same bytes
+      // `sha256Before` was computed from, so no re-read can race the write.
+      //
+      // Under the run directory rather than a `.bak` beside the source: a
+      // backup sitting next to the file would be WALKED by the next scan,
+      // producing phantom duplicate sites and a G6 duplicate-divergence finding
+      // on a repository that is perfectly correct.
+      const dest = join(opts.backupDir, file)
+      mkdirSync(dirname(dest), { recursive: true })
+      writeFileSync(dest, before)
+      backups.push(dest)
     }
 
     if (write) {
@@ -272,6 +306,8 @@ export function apply(opts: ApplyOptions): ApplyReport {
     outcomes: outcomes.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.id < b.id ? -1 : 1)),
     written,
     drift: { hard: refusedFiles.size, recovered: recoveredCount, files: [...refusedFiles].sort() },
+    backups,
+    ...(opts.vcs ? { vcs: opts.vcs } : {}),
   }
 }
 
@@ -543,6 +579,17 @@ export function formatApply(r: ApplyReport): string {
     if (o.status === 'applied') continue
     lines.push(`  ${o.status === 'refused' ? '✗' : '·'} ${o.file}  ${o.id}  ${o.why}`)
   }
+  if (r.backups.length) lines.push(`  ${r.backups.length} original(s) kept before writing`)
+  if (r.vcs?.bypassedBy) {
+    // On the report as well as here: a bypassed safety check that lives only in
+    // a terminal nobody kept is not a record of anything.
+    lines.push(`  ! working tree was ${r.vcs.state} and the guard was bypassed by --${r.vcs.bypassedBy}`)
+  }
+  lines.push(
+    '',
+    `VERDICT  ${r.ok ? 'ok' : 'fail'} — ${r.sites.applied}/${r.sites.total} applied, ` +
+      `${r.sites.refused} refused, ${r.files.written} file(s) ${r.write ? 'written' : 'would change'}`,
+  )
   return lines.join('\n')
 }
 

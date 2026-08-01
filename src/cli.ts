@@ -79,6 +79,21 @@ Options:
   --out <dir>    Run directory (default: <repo>/.ultrai18n)
   --json         Machine-readable output on stdout; human lines go to stderr
   --to <lang>    Target language (default: en)
+  --quiet        Print only each command's VERDICT line. Never changes --json
+                 output, never suppresses an error, never changes an exit code.
+  --strict       check: make a WEAKENED CLAIM a failure — a file read without
+                 its full tier, a decision taken at low confidence, an exception
+                 with no contentHash. Widens G1/G3/G5; adds no gate id.
+  --backup       apply --write: keep each original under <out>/backup/ first.
+                 Inside the run directory on purpose — a .bak beside the source
+                 is walked by the next scan and becomes a phantom duplicate.
+  --allow-dirty  apply --write: proceed although the working tree is dirty.
+  --no-git       apply --write: proceed although this is not a git repository,
+                 and skip the dirty check. You are asserting git is not the
+                 safety net here.
+
+There is deliberately no --no-sweep. The residual sweep is what makes G2
+checkable, and a run with it disabled looks clean while proving nothing.
 
 Exit codes:
   0  ok
@@ -101,9 +116,21 @@ const VALUE_FLAGS = new Set([
 
 const BOOL_FLAGS = new Set([
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
-  'ci', 'hook', 'baseline', 'quiet', 'no-sweep', 'allow-dirty', 'no-git', 'backup',
+  'ci', 'hook', 'baseline', 'quiet', 'allow-dirty', 'no-git', 'backup',
   'strict', 'help', 'no-ast', 'no-recover', 'propose', 'check',
 ])
+
+/**
+ * Flags this build deliberately does NOT accept, and why.
+ *
+ * Rejected with the argument rather than with `unknown flag`, because somebody
+ * typing one has a reason and deserves an answer instead of a shrug.
+ */
+const RETIRED: Record<string, string> = {
+  'no-sweep':
+    'the residual sweep is what makes G2 checkable — "nothing was dropped without a recorded reason". ' +
+    'A run with it disabled looks clean and proves nothing, which is worse than a run that fails.',
+}
 
 interface Parsed {
   command: string
@@ -138,6 +165,8 @@ export function parseArgs(argv: string[]): Parsed {
         flags[name] = value
       } else if (BOOL_FLAGS.has(name)) {
         flags[name] = true
+      } else if (RETIRED[name]) {
+        usage(`--${name} was removed: ${RETIRED[name]}`)
       } else {
         usage(`unknown flag: --${name}`)
       }
@@ -168,6 +197,24 @@ async function main(): Promise<void> {
 
   const repo = resolve(String(p.flags.repo ?? process.cwd()))
   const json = p.flags.json === true
+  const quiet = p.flags.quiet === true
+
+  /**
+   * A human report, reduced to its verdict line when `--quiet`.
+   *
+   * One rule for every command rather than a per-command switch, and three
+   * things it deliberately never does: it does not touch `--json` output, it
+   * does not suppress an error, and it does not change an exit code. What it
+   * removes is narration; what it keeps is the answer.
+   */
+  const say = (full: string): void => {
+    const text = quiet ? (full.trimEnd().split('\n').pop() ?? '') : full
+    process.stdout.write(text + '\n')
+  }
+  /** Progress narration. Silenced entirely by `--quiet`; errors never come here. */
+  const note = (text: string): void => {
+    if (!quiet) process.stderr.write(text)
+  }
 
   switch (p.command) {
     case 'version':
@@ -179,7 +226,7 @@ async function main(): Promise<void> {
       if (json) {
         process.stdout.write(JSON.stringify(result, null, 2) + '\n')
       } else {
-        process.stdout.write(formatCensus(result, repo) + '\n')
+        say(formatCensus(result, repo))
       }
       if (!result.ok) process.exitCode = 1
       return
@@ -227,8 +274,8 @@ async function main(): Promise<void> {
       writeFileSync(join(out, 'inventory.json'), JSON.stringify(inv, null, 2) + '\n')
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + '\n')
       else {
-        process.stdout.write(formatScan(inv) + '\n')
-        process.stderr.write(`\nwrote ${join(out, 'inventory.json')}\n`)
+        say(formatScan(inv))
+        note(`\nwrote ${join(out, 'inventory.json')}\n`)
       }
       return
     }
@@ -239,8 +286,8 @@ async function main(): Promise<void> {
       const { plan: result, batches } = cmdPlan(out, mode)
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + '\n')
       else {
-        process.stdout.write(formatPlan(result) + '\n')
-        process.stderr.write(`\nwrote ${batches.length} batch(es) to ${runDir(out).batches}\n`)
+        say(formatPlan(result))
+        note(`\nwrote ${batches.length} batch(es) to ${runDir(out).batches}\n`)
       }
       // A hazard or an unlinked assertion is a decision the engine will not
       // make. Exiting 0 here would let a pipeline sail past it.
@@ -276,7 +323,7 @@ async function main(): Promise<void> {
         // about to run, and where each setting came from, is the thing you want
         // to see before spending money — not after, and not only on success.
         const resolved = resolveProvider(repo, overrides, p.flags.config ? String(p.flags.config) : undefined)
-        if (!json) process.stderr.write(formatProviders(resolved) + '\n\n')
+        if (!json) note(formatProviders(resolved) + '\n\n')
 
         const outcome = await cmdTranslateApi({
           out, backend, repo,
@@ -308,9 +355,15 @@ async function main(): Promise<void> {
 
     case 'apply': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
-      const report = cmdApply(repo, out, p.flags.write === true, p.flags['no-recover'] !== true)
+      const report = cmdApply(repo, out, {
+        write: p.flags.write === true,
+        recover: p.flags['no-recover'] !== true,
+        backup: p.flags.backup === true,
+        allowDirty: p.flags['allow-dirty'] === true,
+        noGit: p.flags['no-git'] === true,
+      })
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
-      else process.stdout.write(formatApply(report) + '\n')
+      else say(formatApply(report))
       if (!report.ok) process.exitCode = 1
       return
     }
@@ -353,7 +406,7 @@ async function main(): Promise<void> {
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate\n`)
         process.stdout.write(`  not reviewed: ${todo.notReviewed.groups} — ${todo.notReviewed.reason}\n`)
-        process.stderr.write(`  wrote ${todoPath} and VERIFY.md\n`)
+        note(`  wrote ${todoPath} and VERIFY.md\n`)
       }
       return
     }
@@ -380,7 +433,7 @@ async function main(): Promise<void> {
           for (const f of emitted.files) process.stdout.write(`  wrote ${f}\n`)
           if (emitted.advice) process.stdout.write(`  ${emitted.advice}\n`)
         }
-        process.stderr.write(`\nlaunch:   ${emitted.launch}\njoin:     ${emitted.join}\n`)
+        note(`\nlaunch:   ${emitted.launch}\njoin:     ${emitted.join}\n`)
       } catch (err) {
         const code = (err as Error & { exitCode?: number }).exitCode ?? 1
         process.stderr.write(`ultrai18n: ${(err as Error).message}\n`)
@@ -396,7 +449,7 @@ async function main(): Promise<void> {
       if (p.flags.check === true) {
         const problems = runCheck(repo, inventory)
         if (json) process.stdout.write(JSON.stringify({ problems, ok: problems.length === 0 }, null, 2) + '\n')
-        else process.stdout.write(formatProblems(problems) + '\n')
+        else say(formatProblems(problems))
         if (problems.length) process.exitCode = 1
         return
       }
@@ -405,7 +458,7 @@ async function main(): Promise<void> {
         const todo = buildTodo(repo, inventory)
         const paths = writeTodo(out, todo)
         if (json) process.stdout.write(JSON.stringify(todo, null, 2) + '\n')
-        else process.stdout.write(formatTodo(todo, paths) + '\n')
+        else say(formatTodo(todo, paths))
         // Always 0. `--propose` reports work to be done; it has not failed at
         // anything, and a non-zero exit here would stop a pipeline that is
         // running exactly as intended.
@@ -430,7 +483,7 @@ async function main(): Promise<void> {
       const problems = runCheck(repo, inventory)
       if (json) process.stdout.write(JSON.stringify({ dialects: views, problems }, null, 2) + '\n')
       else {
-        process.stdout.write(formatDialects(views) + '\n')
+        say(formatDialects(views))
         if (problems.length) process.stdout.write('\n' + formatProblems(problems) + '\n')
       }
       if (problems.length) process.exitCode = 1
@@ -466,7 +519,7 @@ async function main(): Promise<void> {
           ) + '\n',
         )
       } else {
-        process.stdout.write(formatPlurals(inventory) + '\n')
+        say(formatPlurals(inventory))
       }
       if (incomplete.length) process.exitCode = 1
       return
@@ -482,7 +535,7 @@ async function main(): Promise<void> {
         statePath: join(out, 'catalog-state.json'),
       })
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
-      else process.stdout.write(formatSync(report) + '\n')
+      else say(formatSync(report))
       if (!report.ok) process.exitCode = 1
       return
     }
@@ -515,7 +568,11 @@ async function main(): Promise<void> {
       const baseline = existsSync(baselinePath)
         ? loadBaseline(readJson<Baseline>(baselinePath, 'baseline.json'))
         : undefined
-      const report = check({ repo, inventory, exceptions, ...(baseline ? { baseline } : {}) })
+      const report = check({
+        repo, inventory, exceptions,
+        strict: p.flags.strict === true,
+        ...(baseline ? { baseline } : {}),
+      })
 
       if (p.flags.semantic) {
         const todoPath = join(out, 'VERIFY.todo.json')
@@ -542,7 +599,7 @@ async function main(): Promise<void> {
         }
       }
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + '\n')
-      else process.stdout.write(formatCheck(report) + '\n')
+      else say(formatCheck(report))
       process.exitCode = report.exitCode
       return
     }
