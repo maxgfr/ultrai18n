@@ -4,7 +4,7 @@ import { VERSION } from './version'
 import { runCensus, formatCensus } from './census'
 import { scan } from './scan'
 import { formatScan, formatPlurals } from './report'
-import { PLURAL_SHAPES, pluralTier, type PluralFamily } from './plural'
+import { DIALECTS, ordered, pluralTier, type PluralFamily } from './plural'
 import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
 import { formatPlan } from './plan'
@@ -19,6 +19,8 @@ import { writeJson } from './commands'
 import type { Plan } from './plan'
 import type { Inventory } from './types'
 import { existsSync } from 'node:fs'
+import { formatProviders, resolveProvider, type ProviderOverrides } from './provider'
+import { buildTodo, explainFile, formatDialects, formatProblems, formatTodo, runCheck, viewDialects, writeTodo } from './dialects'
 
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
@@ -31,10 +33,12 @@ Usage:
   ultrai18n adjudicate [--out <dir>] [--batch <n>]
   ultrai18n plan       [--out <dir>] [--mode audit|swap|i18n|sync] [--json]
   ultrai18n translate  [--backend <k>] [--translator '<cmd>'] [--apply "<glob>"] [--json]
+                       [--provider <id>] [--model <name>] [--endpoint <url>] [--key-env <VAR>]
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
   ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
+  ultrai18n dialects   [--explain <file>] [--check] [--propose] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
   ultrai18n orchestrate [--phase <name>] [--eco] [--list]
@@ -51,6 +55,25 @@ Commands:
               forms it actually has. Exits 1 when one is short — that is a wrong
               string rendering today, not a missing translation.
 
+  dialects    How this repository spells its plurals: the shipped catalog plus
+              anything \`.ultrai18n/dialects.json\` declares, with the manifest
+              line supporting each. \`--propose\` writes the sites no dialect
+              claimed, for an agent to declare; \`--check\` validates what it
+              wrote, and rejects a row that cites nothing, claims nothing, or
+              re-reads a family that already worked.
+
+Translation backend (everything is overridable; --flag beats ULTRAI18N_* env
+beats .ultrai18n/config.json beats the provider preset):
+  --provider     anthropic | openai | openai-compatible  (default: anthropic)
+  --model        Defaults to the provider's SMALL tier — that is the whole point:
+                 eight short strings and a one-page contract per batch is not
+                 work a frontier model does better.
+  --endpoint     Any URL. With --provider openai-compatible this reaches Ollama,
+                 vLLM, LM Studio or a company gateway.
+  --key-env      Name of the environment variable holding the key. A localhost
+                 endpoint may have none.
+  --max-tokens   Response cap (default 4096)
+
 Options:
   --repo <dir>   Repository root (default: cwd)
   --out <dir>    Run directory (default: <repo>/.ultrai18n)
@@ -64,6 +87,7 @@ Exit codes:
 `
 
 const COMMANDS = new Set([
+  'dialects',
   'scan', 'census', 'sites', 'catalog', 'lang', 'adjudicate', 'plan', 'translate',
   'apply', 'verify', 'check', 'sync', 'plurals', 'glossary', 'orchestrate', 'init', 'version',
 ])
@@ -72,12 +96,13 @@ const VALUE_FLAGS = new Set([
   'repo', 'out', 'from', 'to', 'verdict', 'surface', 'file', 'explain', 'ecosystem',
   'rule', 'value', 'batch', 'mode', 'backend', 'translator', 'apply', 'max-verify',
   'catalog', 'source-locale', 'phase', 'sample-rate', 'translator-timeout', 'config',
+  'provider', 'model', 'endpoint', 'key-env', 'max-tokens',
 ])
 
 const BOOL_FLAGS = new Set([
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
   'ci', 'hook', 'baseline', 'quiet', 'no-sweep', 'allow-dirty', 'no-git', 'backup',
-  'strict', 'help', 'no-ast', 'no-recover',
+  'strict', 'help', 'no-ast', 'no-recover', 'propose', 'check',
 ])
 
 interface Parsed {
@@ -240,12 +265,29 @@ async function main(): Promise<void> {
       const backend = String(p.flags.backend ?? (p.flags.translator ? 'cli' : 'subagent')) as
         'subagent' | 'cli' | 'api' | 'manual'
       if (backend === 'api') {
+        const overrides: ProviderOverrides = {
+          ...(p.flags.provider ? { provider: String(p.flags.provider) } : {}),
+          ...(p.flags.model ? { model: String(p.flags.model) } : {}),
+          ...(p.flags.endpoint ? { endpoint: String(p.flags.endpoint) } : {}),
+          ...(p.flags['key-env'] ? { keyEnv: String(p.flags['key-env']) } : {}),
+          ...(p.flags['max-tokens'] ? { maxTokens: Number(p.flags['max-tokens']) } : {}),
+        }
+        // Resolved and PRINTED before a single request is sent. Which model is
+        // about to run, and where each setting came from, is the thing you want
+        // to see before spending money — not after, and not only on success.
+        const resolved = resolveProvider(repo, overrides, p.flags.config ? String(p.flags.config) : undefined)
+        if (!json) process.stderr.write(formatProviders(resolved) + '\n\n')
+
         const outcome = await cmdTranslateApi({
           out, backend, repo,
+          resolved,
           ...(p.flags['translator-timeout'] ? { timeoutMs: Number(p.flags['translator-timeout']) * 1000 } : {}),
         })
-        process.stdout.write(`ultrai18n translate: backend api, ${outcome.batches} batch(es)\n`)
-        for (const w of outcome.wrote) process.stdout.write(`  wrote ${w}\n`)
+        if (json) process.stdout.write(JSON.stringify(outcome, null, 2) + '\n')
+        else {
+          process.stdout.write(`ultrai18n translate: backend api, ${outcome.batches} batch(es)\n`)
+          for (const w of outcome.wrote) process.stdout.write(`  wrote ${w}\n`)
+        }
         return
       }
       const outcome = cmdTranslate({
@@ -347,6 +389,54 @@ async function main(): Promise<void> {
       return
     }
 
+    case 'dialects': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+
+      if (p.flags.check === true) {
+        const problems = runCheck(repo, inventory)
+        if (json) process.stdout.write(JSON.stringify({ problems, ok: problems.length === 0 }, null, 2) + '\n')
+        else process.stdout.write(formatProblems(problems) + '\n')
+        if (problems.length) process.exitCode = 1
+        return
+      }
+
+      if (p.flags.propose === true) {
+        const todo = buildTodo(repo, inventory)
+        const paths = writeTodo(out, todo)
+        if (json) process.stdout.write(JSON.stringify(todo, null, 2) + '\n')
+        else process.stdout.write(formatTodo(todo, paths) + '\n')
+        // Always 0. `--propose` reports work to be done; it has not failed at
+        // anything, and a non-zero exit here would stop a pipeline that is
+        // running exactly as intended.
+        return
+      }
+
+      const explain = p.flags.explain
+      if (typeof explain === 'string') {
+        const applicable = explainFile(repo, inventory, explain)
+        if (json) process.stdout.write(JSON.stringify({ file: explain, dialects: applicable }, null, 2) + '\n')
+        else {
+          process.stdout.write(`ultrai18n dialects — what applies to ${explain}\n\n`)
+          if (applicable.length === 0) process.stdout.write('  none\n')
+          for (const a of applicable) {
+            process.stdout.write(`  ${a.dialect.id}\n      ${a.reason}\n      ${a.dialect.docs}\n`)
+          }
+        }
+        return
+      }
+
+      const views = viewDialects(repo, inventory)
+      const problems = runCheck(repo, inventory)
+      if (json) process.stdout.write(JSON.stringify({ dialects: views, problems }, null, 2) + '\n')
+      else {
+        process.stdout.write(formatDialects(views) + '\n')
+        if (problems.length) process.stdout.write('\n' + formatProblems(problems) + '\n')
+      }
+      if (problems.length) process.exitCode = 1
+      return
+    }
+
     case 'plurals': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
@@ -359,7 +449,14 @@ async function main(): Promise<void> {
               repo,
               targetLanguage: inventory.targetLanguage,
               tier: pluralTier(),
-              shapes: PLURAL_SHAPES,
+              dialects: ordered(DIALECTS).map((d) => ({
+                id: d.id,
+                title: d.title,
+                docs: d.docs,
+                primitive: d.primitive,
+                shape: d.shape,
+                cldr: d.cldr,
+              })),
               families,
               incomplete: incomplete.map((f) => f.id),
               ok: incomplete.length === 0,
@@ -433,7 +530,10 @@ async function main(): Promise<void> {
           report.ok = false
           report.exitCode = 1
           report.gates.push({
-            id: 'G6',
+            // G8, not G6. Two gates sharing an id made `fingerprint()` collide
+            // across them, so baselining a coherence finding silently baselined
+            // a semantic one with the same site and message, and vice versa.
+            id: 'G8',
             name: 'semantic',
             ok: false,
             count: semantic.findings.length,

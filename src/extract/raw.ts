@@ -84,6 +84,15 @@ export interface Container {
   nearestComment?: string
   /** Sibling keys of the enclosing object literal, for cohort inheritance. */
   siblingKeys?: string[]
+  /**
+   * The host format itself declared this text untranslatable.
+   *
+   * Android's `translatable="false"`, and anything shaped like it. A
+   * platform-native, machine-readable exception is a stronger signal than any
+   * heuristic the engine has, and it must win over the file-level rule that
+   * would otherwise mark every string in the resource file translatable.
+   */
+  untranslatable?: boolean
   /** Set when this literal reaches a storage/cache/alarm API. */
   persisted?: boolean
   /** The enclosing call's callee name, when the literal is an argument. */

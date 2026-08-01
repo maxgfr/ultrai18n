@@ -1,0 +1,9 @@
+{
+  "manifest_version": 3,
+  "name": "Atelier pour le navigateur",
+  "description": "Publier depuis n'importe quelle page",
+  "default_locale": "en",
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://*.example.com/*"],
+  "action": { "default_title": "Ouvrir l'atelier" }
+}

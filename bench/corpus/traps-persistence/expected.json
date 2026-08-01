@@ -1,0 +1,162 @@
+{
+  "schemaVersion": 1,
+  "case": "traps-persistence",
+  "title": "Values that leave the process: translating one corrupts data, and no gate would catch it",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "pass",
+    "G3": "fail",
+    "G4": "fail",
+    "G5": "pass",
+    "G6": "pass",
+    "G7": "pass"
+  },
+  "census": [
+    {
+      "file": "src/protocol.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "The AST tier has to be the one reading this, or container semantics — enum member, switch case, comparison operand — are unavailable and every string below becomes a guess."
+    },
+    {
+      "file": "src/queries.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "Same, and the tagged templates need the tag name to be readable."
+    },
+    {
+      "file": "src/schema.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "Same."
+    },
+    {
+      "file": "package.json",
+      "bucket": "scanned",
+      "extractor": "json",
+      "why": "Present so the case carries one thing that genuinely must be translated; a corpus of pure refusals proves only that the tool says no."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "union.members",
+      "file": "src/protocol.ts",
+      "find": "'draft' | 'published' | 'archived'",
+      "mustNotClaim": true,
+      "why": "A persisted status union. Translate one member and every row already in the database stops parsing — silently, at read time, long after the commit."
+    },
+    {
+      "id": "enum.value",
+      "file": "src/protocol.ts",
+      "find": "Email = 'email'",
+      "mustNotClaim": true,
+      "why": "An enum's VALUE is the wire format; only its name is for people. The two sit one token apart and look alike."
+    },
+    {
+      "id": "storage.key",
+      "file": "src/protocol.ts",
+      "find": "'atelier:v3:brouillon'",
+      "expect": {
+        "verdict": "do-not-translate"
+      },
+      "mustNotClaim": true,
+      "why": "A localStorage key that happens to contain a French word. Translating it orphans every existing user's saved draft — the data is still there and the application can no longer find it."
+    },
+    {
+      "id": "switch.case",
+      "file": "src/protocol.ts",
+      "find": "case 'sync':",
+      "mustNotClaim": true,
+      "why": "A discriminant compared against a value the sender chose. The string beside it in the same function IS copy, which is what makes position, not appearance, the only reliable signal."
+    },
+    {
+      "id": "comparison.operand",
+      "file": "src/protocol.ts",
+      "find": "s === 'archived'",
+      "mustNotClaim": true,
+      "why": "Compared, never rendered. An extractor reading values without their containers cannot tell this from a label."
+    },
+    {
+      "id": "content.type",
+      "file": "src/protocol.ts",
+      "find": "'application/vnd.atelier+json'",
+      "mustNotClaim": true,
+      "why": "A media type. It is negotiated with a server that has never heard of French."
+    },
+    {
+      "id": "gql.template",
+      "file": "src/queries.ts",
+      "find": "query Projects($status: Status!)",
+      "mustNotClaim": true,
+      "why": "Every identifier inside a GraphQL document belongs to the schema. `title` here is a field name, and the same word three lines away in a component would be a label."
+    },
+    {
+      "id": "sql.template",
+      "file": "src/queries.ts",
+      "find": "SELECT id, title, published_at",
+      "mustNotClaim": true,
+      "why": "Same argument, different embedded language. Translating a column name turns a query into a runtime error nobody sees until production."
+    },
+    {
+      "id": "zod.literal",
+      "file": "src/schema.ts",
+      "find": "z.literal('archived')",
+      "mustNotClaim": true,
+      "why": "A validator's literal is the accepted input, not a message. Translating it rejects every request that was previously valid."
+    },
+    {
+      "id": "dual.use",
+      "file": "src/schema.ts",
+      "find": "archived: 'archived'",
+      "expect": {
+        "verdict": "needs-judgment",
+        "reason": "ambiguous-role"
+      },
+      "mustNotClaim": true,
+      "why": "The whole point of the case. This one string is both the persisted value and the rendered label, and the two want opposite treatment. Refusing — loudly, so somebody decides — is the only correct answer; guessing either way corrupts something."
+    },
+    {
+      "id": "copy.reset",
+      "file": "src/protocol.ts",
+      "find": "'Réinitialisation demandée'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Real copy, returned from the same switch whose cases must not move. A tool that refuses this file wholesale is as wrong as one that translates all of it."
+    },
+    {
+      "id": "copy.empty-state",
+      "file": "src/queries.ts",
+      "find": "'Aucun projet pour le moment'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Copy sitting in the same module as two embedded query languages."
+    },
+    {
+      "id": "package.description",
+      "file": "package.json",
+      "find": "Un atelier de publication pour petites équipes",
+      "expect": {
+        "verdict": "translate",
+        "rule": "npm.package-json.description"
+      },
+      "why": "Rendered on npmjs.com. Cited to a rule, so the verdict is traceable to documented evidence rather than to the string looking like a sentence."
+    },
+    {
+      "id": "package.version",
+      "file": "package.json",
+      "find": "\"^3.23.8\"",
+      "mustNotClaim": true,
+      "why": "A dependency range, one line from a field that must be translated. The companion matchers in the same rule are what keep them apart."
+    }
+  ],
+  "knownGaps": [
+    "`'Synchronisation en cours'` comes back needs-judgment/no-rule while `'Réinitialisation demandée'`, its sibling in the same switch, comes back translate. Same position, same shape, two answers. Not asserted either way here: pinning the inconsistent pair would make it look decided.",
+    "`'email'` and `'push'` — the Channel enum VALUES — land on needs-judgment/short-string rather than enum-member, so they are refused for the right outcome by the wrong reason. Only their brevity saves them; a longer enum value in the same position reads as copy."
+  ]
+}

@@ -1,5 +1,5 @@
 import type { Inventory, Site, Verdict } from './types'
-import { PLURAL_SHAPES, pluralTier, type PluralFamily } from './plural'
+import { DIALECTS, ordered, pluralTier, type PluralFamily } from './plural'
 
 const ORDER: Verdict[] = ['translate', 'needs-judgment', 'unclassified', 'locale-marker', 'do-not-translate']
 
@@ -130,14 +130,17 @@ export function formatPlurals(inv: Inventory): string {
         `      ${f.shape} · ${f.locale ?? '?'} → ${f.targetRequired?.join(', ') ?? '?'} · writes by ${f.writeMode}` +
         (f.ordinal ? ' · ordinal' : '') +
         (f.declaredBy === 'annotation' ? ' · declared by annotation' : '') +
+        // Which row decided this, so a surprising family is traceable to the
+        // thing that claimed it rather than to the engine in general.
+        (f.dialect ? ` · ${f.dialect}` : '') +
         (f.blocked ? `\n      blocked: ${f.blocked}` : ''),
     )
   }
 
   lines.push('')
-  lines.push('SHAPES READ')
-  for (const shape of PLURAL_SHAPES) {
-    lines.push(`  ${shape.id.padEnd(16)} ${shape.title}\n      ${shape.docs}`)
+  lines.push('DIALECTS READ')
+  for (const dialect of ordered(DIALECTS)) {
+    lines.push(`  ${dialect.id.padEnd(26)} ${dialect.title}\n      ${dialect.docs}`)
   }
   return lines.join('\n')
 }

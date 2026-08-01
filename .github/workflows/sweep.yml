@@ -1,0 +1,46 @@
+# The real-repository sweep.
+#
+# Never on `pull_request`, and never a required check. It needs the network, it
+# clones other people's repositories, and its findings are candidates for a human
+# rather than a verdict — a sweep that can fail a pull request is a sweep somebody
+# will disable. The offline corpus in `bench/` is what gates.
+name: sweep
+
+on:
+  schedule:
+    # Nightly. The codeindex index is reused between runs, so the second and
+    # later nights are close to a stat pass.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: core | wide | all
+        default: core
+        type: string
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+      - name: Cache the clones and the codeindex index between nights
+        uses: actions/cache@v4
+        with:
+          path: bench/.out/repos
+          key: sweep-clones-${{ hashFiles('bench/repos.json') }}
+
+      - run: pnpm sweep --tier ${{ inputs.tier || 'core' }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sweep
+          path: bench/.out/sweep/

@@ -1,0 +1,90 @@
+{
+  "$comment": "Repositories the sweep clones, pinned by SHA. Every entry carries a licence, because `--promote` refuses to excerpt copyleft into an MIT project and the field is what makes that policy enforceable rather than aspirational.",
+
+  "repos": [
+    {
+      "slug": "excalidraw/excalidraw",
+      "url": "https://github.com/excalidraw/excalidraw.git",
+      "sha": "main",
+      "license": "MIT",
+      "tier": "core",
+      "dialects": ["i18next"],
+      "why": "The best single all-round pin: real UI copy and locale bundles, AND dense localStorage keys, enums and persisted values. It exercises recall and precision in one clone, which no single-purpose repository does."
+    },
+    {
+      "slug": "android/nowinandroid",
+      "url": "https://github.com/android/nowinandroid.git",
+      "sha": "main",
+      "license": "Apache-2.0",
+      "tier": "core",
+      "dialects": ["android"],
+      "why": "Google's own reference app: real `<plurals>` in `res/values*/strings.xml` and Compose `pluralStringResource`. The only Android pin permissive AND idiomatic enough to trust."
+    },
+    {
+      "slug": "python-babel/babel",
+      "url": "https://github.com/python-babel/babel.git",
+      "sha": "master",
+      "license": "BSD-3-Clause",
+      "tier": "core",
+      "dialects": ["gettext"],
+      "why": "gettext, densely: `.po`/`.pot` fixtures with `msgid_plural` and `msgstr[n]`, plus `ngettext` in source. Small enough to clone nightly."
+    },
+    {
+      "slug": "mozilla/pdf.js",
+      "url": "https://github.com/mozilla/pdf.js.git",
+      "sha": "master",
+      "license": "Apache-2.0",
+      "tier": "core",
+      "dialects": ["fluent"],
+      "why": "Fluent in a shipping product rather than a toy — `l10n/*/viewer.ftl` with real selectors."
+    },
+    {
+      "slug": "formatjs/formatjs",
+      "url": "https://github.com/formatjs/formatjs.git",
+      "sha": "main",
+      "license": "BSD-3-Clause",
+      "tier": "core",
+      "dialects": ["icu"],
+      "why": "The canonical ICU source of truth: `defineMessages`, `selectordinal`, `offset:`, `select` nested inside `plural`."
+    },
+    {
+      "slug": "sindresorhus/ky",
+      "url": "https://github.com/sindresorhus/ky.git",
+      "sha": "main",
+      "license": "MIT",
+      "tier": "core",
+      "dialects": [],
+      "why": "The CONTROL. A tiny repository with no i18n at all, where the oracle should find essentially nothing. A pile of confirmed misses here means the locators are too broad — a pure precision signal with no recall confound, for the cost of one small clone."
+    },
+    {
+      "slug": "django/django",
+      "url": "https://github.com/django/django.git",
+      "sha": "main",
+      "license": "BSD-3-Clause",
+      "tier": "wide",
+      "include": ["django/conf/locale/**", "django/template/**"],
+      "dialects": ["gettext", "django"],
+      "why": "Thousands of `.po` files plus `blocktrans` template tags. Scoped, or the clone dominates the run."
+    },
+    {
+      "slug": "duckduckgo/iOS",
+      "url": "https://github.com/duckduckgo/iOS.git",
+      "sha": "main",
+      "license": "Apache-2.0",
+      "tier": "wide",
+      "dialects": ["apple"],
+      "why": "Apple `.strings` and `.stringsdict` under a permissive licence, which is rare. Verify the stringsdict locator actually fires at pin time; the sweep report says whether it did."
+    },
+    {
+      "slug": "withastro/astro",
+      "url": "https://github.com/withastro/astro.git",
+      "sha": "main",
+      "license": "MIT",
+      "tier": "wide",
+      "dialects": [],
+      "why": "Monorepo shape, to exercise per-package coverage. The realistic failure in the wild is not a missed line but a missed PACKAGE, and a repo-wide percentage hides that completely."
+    }
+  ],
+
+  "$qt": "Qt is deliberately NOT pinned. Every substantial, representative Qt codebase is GPL or LGPL; reading one to measure is fine, but pinning copyleft in an MIT project's benchmark manifest — in a report that quotes lines — is a mess nobody needs. Qt is covered offline in bench/corpus/plural-unread-dialects, where the interesting behaviour (the TypeScript grammar choking on XML) is fully reproducible anyway."
+}

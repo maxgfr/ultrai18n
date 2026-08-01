@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // src/cli.ts
-import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
-import { join as join33, resolve as resolve3 } from "path";
+import { mkdirSync as mkdirSync8, writeFileSync as writeFileSync10 } from "fs";
+import { join as join36, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -517,27 +517,27 @@ function runCensus(root) {
   for (const rel2 of denominator) {
     const file = walked.get(rel2);
     if (file) {
-      const read = readTextEx(file.abs);
-      if (!read.ok) {
+      const read2 = readTextEx(file.abs);
+      if (!read2.ok) {
         entries.push({ file: rel2, bucket: "skipped", reason: "unreadable" });
         continue;
       }
-      if (read.binary) {
+      if (read2.binary) {
         entries.push({
           file: rel2,
           bucket: "skipped",
           reason: "nul-byte",
           mustVerifyManually: false,
-          bytesTotal: read.bytes
+          bytesTotal: read2.bytes
         });
         continue;
       }
       entries.push({
         file: rel2,
-        bucket: read.text.trim() === "" ? "scanned-zero" : "scanned",
-        bytesTotal: read.bytes,
-        degraded: !read.byteAddressable,
-        ...read.byteAddressable ? {} : { reason: `encoding:${read.encoding}` }
+        bucket: read2.text.trim() === "" ? "scanned-zero" : "scanned",
+        bytesTotal: read2.bytes,
+        degraded: !read2.byteAddressable,
+        ...read2.byteAddressable ? {} : { reason: `encoding:${read2.encoding}` }
       });
       continue;
     }
@@ -616,7 +616,8 @@ function formatCensus(r, root) {
 }
 
 // src/scan.ts
-import { join as join24 } from "path";
+import { existsSync as existsSync12, readFileSync as readFileSync14 } from "fs";
+import { join as join25 } from "path";
 
 // src/extract/raw.ts
 function lineBytes(map, text, start2, length) {
@@ -13319,8 +13320,8 @@ function resolveGo(fromRel, spec, ctx) {
       return probePkg(posix.join(r.toDir, sub));
     }
   }
-  const ordered = home ? [home, ...ctx.goModules.filter((g) => g !== home)] : ctx.goModules;
-  for (const g of ordered) {
+  const ordered2 = home ? [home, ...ctx.goModules.filter((g) => g !== home)] : ctx.goModules;
+  for (const g of ordered2) {
     if (spec !== g.module && !spec.startsWith(g.module + "/")) continue;
     const sub = spec.slice(g.module.length).replace(/^\//, "");
     return probePkg(posix.join(g.dir, sub));
@@ -13383,8 +13384,8 @@ function resolveRust(fromRel, spec, ctx) {
   if (home && baseDir === home.srcDir && home.rootFile) return { kind: "resolved", target: home.rootFile };
   const ownerDir = baseDir.includes("/") ? posix.dirname(baseDir) : "";
   const ownerName = baseDir.slice(baseDir.lastIndexOf("/") + 1);
-  const owner = ownerName ? probeMod(ownerDir, ownerName) : void 0;
-  if (owner && owner !== fromRel) return { kind: "resolved", target: owner };
+  const owner2 = ownerName ? probeMod(ownerDir, ownerName) : void 0;
+  if (owner2 && owner2 !== fromRel) return { kind: "resolved", target: owner2 };
   return { kind: "external" };
 }
 function resolveJava(spec, ctx) {
@@ -15929,8 +15930,8 @@ function compareCommunities(a, b) {
   }
   return 0;
 }
-function assignIds(ordered, previous) {
-  const n = ordered.length;
+function assignIds(ordered2, previous) {
+  const n = ordered2.length;
   const ids = new Array(n).fill(-1);
   if (!previous || Object.keys(previous).length === 0) {
     for (let i2 = 0; i2 < n; i2++) ids[i2] = i2;
@@ -15941,7 +15942,7 @@ function assignIds(ordered, previous) {
     set: new Set(members)
   }));
   const pairs = [];
-  ordered.forEach((comm, ni) => {
+  ordered2.forEach((comm, ni) => {
     for (const prev of prevSets) {
       let inter = 0;
       for (const s of comm) if (prev.set.has(s)) inter++;
@@ -16054,8 +16055,8 @@ function sortObject(obj) {
   return out2;
 }
 function renderGraphJson(graph) {
-  const ordered = { ...graph, languages: sortObject(graph.languages) };
-  return JSON.stringify(ordered, null, 2) + "\n";
+  const ordered2 = { ...graph, languages: sortObject(graph.languages) };
+  return JSON.stringify(ordered2, null, 2) + "\n";
 }
 var init_graph_json = __esm({
   "src/render/graph-json.ts"() {
@@ -21663,9 +21664,19 @@ function extractHtml(file, text, map) {
         from + body2.length,
         body2,
         null,
-        { isKey: false, element: enclosing }
+        {
+          isKey: false,
+          element: enclosing,
+          ...declaredUntranslatable() ? { untranslatable: true } : {}
+        }
       );
     }
+  }
+  function declaredUntranslatable() {
+    for (const frame of openStack.slice(-2)) {
+      if (frame.attrs.translatable === "false") return true;
+    }
+    return false;
   }
   function resourcePath() {
     const top = openStack[openStack.length - 1];
@@ -21673,9 +21684,9 @@ function extractHtml(file, text, map) {
     if (!top || !parent) return null;
     if (top.tag !== "item") return null;
     const quantity = top.attrs.quantity;
-    const owner = parent.attrs.name;
-    if (!quantity || !owner) return null;
-    return `${parent.tag}[${owner}]/item[${quantity}]`;
+    const owner2 = parent.attrs.name;
+    if (!quantity || !owner2) return null;
+    return `${parent.tag}[${owner2}]/item[${quantity}]`;
   }
   function extractAttributes(tagBody, base, tag) {
     for (const match of tagBody.matchAll(/([@:\w[\]().-]+)\s*=\s*(["'])((?:\\.|(?!\2)[^\\])*)\2/g)) {
@@ -23575,6 +23586,7 @@ var ARIA_TEXT = /^(aria-(label|description|roledescription|valuetext|placeholder
 var TEXT_ATTRS2 = /^(alt|title|placeholder|label|summary|abbr|download|content|srcdoc)$/;
 var LABEL_KEY = /^(label|title|name|text|message|description|caption|placeholder|summary|heading|alt|tooltip|hint|prompt|subtitle|body|content)$/i;
 var CALENDAR_NAME = /(WEEKDAY|WEEKDAYS|DAY|DAYS|MONTH|MONTHS|QUARTER|INITIAL|ABBR|SHORT)/i;
+var DATE_FIELD = /^[yYuMLdDEecawWkKhHmsSAzZGqQ]$/;
 var TEST_MATCHER = /^(toBe|toEqual|toContain|toMatch|toHaveTextContent|toHaveAttribute|toMatchObject|getByRole|getByText|getByLabelText|getByTitle|getByPlaceholderText|findByRole|findByText|queryByText|getByTestId)$/;
 function classify2(raw, opts) {
   const rules = opts.rules ?? RULES17;
@@ -23663,6 +23675,16 @@ function decide(raw, opts, rules, fileLocale2) {
     key,
     isKey: c2.isKey
   });
+  if (c2.untranslatable) {
+    return {
+      surface: "token.api-contract",
+      verdict: "do-not-translate",
+      reason: "explicitly-marked",
+      confidence: "high",
+      hard: true,
+      skipDetection: true
+    };
+  }
   const hard = matches2.find((m) => m.emit.hard);
   if (hard) {
     return {
@@ -23756,7 +23778,7 @@ function decide(raw, opts, rules, fileLocale2) {
     }
     return { surface: "token.url-slug", verdict: "do-not-translate", reason: "numeric-or-symbolic", confidence: "high", skipDetection: true };
   }
-  if (isCalendarSymbol(raw)) {
+  if (isCalendarSymbol(raw) || isDatePattern(value)) {
     return { surface: "ui.string-literal", verdict: "needs-judgment", reason: "symbol-set", confidence: "high" };
   }
   const surface = surfaceFor(raw);
@@ -23787,6 +23809,29 @@ function isCalendarSymbol(raw) {
   if (!match) return false;
   const binding = raw.container.enclosingSymbol ?? "";
   return CALENDAR_NAME.test(binding);
+}
+function isDatePattern(value) {
+  const body2 = value.replace(/'[^']*'/g, "");
+  if (body2.trim().length < 3) return false;
+  const fields = /* @__PURE__ */ new Set();
+  let separated = false;
+  for (const ch of body2) {
+    if (DATE_FIELD.test(ch)) fields.add(ch);
+    else if (/[\s./:,\-–—[\]()+]/.test(ch)) separated = true;
+    else return false;
+  }
+  if (fields.size < 2) return false;
+  if (!/([yYuMLdDEecawWkKhHmsSAzZGqQ])\1/.test(body2)) return false;
+  return separated || everyCharInARun(body2);
+}
+function everyCharInARun(body2) {
+  for (let i2 = 0; i2 < body2.length; ) {
+    let j = i2;
+    while (j < body2.length && body2[j] === body2[i2]) j++;
+    if (j - i2 < 2) return false;
+    i2 = j;
+  }
+  return true;
 }
 function surfaceFor(raw) {
   switch (raw.kind) {
@@ -23918,6 +23963,205 @@ function baseLanguage(locale) {
   const m = /^([A-Za-z]{2,3})(?:[-_]|$)/.exec(locale.trim());
   return m ? m[1].toLowerCase() : null;
 }
+
+// src/plural/dialect/dialects.ts
+var CLDR_TOKENS = {
+  zero: "zero",
+  one: "one",
+  two: "two",
+  few: "few",
+  many: "many",
+  other: "other"
+};
+var KEY_SUFFIX_TOKENS = {
+  ...CLDR_TOKENS,
+  singular: "one",
+  plural: "other"
+};
+var INSERTABLE_BUNDLES = ["**/*.json", "**/*.jsonc", "**/*.json5", "**/*.arb", "**/*.yml", "**/*.yaml"];
+var DIALECTS = [
+  {
+    id: "icu.plural-argument",
+    ecosystem: "icu",
+    title: "ICU MessageFormat plural argument",
+    docs: "https://unicode-org.github.io/icu/userguide/format_parse/messages/",
+    primitive: "icu",
+    precedence: 10,
+    // An ICU argument attests to itself and can appear anywhere — in a bundle, in
+    // a `defineMessages` call, in an `.arb`. Requiring a catalog would lose every
+    // message declared in code.
+    where: {},
+    evidence: { mode: "intrinsic" },
+    read: { primitive: "icu", ordinals: true },
+    write: { mode: "replace" },
+    cldr: true,
+    shape: "inline-select",
+    declaredBy: "shipped",
+    notes: "react-intl, FormatJS, ARB, Android ICU, Java. The engine keeps the skeleton and hands the translator only the branch bodies, so a target needing four branches where the source has two costs nothing structural."
+  },
+  {
+    id: "android.plurals-item",
+    ecosystem: "android",
+    title: "Quantity attribute on a resource item",
+    docs: "https://developer.android.com/guide/topics/resources/string-resource#Plurals",
+    primitive: "path-part",
+    precedence: 20,
+    // `<plurals><item quantity="one">` cannot occur by accident, and the markup
+    // extractor produces this path shape only for that element.
+    where: {},
+    evidence: { mode: "intrinsic" },
+    read: {
+      primitive: "path-part",
+      split: { kind: "path-regex", re: /^(.*plurals\[[^\]]*\])\/item\[([a-z]+)\]$/ },
+      tokens: CLDR_TOKENS,
+      selectorTemplate: 'quantity="{token}"'
+    },
+    write: {
+      mode: "code-edit",
+      blocked: "adding an <item quantity> element is a markup edit; the engine reports the missing forms rather than writing XML it did not parse structurally"
+    },
+    cldr: true,
+    shape: "attr-quantity",
+    declaredBy: "shipped",
+    notes: "Android `<plurals>`, and plists shaped the same way."
+  },
+  {
+    id: "i18next.key-suffix",
+    ecosystem: "i18n",
+    title: "Category appended to the key",
+    docs: "https://www.i18next.com/translation-function/plurals",
+    primitive: "path-part",
+    precedence: 30,
+    where: { bundleOnly: true },
+    // Catalog strength, not `declared`, and deliberately: this arrangement is
+    // shared by i18next, Rails, Symfony and a great deal of hand-rolled code, so
+    // demanding a named dependency would refuse the hand-rolled majority. What a
+    // dependency buys is PRECEDENCE and a citation, not permission.
+    evidence: { mode: "catalog", prefer: { dependency: ["i18next", "react-i18next", "next-i18next"] } },
+    read: {
+      primitive: "path-part",
+      split: { kind: "leaf-suffix", separators: ["_", "."] },
+      tokens: KEY_SUFFIX_TOKENS,
+      ordinalInfix: ["ordinal"]
+    },
+    write: {
+      mode: "insert",
+      keyTemplate: "{base}{sep}{category}",
+      insertableWhen: { file: INSERTABLE_BUNDLES },
+      blocked: "a new form here means a new key, and insertion is only supported for JSON and YAML locale bundles"
+    },
+    cldr: true,
+    shape: "key-suffix",
+    declaredBy: "shipped",
+    notes: "i18next `key_one`, Rails `key.one`, and any hand-rolled `_singular`/`_plural`. Numeric suffixes (`key_0`) are deliberately NOT read as categories: they collide with array indices."
+  },
+  {
+    id: "rails.sibling-object",
+    ecosystem: "i18n",
+    title: "Categories as sibling keys of one object",
+    docs: "https://guides.rubyonrails.org/i18n.html#pluralization",
+    primitive: "path-part",
+    precedence: 40,
+    where: { bundleOnly: true },
+    evidence: { mode: "catalog", prefer: { dependency: ["rails", "i18n", "vue-i18n"] } },
+    read: {
+      primitive: "path-part",
+      split: { kind: "leaf-is-token" },
+      tokens: CLDR_TOKENS,
+      // Two category-named siblings is the signature. One is just a key called
+      // `other`, which is a word people use for other things.
+      minForms: 2
+    },
+    write: {
+      mode: "insert",
+      keyTemplate: "{category}",
+      insertableWhen: { file: INSERTABLE_BUNDLES },
+      blocked: "a new form here means a new key, and insertion is only supported for JSON and YAML locale bundles"
+    },
+    cldr: true,
+    shape: "sibling-object",
+    declaredBy: "shipped",
+    notes: "Rails, vue-i18n object form, Flutter."
+  },
+  {
+    id: "vue-i18n.pipe-positional",
+    ecosystem: "vue",
+    title: "Forms separated by a pipe",
+    docs: "https://vue-i18n.intlify.dev/guide/essentials/pluralization",
+    primitive: "value-split",
+    precedence: 50,
+    where: { bundleOnly: true },
+    evidence: { mode: "catalog", prefer: { dependency: ["vue-i18n", "@intlify/core"] } },
+    read: {
+      primitive: "value-split",
+      delimiters: ["|"],
+      order: { 2: ["one", "other"], 3: ["zero", "one", "other"] },
+      requiresCounting: true
+    },
+    write: { mode: "replace", join: " | " },
+    // Positional, not CLDR. Handing this four Russian categories would produce a
+    // string vue-i18n cannot index, so the target keeps the source's arity.
+    cldr: false,
+    shape: "delimited",
+    declaredBy: "shipped",
+    notes: 'vue-i18n. Positional rather than named: two parts are one|other, three are zero|one|other. Only read inside a locale bundle, and only when a part carries a number \u2014 otherwise "Save | Cancel" would become a plural family.'
+  },
+  {
+    id: "apple.xcstrings-variations",
+    ecosystem: "apple",
+    title: "String Catalog plural variations",
+    docs: "https://developer.apple.com/documentation/xcode/localizing-and-varying-text-with-a-string-catalog",
+    primitive: "path-part",
+    precedence: 25,
+    where: { file: ["**/*.xcstrings"] },
+    // A `variations/plural/<category>/stringUnit/value` path cannot occur by
+    // accident: it is Xcode's own schema, and nothing else writes it.
+    evidence: { mode: "intrinsic" },
+    read: {
+      primitive: "path-part",
+      split: { kind: "path-regex", re: /^(.*\/variations\/plural)\/([a-z]+)\/stringUnit\/value$/ },
+      tokens: CLDR_TOKENS
+    },
+    write: {
+      mode: "code-edit",
+      blocked: "a new form here means a new `stringUnit` object inside `variations/plural`, and insertion writes a scalar sibling rather than a nested object"
+    },
+    cldr: true,
+    // None of the five arrangements: the category is a path segment three levels
+    // above the value. Calling it a sibling-object would be a lie of convenience.
+    shape: "other",
+    declaredBy: "shipped",
+    notes: "Xcode 15 String Catalogs. Readable only because `.xcstrings` is registered as JSON \u2014 without that the file sweeps and the structure is gone."
+  },
+  {
+    id: "polyglot.quad-pipe",
+    ecosystem: "i18n",
+    title: "Polyglot.js pipe-separated plural",
+    docs: "https://airbnb.io/polyglot.js/#pluralization",
+    primitive: "value-split",
+    precedence: 55,
+    where: { bundleOnly: true },
+    // `declared`, unlike its vue-i18n neighbour, and for a concrete reason: four
+    // consecutive pipes are rare but not impossible in ordinary text, and a
+    // repository that has never heard of Polyglot should not have a string eaten
+    // by a runtime it does not use.
+    evidence: { mode: "declared", dependency: ["node-polyglot", "polyglot"] },
+    read: {
+      primitive: "value-split",
+      // Longest first is enforced by the primitive, so this row cannot be
+      // shadowed by vue-i18n's single pipe.
+      delimiters: ["||||"],
+      order: { 2: ["one", "other"] },
+      requiresCounting: true
+    },
+    write: { mode: "replace", join: " |||| " },
+    cldr: false,
+    shape: "delimited",
+    declaredBy: "shipped",
+    notes: "Polyglot uses `||||` and a `smart_count` interpolation. Positional like vue-i18n, so the target keeps the source arity."
+  }
+];
+var DIALECTS_BY_ID = new Map(DIALECTS.map((d) => [d.id, d]));
 
 // src/plural/icu.ts
 var ARG_TYPES = /* @__PURE__ */ new Set(["plural", "selectordinal", "select"]);
@@ -24064,107 +24308,30 @@ function serializeArgument(arg, bodies, order) {
   return head + selectors.map((s) => `${s} {${bodies[s] ?? ""}}`).join(" ") + "}";
 }
 function splice(text, edits) {
-  const ordered = [...edits].sort((a, b) => b.start - a.start);
+  const ordered2 = [...edits].sort((a, b) => b.start - a.start);
   let out2 = text;
-  for (const edit of ordered) {
+  for (const edit of ordered2) {
     out2 = out2.slice(0, edit.start) + edit.text + out2.slice(edit.end);
   }
   return out2;
 }
 
-// src/plural/shapes.ts
-var PLURAL_SHAPES = [
-  {
-    id: "key-suffix",
-    title: "Category appended to the key",
-    docs: "https://www.i18next.com/translation-function/plurals",
-    notes: "i18next `key_one`, Rails `key.one`, and any hand-rolled `_singular`/`_plural`. Numeric suffixes (`key_0`) are deliberately NOT read as categories: they collide with array indices, and guessing wrong invents a form nobody wrote."
-  },
-  {
-    id: "sibling-object",
-    title: "Categories as sibling keys of one object",
-    docs: "https://guides.rubyonrails.org/i18n.html#pluralization",
-    notes: "Rails, vue-i18n object form, Flutter. Requires at least two category-named siblings."
-  },
-  {
-    id: "inline-select",
-    title: "ICU MessageFormat plural argument",
-    docs: "https://unicode-org.github.io/icu/userguide/format_parse/messages/",
-    notes: "react-intl, FormatJS, ARB, Android ICU, Java. The engine keeps the skeleton and hands the translator only the branch bodies, so a target needing four branches where the source has two costs nothing structural."
-  },
-  {
-    id: "attr-quantity",
-    title: "Quantity attribute on a resource item",
-    docs: "https://developer.android.com/guide/topics/resources/string-resource#Plurals",
-    notes: 'Android `<plurals><item quantity="one">`, and plists shaped the same way.'
-  },
-  {
-    id: "delimited",
-    title: "Forms separated by a pipe",
-    docs: "https://vue-i18n.intlify.dev/guide/essentials/pluralization",
-    notes: 'vue-i18n. Positional rather than named: two parts are one|other, three are zero|one|other. Only read inside a locale bundle, and only when a part carries a number \u2014 otherwise "Save | Cancel" would become a plural family.'
-  },
-  {
-    id: "annotation",
-    title: "Declared in place by an annotation",
-    docs: "https://github.com/maxgfr/ultrai18n#plurals",
-    notes: "The escape hatch for everything above that no shape recognises, and the only remedy for a rule baked into an expression. The engine never infers these: something has to say so."
-  }
-];
-var SHAPES_BY_ID = new Map(PLURAL_SHAPES.map((s) => [s.id, s]));
-var SUFFIX_TOKENS = {
-  zero: "zero",
-  one: "one",
-  two: "two",
-  few: "few",
-  many: "many",
-  other: "other",
-  singular: "one",
-  plural: "other"
-};
-var SUFFIX_RE = new RegExp(`^(.*?)([_.])(?:(ordinal)[_.])?(${Object.keys(SUFFIX_TOKENS).join("|")})$`);
-function splitPluralKey(path) {
-  const cut = path.lastIndexOf("/");
-  const parent = cut === -1 ? "" : path.slice(0, cut);
-  const key = cut === -1 ? path : path.slice(cut + 1);
-  if (isCategory(key) && parent) return { base: parent, category: key, separator: "/" };
-  const m = SUFFIX_RE.exec(key);
-  if (!m || !m[1]) return null;
-  return { base: `${parent}/${m[1]}`, category: SUFFIX_TOKENS[m[4]], separator: m[2] };
+// src/plural/primitives/shared.ts
+function pathOf(site3) {
+  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
 }
-function detectFamilies(sites, opts) {
-  const claimed = /* @__PURE__ */ new Set();
-  const families = [];
-  for (const family of detectInlineSelect(sites)) {
-    families.push(family);
-    for (const id of family.sites) claimed.add(id);
-  }
-  for (const family of detectAttrQuantity(sites)) {
-    if (family.sites.some((id) => claimed.has(id))) continue;
-    families.push(family);
-    for (const id of family.sites) claimed.add(id);
-  }
-  for (const family of detectKeySuffix(sites, opts)) {
-    if (family.sites.some((id) => claimed.has(id))) continue;
-    families.push(family);
-    for (const id of family.sites) claimed.add(id);
-  }
-  for (const family of detectSiblingObject(sites, opts)) {
-    if (family.sites.some((id) => claimed.has(id))) continue;
-    families.push(family);
-    for (const id of family.sites) claimed.add(id);
-  }
-  for (const family of detectDelimited(sites, opts)) {
-    if (family.sites.some((id) => claimed.has(id))) continue;
-    families.push(family);
-    for (const id of family.sites) claimed.add(id);
-  }
-  return families.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.base < b.base ? -1 : 1);
+function dedupe(forms) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const form of forms) byCategory.set(form.category, form);
+  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
 }
-function detectInlineSelect(sites) {
+
+// src/plural/primitives/icu.ts
+function detectIcu(sites, dialect, ctx) {
   const out2 = [];
   for (const site3 of sites) {
     if (site3.kind === "key") continue;
+    if (!ctx.applies(dialect, site3)) continue;
     if (!looksLikeIcu(site3.value)) continue;
     const scan3 = scanIcu(site3.value);
     if (!scan3.ok) continue;
@@ -24188,130 +24355,179 @@ function detectInlineSelect(sites) {
       }
       if (forms.length === 0) continue;
       out2.push({
-        shape: "inline-select",
+        shape: dialect.shape,
+        dialect: dialect.id,
+        primitive: "icu",
+        cldr: dialect.cldr,
+        write: dialect.write,
         file: site3.file,
+        // A nested argument needs its offset in the base, or two plurals in one
+        // message would collide on the same anchor.
         base: `${pathOf(site3)}${argument.depth > 0 ? `@${argument.start}` : ""}`,
         forms,
         exact,
         sites: [site3.id],
-        ordinal: argument.type === "selectordinal",
+        ordinal: dialect.read.ordinals !== false && argument.type === "selectordinal",
         icu: { siteId: site3.id, argument }
       });
     }
   }
   return out2;
 }
-function detectKeySuffix(sites, opts) {
+function validateGrammar(read2) {
+  const r = read2;
+  if (!r || typeof r !== "object") return ["read must be an object"];
+  if (r.primitive === "fluent") {
+    return ["the fluent grammar has no reader yet \u2014 a dialect cannot declare one into existence"];
+  }
+  if (r.primitive !== "icu") return [`unknown grammar ${String(r.primitive)}`];
+  return [];
+}
+
+// src/plural/primitives/path-part.ts
+function detectPathPart(sites, dialect, ctx) {
+  const read2 = dialect.read;
+  const minForms = read2.minForms ?? 1;
+  const suffixRe = read2.split.kind === "leaf-suffix" ? suffixPattern(read2, read2.split.separators) : null;
   const groups = /* @__PURE__ */ new Map();
   for (const site3 of sites) {
     if (site3.kind === "key") continue;
-    if (!opts.isBundle(site3.file)) continue;
+    if (!ctx.applies(dialect, site3)) continue;
     const path = pathOf(site3);
     const cut = path.lastIndexOf("/");
     const parent = cut === -1 ? "" : path.slice(0, cut);
-    const key = cut === -1 ? path : path.slice(cut + 1);
-    const m = SUFFIX_RE.exec(key);
-    if (!m) continue;
-    const base = m[1];
-    const ordinal = m[3] !== void 0;
-    const category = SUFFIX_TOKENS[m[4]];
-    if (!base) continue;
-    const groupKey2 = `${site3.file}\0${parent}\0${base}\0${ordinal}`;
+    const leaf = cut === -1 ? path : path.slice(cut + 1);
+    let base;
+    let token;
+    let selector;
+    let ordinal = false;
+    if (read2.split.kind === "path-regex") {
+      const m = read2.split.re.exec(path);
+      if (!m || m[1] === void 0 || m[2] === void 0) continue;
+      base = m[1];
+      token = m[2];
+      selector = token;
+    } else if (read2.split.kind === "leaf-is-token") {
+      if (cut <= 0) continue;
+      base = parent;
+      token = leaf;
+      selector = leaf;
+    } else {
+      const m = suffixRe.exec(leaf);
+      if (!m || !m[1]) continue;
+      base = `${parent}/${m[1]}`;
+      ordinal = m[2] !== void 0;
+      token = m[3];
+      selector = leaf.slice(m[1].length);
+    }
+    const declared = read2.tokens?.[token];
+    const positional = declared === void 0 && /^\d+$/.test(token);
+    if (positional && !read2.order) continue;
+    if (!positional && declared === void 0) continue;
+    const groupKey2 = `${site3.file}\0${base}\0${ordinal}`;
     let group = groups.get(groupKey2);
     if (!group) {
-      group = { forms: [], file: site3.file, base: `${parent}/${base}`, ordinal };
+      group = { forms: [], file: site3.file, base, ordinal, positional: [] };
       groups.set(groupKey2, group);
     }
-    group.forms.push({ category, selector: key.slice(base.length), siteId: site3.id, value: site3.value });
+    if (positional) {
+      group.positional.push({ index: Number(token), siteId: site3.id, value: site3.value, token });
+    } else {
+      group.forms.push({
+        category: declared,
+        selector: render(read2.selectorTemplate, selector, token),
+        siteId: site3.id,
+        value: site3.value
+      });
+    }
   }
-  return [...groups.values()].filter((g) => g.forms.length > 0).map((g) => ({
-    shape: "key-suffix",
-    file: g.file,
-    base: g.base,
-    forms: dedupe(g.forms),
-    exact: [],
-    sites: g.forms.map((f) => f.siteId),
-    ordinal: g.ordinal
-  }));
-}
-function detectSiblingObject(sites, opts) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const site3 of sites) {
-    if (site3.kind === "key") continue;
-    if (!opts.isBundle(site3.file)) continue;
-    const path = pathOf(site3);
-    const cut = path.lastIndexOf("/");
-    if (cut <= 0) continue;
-    const parent = path.slice(0, cut);
-    const key = path.slice(cut + 1);
-    if (!isCategory(key)) continue;
-    const groupKey2 = `${site3.file}\0${parent}`;
-    let group = groups.get(groupKey2);
-    if (!group) {
-      group = { forms: [], file: site3.file, base: parent };
-      groups.set(groupKey2, group);
-    }
-    group.forms.push({ category: key, selector: key, siteId: site3.id, value: site3.value });
-  }
-  return [...groups.values()].filter((g) => new Set(g.forms.map((f) => f.category)).size >= 2).map((g) => ({
-    shape: "sibling-object",
-    file: g.file,
-    base: g.base,
-    forms: dedupe(g.forms),
-    exact: [],
-    sites: g.forms.map((f) => f.siteId),
-    ordinal: false
-  }));
-}
-var QUANTITY_PATH = /^(.*plurals\[[^\]]*\])\/item\[([a-z]+)\]$/;
-function detectAttrQuantity(sites) {
-  const groups = /* @__PURE__ */ new Map();
-  for (const site3 of sites) {
-    if (site3.kind === "key") continue;
-    const m = QUANTITY_PATH.exec(pathOf(site3));
-    if (!m) continue;
-    const quantity = m[2];
-    if (!isCategory(quantity)) continue;
-    const groupKey2 = `${site3.file}\0${m[1]}`;
-    let group = groups.get(groupKey2);
-    if (!group) {
-      group = { forms: [], file: site3.file, base: m[1] };
-      groups.set(groupKey2, group);
-    }
-    group.forms.push({
-      category: quantity,
-      selector: `quantity="${quantity}"`,
-      siteId: site3.id,
-      value: site3.value
+  const out2 = [];
+  for (const group of groups.values()) {
+    const forms = group.positional.length ? resolvePositional(group.positional, read2) : group.forms;
+    if (forms.length === 0) continue;
+    if (new Set(forms.map((f) => f.category)).size < minForms) continue;
+    out2.push({
+      shape: dialect.shape,
+      dialect: dialect.id,
+      primitive: "path-part",
+      cldr: dialect.cldr,
+      write: dialect.write,
+      file: group.file,
+      base: group.base,
+      forms: dedupe(forms),
+      exact: [],
+      sites: forms.map((f) => f.siteId),
+      ordinal: group.ordinal
     });
   }
-  return [...groups.values()].map((g) => ({
-    shape: "attr-quantity",
-    file: g.file,
-    base: g.base,
-    forms: dedupe(g.forms),
-    exact: [],
-    sites: g.forms.map((f) => f.siteId),
-    ordinal: false
+  return out2;
+}
+function resolvePositional(positional, read2) {
+  const sorted = [...positional].sort((a, b) => a.index - b.index);
+  const order = read2.order?.[sorted.length];
+  if (!order) return [];
+  return sorted.map((p, i2) => ({
+    category: order[i2],
+    selector: render(read2.selectorTemplate, `[${p.token}]`, p.token),
+    siteId: p.siteId,
+    value: p.value
   }));
 }
-var DELIMITED_ORDER = {
-  2: ["one", "other"],
-  3: ["zero", "one", "other"]
-};
-function detectDelimited(sites, opts) {
+function suffixPattern(read2, separators) {
+  const sep3 = `[${separators.map(escape).join("")}]`;
+  const infix = read2.ordinalInfix?.length ? `(?:${read2.ordinalInfix.map((o) => `${escape(o)}`).join("|")})` : null;
+  const tokens = Object.keys(read2.tokens ?? {}).map(escape).join("|");
+  const numeric = read2.order ? "|\\d+" : "";
+  return new RegExp(`^(.*?)${sep3}${infix ? `(${infix}${sep3})?` : "()?"}(${tokens}${numeric})$`);
+}
+function render(template, selector, token) {
+  return template ? template.replace("{token}", token) : selector;
+}
+function escape(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function validatePathPart(read2) {
+  const problems = [];
+  const r = read2;
+  if (!r || typeof r !== "object") return ["read must be an object"];
+  if (!r.split) problems.push("read.split is required");
+  else if (r.split.kind === "leaf-suffix" && !r.split.separators?.length) {
+    problems.push("read.split.separators must list at least one separator");
+  }
+  for (const [token, category] of Object.entries(r.tokens ?? {})) {
+    if (!isCategory(category)) problems.push(`token ${token} maps to ${category}, which is not a CLDR category`);
+  }
+  for (const [n, cats] of Object.entries(r.order ?? {})) {
+    if (cats.length !== Number(n)) problems.push(`order[${n}] lists ${cats.length} categories, not ${n}`);
+    for (const c2 of cats) if (!isCategory(c2)) problems.push(`order[${n}] contains ${c2}, which is not a CLDR category`);
+  }
+  if (!r.tokens && !r.order) problems.push("read needs `tokens`, `order`, or both \u2014 otherwise nothing can be a category");
+  return problems;
+}
+
+// src/plural/primitives/value-split.ts
+var COUNTS = /\d|\{[^}]*\}|%[sd@]|%\{/;
+function detectValueSplit(sites, dialect, ctx) {
+  const read2 = dialect.read;
+  const trim = read2.trim !== false;
+  const delimiters = [...read2.delimiters].sort((a, b) => b.length - a.length);
   const out2 = [];
   for (const site3 of sites) {
     if (site3.kind === "key") continue;
-    if (!opts.isBundle(site3.file)) continue;
-    if (!site3.value.includes("|")) continue;
-    const parts2 = site3.value.split("|").map((p) => p.trim());
-    const order = DELIMITED_ORDER[parts2.length];
+    if (!ctx.applies(dialect, site3)) continue;
+    const delimiter = delimiters.find((d) => site3.value.includes(d));
+    if (!delimiter) continue;
+    const parts2 = site3.value.split(delimiter).map((p) => trim ? p.trim() : p);
+    const order = read2.order[parts2.length];
     if (!order) continue;
     if (parts2.some((p) => !new RegExp("\\p{L}{2,}", "u").test(p))) continue;
-    if (!parts2.some((p) => /\d|\{[^}]*\}|%[sd@]/.test(p))) continue;
+    if (read2.requiresCounting !== false && !parts2.some((p) => COUNTS.test(p))) continue;
     out2.push({
-      shape: "delimited",
+      shape: dialect.shape,
+      dialect: dialect.id,
+      primitive: "value-split",
+      cldr: dialect.cldr,
+      write: dialect.write,
       file: site3.file,
       base: pathOf(site3),
       forms: parts2.map((value, i2) => ({
@@ -24322,18 +24538,273 @@ function detectDelimited(sites, opts) {
       })),
       exact: [],
       sites: [site3.id],
-      ordinal: false
+      ordinal: false,
+      delimiter
     });
   }
   return out2;
 }
-function pathOf(site3) {
-  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
+function validateValueSplit(read2) {
+  const problems = [];
+  const r = read2;
+  if (!r || typeof r !== "object") return ["read must be an object"];
+  if (!r.delimiters?.length) problems.push("read.delimiters must list at least one delimiter");
+  for (const d of r.delimiters ?? []) {
+    if (typeof d !== "string" || d.length === 0) problems.push("a delimiter must be a non-empty string");
+  }
+  if (!r.order || Object.keys(r.order).length === 0) {
+    problems.push("read.order must say what each part count means");
+  }
+  for (const [n, cats] of Object.entries(r.order ?? {})) {
+    if (cats.length !== Number(n)) problems.push(`order[${n}] lists ${cats.length} categories, not ${n}`);
+    for (const c2 of cats) if (!isCategory(c2)) problems.push(`order[${n}] contains ${c2}, which is not a CLDR category`);
+  }
+  return problems;
 }
-function dedupe(forms) {
-  const byCategory = /* @__PURE__ */ new Map();
-  for (const form of forms) byCategory.set(form.category, form);
-  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
+
+// src/plural/primitives/index.ts
+var PRIMITIVES = {
+  "path-part": {
+    id: "path-part",
+    detect: (sites, d, ctx) => detectPathPart(sites, d, ctx),
+    validate: validatePathPart
+  },
+  "value-split": {
+    id: "value-split",
+    detect: (sites, d, ctx) => detectValueSplit(sites, d, ctx),
+    validate: validateValueSplit
+  },
+  icu: {
+    id: "icu",
+    detect: (sites, d, ctx) => detectIcu(sites, d, ctx),
+    validate: validateGrammar
+  },
+  // Declared so a row naming it fails validation with a sentence rather than a
+  // crash. There is no Fluent reader, and a dialect cannot write one.
+  fluent: {
+    id: "fluent",
+    detect: () => [],
+    validate: validateGrammar
+  }
+};
+function runDialects(dialects, sites, opts) {
+  const ctx = makeContext(opts);
+  const claimed = /* @__PURE__ */ new Set();
+  const families = [];
+  for (const dialect of ordered(dialects)) {
+    if (opts.inert?.has(dialect.id)) continue;
+    for (const family of PRIMITIVES[dialect.primitive].detect(sites, dialect, ctx)) {
+      if (family.sites.some((id) => claimed.has(id))) continue;
+      families.push(family);
+      for (const id of family.sites) claimed.add(id);
+    }
+  }
+  return families.sort(
+    (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.base < b.base ? -1 : a.base > b.base ? 1 : 0
+  );
+}
+function ordered(dialects) {
+  return [...dialects].sort(
+    (a, b) => a.precedence !== b.precedence ? a.precedence - b.precedence : a.id < b.id ? -1 : 1
+  );
+}
+var globCache2 = /* @__PURE__ */ new Map();
+function makeContext(opts) {
+  return {
+    applies(dialect, site3) {
+      const where = dialect.where;
+      if (where.bundleOnly && !opts.isBundle(site3.file)) return false;
+      if (where.file?.length && !fileMatches2(where.file, site3.file)) return false;
+      if (where.path && !where.path.test(pathOf(site3))) return false;
+      return true;
+    }
+  };
+}
+function fileMatches2(globs, file) {
+  const key = globs.join(" ");
+  let fn = globCache2.get(key);
+  if (!fn) {
+    const positive = compileGlobs2(globs.filter((g) => !g.startsWith("!")));
+    const negative = compileGlobs2(globs.filter((g) => g.startsWith("!")).map((g) => g.slice(1)));
+    fn = (rel2) => (!positive || positive(rel2)) && !negative?.(rel2);
+    globCache2.set(key, fn);
+  }
+  return fn(file);
+}
+
+// src/plural/shapes.ts
+function detectFamilies(sites, opts) {
+  return runDialects(mergeDialects(opts.dialects), sites, {
+    isBundle: opts.isBundle,
+    ...opts.inert ? { inert: opts.inert } : {}
+  });
+}
+function mergeDialects(project) {
+  if (!project?.length) return DIALECTS;
+  const byId = new Map(DIALECTS.map((d) => [d.id, d]));
+  for (const d of project) byId.set(d.id, d);
+  return [...byId.values()];
+}
+function splitPluralKey(path) {
+  const cut = path.lastIndexOf("/");
+  const parent = cut === -1 ? "" : path.slice(0, cut);
+  const key = cut === -1 ? path : path.slice(cut + 1);
+  if (isCategory(key) && parent) return { base: parent, category: key, separator: "/" };
+  const m = SUFFIX_RE.exec(key);
+  if (!m || !m[1]) return null;
+  return { base: `${parent}/${m[1]}`, category: SUFFIX_TOKENS[m[4]], separator: m[2] };
+}
+var SUFFIX_TOKENS = {
+  zero: "zero",
+  one: "one",
+  two: "two",
+  few: "few",
+  many: "many",
+  other: "other",
+  singular: "one",
+  plural: "other"
+};
+var SUFFIX_RE = new RegExp(`^(.*?)([_.])(?:(ordinal)[_.])?(${Object.keys(SUFFIX_TOKENS).join("|")})$`);
+
+// src/escape.ts
+var UnknownSyntaxError = class extends Error {
+  constructor(detail) {
+    super(detail);
+    this.detail = detail;
+    this.name = "UnknownSyntaxError";
+  }
+  detail;
+};
+function syntaxFor(site3) {
+  switch (site3.extractor) {
+    case "ts-ast":
+      if (site3.kind === "jsx-text") return "jsx-text";
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
+      if (site3.quote === "`") return "js-template";
+      if (site3.quote === '"') return site3.kind === "attr" ? "jsx-attr-string" : "js-double";
+      if (site3.quote === "'") return "js-single";
+      return "js-single";
+    case "json":
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
+      return "json-string";
+    case "yaml":
+      if (site3.kind === "comment") return "line-comment";
+      if (site3.kind === "block-scalar") return "yaml-block";
+      return "yaml-scalar";
+    case "markdown":
+      return "md-text";
+    case "html":
+      if (site3.kind === "attr") return "html-attr";
+      if (site3.kind === "comment") return "block-comment";
+      return "html-text";
+    case "css":
+      return site3.kind === "comment" ? "css-comment" : "js-double";
+    case "text":
+      return "plain";
+    default:
+      throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
+  }
+}
+function escapeFor(syntax, text, opts = {}) {
+  const out2 = escapeRaw(syntax, text, opts);
+  return opts.asciiOnly ? toAscii(out2, syntax) : out2;
+}
+function escapeRaw(syntax, text, opts) {
+  switch (syntax) {
+    case "js-single":
+      return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+    case "js-double":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
+    case "jsx-attr-string":
+      return opts.quote === "'" ? text.replace(/'/g, "&apos;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : text.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "js-template":
+      return text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
+    case "jsx-text":
+      return text.replace(/[{}]/g, (c2) => c2 === "{" ? "&#123;" : "&#125;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "json-string":
+      return JSON.stringify(text).slice(1, -1);
+    case "yaml-scalar":
+      if (opts.quote === '"') return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      if (opts.quote === "'") return text.replace(/'/g, "''");
+      return needsYamlQuoting(text) ? `'${text.replace(/'/g, "''")}'` : text;
+    case "yaml-block":
+      return opts.blockIndent ? text.split("\n").map((l) => l === "" ? l : opts.blockIndent + l).join("\n") : text;
+    case "md-text":
+      return opts.atLineStart === false ? text : text.replace(/^(\s*)([#>*+-]|\d+[.)])/, "$1\\$2");
+    case "html-text":
+      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    case "html-attr":
+      return opts.quote === "'" ? text.replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/</g, "&lt;") : text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+    case "css-comment":
+    case "block-comment":
+      return text.replace(/\*\//g, "*\\/");
+    case "line-comment":
+      return text.replace(/\r?\n/g, " ");
+    case "plain":
+      return text;
+  }
+}
+function needsYamlQuoting(text) {
+  if (text === "") return true;
+  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(text)) return true;
+  if (/:\s|\s#/.test(text)) return true;
+  if (/^(y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|null|Null|NULL|~)$/.test(text)) return true;
+  if (/^[\d.+-]/.test(text) && !Number.isNaN(Number(text))) return true;
+  if (/^\s|\s$/.test(text)) return true;
+  return false;
+}
+function toAscii(text, syntax) {
+  if (!/[^\x00-\x7F]/.test(text)) return text;
+  switch (syntax) {
+    case "js-single":
+    case "js-double":
+    case "js-template":
+    case "json-string":
+      return [...text].map((c2) => {
+        const code = c2.codePointAt(0);
+        if (code < 128) return c2;
+        return code > 65535 ? [...c2].map((u) => "\\u" + u.charCodeAt(0).toString(16).padStart(4, "0")).join("") : "\\u" + code.toString(16).padStart(4, "0");
+      }).join("");
+    case "html-text":
+    case "html-attr":
+    case "jsx-text":
+      return [...text].map((c2) => c2.codePointAt(0) < 128 ? c2 : `&#${c2.codePointAt(0)};`).join("");
+    default:
+      return text;
+  }
+}
+function unescapeFor(syntax, text, opts = {}) {
+  switch (syntax) {
+    case "js-single":
+    case "js-double":
+    case "js-template":
+      return text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\(['"`$\\])/g, "$1");
+    case "json-string":
+      try {
+        return JSON.parse(`"${text}"`);
+      } catch {
+        return text;
+      }
+    case "jsx-attr-string":
+    case "html-attr":
+    case "html-text":
+    case "jsx-text":
+      return text.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&#123;/g, "{").replace(/&#125;/g, "}").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    case "yaml-scalar":
+      if (opts.quote === '"') return text.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      if (opts.quote === "'") return text.replace(/''/g, "'");
+      return text.startsWith("'") && text.endsWith("'") ? text.slice(1, -1).replace(/''/g, "'") : text;
+    case "yaml-block":
+      return opts.blockIndent ? text.split("\n").map((l) => l.startsWith(opts.blockIndent) ? l.slice(opts.blockIndent.length) : l).join("\n") : text;
+    case "md-text":
+      return text.replace(/^(\s*)\\([#>*+-]|\d+[.)])/, "$1$2");
+    case "css-comment":
+    case "block-comment":
+      return text.replace(/\*\\\//g, "*/");
+    case "line-comment":
+    case "plain":
+      return text;
+  }
 }
 
 // src/plural/annotate.ts
@@ -24348,12 +24819,12 @@ function readPragmas(sites) {
   }
   const out2 = [];
   for (const [file, group] of byFile) {
-    const ordered = [...group].sort((a, b) => a.span.start - b.span.start);
-    for (let i2 = 0; i2 < ordered.length; i2++) {
-      const comment = ordered[i2];
+    const ordered2 = [...group].sort((a, b) => a.span.start - b.span.start);
+    for (let i2 = 0; i2 < ordered2.length; i2++) {
+      const comment = ordered2[i2];
       if (comment.kind !== "comment") continue;
       if (!PRAGMA.test(comment.value)) continue;
-      const target = ordered.slice(i2 + 1).find((s) => s.kind !== "comment" && s.kind !== "key");
+      const target = ordered2.slice(i2 + 1).find((s) => s.kind !== "comment" && s.kind !== "key");
       if (!target) continue;
       const fields = parseFields(comment.value);
       out2.push({
@@ -24361,6 +24832,9 @@ function readPragmas(sites) {
         siteId: target.id,
         file,
         count: fields.count ?? null,
+        write: writeFrom(fields.write),
+        keyTemplate: fields.keyTemplate ?? null,
+        ownCategory: isCategory(fields.category ?? "") ? fields.category : null,
         forms: formsFrom(fields, target.id),
         categories: categoriesFrom(fields.categories),
         pragmaSiteId: comment.id,
@@ -24393,6 +24867,9 @@ function readSidecar(path, sites) {
       siteId: site3.id,
       file: site3.file,
       count: entry.count ?? null,
+      write: writeFrom(entry.write),
+      keyTemplate: entry.keyTemplate ?? null,
+      ownCategory: isCategory(entry.category ?? "") ? entry.category : null,
       forms: sortForms(forms),
       categories: categoriesFrom(entry.categories?.join(",")),
       pragmaSiteId: null,
@@ -24430,6 +24907,10 @@ function formsFrom(fields, siteId2) {
   }
   return sortForms(forms);
 }
+var WRITE_MODES = /* @__PURE__ */ new Set(["auto", "insert", "replace", "code-edit"]);
+function writeFrom(spec) {
+  return spec && WRITE_MODES.has(spec) ? spec : "auto";
+}
 function categoriesFrom(spec) {
   if (!spec) return null;
   const cats = spec.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean).filter(isCategory);
@@ -24442,7 +24923,11 @@ function sortForms(forms) {
 
 // src/plural/index.ts
 function assembleFamilies(opts) {
-  const detectOpts = { isBundle: opts.isBundle };
+  const detectOpts = {
+    isBundle: opts.isBundle,
+    ...opts.dialects ? { dialects: opts.dialects } : {},
+    ...opts.inert ? { inert: opts.inert } : {}
+  };
   const detected = detectFamilies(opts.sites, detectOpts);
   const annotated = [
     ...readPragmas(opts.sites),
@@ -24479,15 +24964,17 @@ function fromDetected(d, opts) {
   const locale = opts.fileLocale(d.file) ?? opts.sourceLanguage;
   const sourceCategories = sortCategories(d.forms.map((f) => f.category));
   const ownRequired = locale ? categoriesFor(locale) : null;
-  const targetRequired = d.ordinal ? ordinalCategoriesFor(opts.targetLanguage) ?? sourceCategories : d.shape === "delimited" ? sourceCategories : categoriesFor(opts.targetLanguage);
+  const targetRequired = d.ordinal ? ordinalCategoriesFor(opts.targetLanguage) ?? sourceCategories : !d.cldr ? sourceCategories : categoriesFor(opts.targetLanguage);
   const { writeMode, keyTemplate, insertAfterSiteId, blocked } = writePlan(d, opts);
-  const cldrApplies = !d.ordinal && d.shape !== "delimited" && ownRequired !== null;
+  const cldrApplies = !d.ordinal && d.cldr && ownRequired !== null;
   return {
     id: familyId(d.file, d.base),
     file: d.file,
     anchor: `${d.file}#${d.base}`,
     base: d.base,
     shape: d.shape,
+    dialect: d.dialect,
+    primitive: d.primitive,
     declaredBy: "shape",
     locale,
     forms: d.forms,
@@ -24503,6 +24990,7 @@ function fromDetected(d, opts) {
     keyTemplate,
     insertAfterSiteId,
     count: null,
+    join: joinFor(d),
     ...blocked ? { blocked } : {}
   };
 }
@@ -24519,6 +25007,10 @@ function fromAnnotation(a, byId, opts) {
     anchor: a.siteKey,
     base: a.siteKey.slice(a.siteKey.indexOf("#") + 1),
     shape: "annotation",
+    // An annotation came from a person, not from a rule, and the inventory has
+    // always kept those distinguishable.
+    dialect: null,
+    primitive: null,
     declaredBy: "annotation",
     locale,
     forms,
@@ -24530,54 +25022,92 @@ function fromAnnotation(a, byId, opts) {
     extra: [],
     sites: [a.siteId],
     ordinal: false,
-    // An annotated site is a code construct, not a catalog entry: the forms may
-    // need a different NUMBER of agreement sites than the source has, and no
-    // span rewrite can produce that.
-    writeMode: "code-edit",
-    keyTemplate: null,
-    insertAfterSiteId: null,
     count: a.count,
-    blocked: "the forms live in an expression, so completing this family is a code edit; the translated forms are supplied in the worklist"
+    join: null,
+    ...declaredWritePlan(a, site3)
   };
 }
-function writePlan(d, opts) {
-  switch (d.shape) {
-    // One value span holds the whole family, so adding a form is an ordinary
-    // rewrite of that span.
-    case "inline-select":
-    case "delimited":
-      return { writeMode: "replace", keyTemplate: null, insertAfterSiteId: null };
-    case "key-suffix":
-    case "sibling-object": {
-      if (!isInsertableBundle(d.file)) {
-        return {
-          writeMode: "code-edit",
-          keyTemplate: null,
-          insertAfterSiteId: null,
-          blocked: `a new form here means a new key in ${d.file}, and insertion is only supported for JSON and YAML locale bundles`
-        };
-      }
-      const last = d.forms[d.forms.length - 1];
-      const first = d.forms[0];
-      if (!last || !first) {
-        return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null };
-      }
-      const keyTemplate = d.shape === "sibling-object" ? "{category}" : `${baseKey(d.base)}${separatorOf(first.selector)}{category}`;
-      return { writeMode: "insert", keyTemplate, insertAfterSiteId: last.siteId };
-    }
-    case "attr-quantity":
-      return {
-        writeMode: "code-edit",
-        keyTemplate: null,
-        insertAfterSiteId: null,
-        blocked: "adding an <item quantity> element is a markup edit; the engine reports the missing forms rather than writing XML it did not parse structurally"
-      };
-    default:
-      return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null };
+function declaredWritePlan(a, site3) {
+  const blocked = "the forms live in an expression, so completing this family is a code edit; the translated forms are supplied in the worklist";
+  if (a.write === "replace") {
+    return { writeMode: "replace", keyTemplate: null, insertAfterSiteId: null };
   }
+  if (a.write === "code-edit") {
+    return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null, blocked };
+  }
+  const insertable = INSERTABLE_SYNTAX.has(syntaxFor(site3));
+  if (a.write === "auto" && (!insertable || a.forms.length === 0)) {
+    return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null, blocked };
+  }
+  if (a.write === "insert" && !insertable) {
+    return {
+      writeMode: "code-edit",
+      keyTemplate: null,
+      insertAfterSiteId: null,
+      blocked: `the declaration asks for an inserted key, but ${a.file} is not a format a sibling key can be written into`
+    };
+  }
+  return {
+    writeMode: "insert",
+    keyTemplate: a.keyTemplate ?? templateFor(a.siteKey),
+    insertAfterSiteId: a.siteId
+  };
 }
-function isInsertableBundle(file) {
-  return /\.(json|jsonc|json5|arb|ya?ml)$/i.test(file);
+var INSERTABLE_SYNTAX = /* @__PURE__ */ new Set(["json-string", "yaml-scalar"]);
+function templateFor(siteKey) {
+  const path = siteKey.slice(siteKey.indexOf("#") + 1);
+  const split = splitPluralKey(path);
+  if (!split) return "{category}";
+  if (split.separator === "/") return "{category}";
+  return `${baseKey(split.base)}${split.separator}{category}`;
+}
+function writePlan(d, _opts) {
+  const spec = d.write;
+  if (!spec || spec.mode === "code-edit") {
+    return {
+      writeMode: "code-edit",
+      keyTemplate: null,
+      insertAfterSiteId: null,
+      ...spec?.blocked ? { blocked: spec.blocked } : {}
+    };
+  }
+  if (spec.mode === "replace") {
+    return { writeMode: "replace", keyTemplate: null, insertAfterSiteId: null };
+  }
+  if (spec.insertableWhen && !matchesGlobs(spec.insertableWhen.file, d.file)) {
+    return {
+      writeMode: "code-edit",
+      keyTemplate: null,
+      insertAfterSiteId: null,
+      blocked: spec.blocked ? `${spec.blocked} \u2014 ${d.file} is neither` : `a new form cannot be inserted into ${d.file}`
+    };
+  }
+  const first = d.forms[0];
+  const last = d.forms[d.forms.length - 1];
+  if (!first || !last) return { writeMode: "code-edit", keyTemplate: null, insertAfterSiteId: null };
+  return {
+    writeMode: "insert",
+    keyTemplate: fillTemplate(spec.keyTemplate ?? "{category}", d.base, first.selector),
+    insertAfterSiteId: last.siteId
+  };
+}
+function joinFor(d) {
+  if (d.write.join) return d.write.join;
+  return d.delimiter ? ` ${d.delimiter} ` : null;
+}
+function fillTemplate(template, base, firstSelector) {
+  return template.replace("{base}", baseKey(base)).replace("{sep}", separatorOf(firstSelector));
+}
+var globCache3 = /* @__PURE__ */ new Map();
+function matchesGlobs(globs, file) {
+  const key = globs.join(" ");
+  let fn = globCache3.get(key);
+  if (!fn) {
+    const compiled = compileGlobs2(globs);
+    fn = (rel2) => compiled ? compiled(rel2) : true;
+    globCache3.set(key, fn);
+  }
+  return fn(file);
 }
 function baseKey(base) {
   const cut = base.lastIndexOf("/");
@@ -24594,8 +25124,385 @@ function keyForCategory(family, category) {
   return family.keyTemplate ? family.keyTemplate.replace("{category}", category) : null;
 }
 
+// src/plural/dialect/evidence.ts
+import { existsSync as existsSync11, readFileSync as readFileSync13 } from "fs";
+import { join as join24 } from "path";
+function gatherEvidence(repo, files, sites) {
+  const dependencies = /* @__PURE__ */ new Map();
+  const imports = /* @__PURE__ */ new Map();
+  for (const rel2 of files) {
+    for (const fact of readManifest(repo, rel2)) {
+      if (!dependencies.has(fact.name)) dependencies.set(fact.name, fact);
+    }
+  }
+  for (const site3 of sites) {
+    if (site3.reason !== "module-specifier") continue;
+    const name2 = packageOf(site3.value);
+    if (!name2 || imports.has(name2)) continue;
+    imports.set(name2, { name: name2, file: site3.file, line: site3.line });
+  }
+  return { dependencies, files: new Set(files), imports };
+}
+function packageOf(specifier) {
+  if (!specifier || specifier.startsWith(".") || specifier.startsWith("/")) return null;
+  const parts2 = specifier.split("/");
+  return specifier.startsWith("@") ? parts2.slice(0, 2).join("/") : parts2[0];
+}
+function readManifest(repo, rel2) {
+  const base = rel2.slice(rel2.lastIndexOf("/") + 1);
+  const abs = join24(repo, rel2);
+  const text = read(abs);
+  if (text === null) return [];
+  if (base === "package.json") return fromJsonDeps(text, rel2, /"(dependencies|devDependencies|peerDependencies|optionalDependencies)"/);
+  if (base === "composer.json") return fromJsonDeps(text, rel2, /"(require|require-dev)"/);
+  if (base === "pyproject.toml") return fromTomlDeps(text, rel2, /^\[(project|tool\.poetry\.dependencies)/);
+  if (base === "Cargo.toml") return fromTomlDeps(text, rel2, /^\[(dependencies|dev-dependencies)/);
+  if (base === "pubspec.yaml") return fromYamlDeps(text, rel2);
+  if (base === "Gemfile" || base.endsWith(".gemspec")) return fromLines(text, rel2, /^\s*(?:gem|\w+\.add_\w*dependency)\s+['"]([^'"]+)/);
+  if (base === "go.mod") return fromGoMod(text, rel2);
+  if (base.endsWith(".csproj")) return fromLines(text, rel2, /PackageReference\s+Include="([^"]+)"/);
+  return [];
+}
+function read(abs) {
+  if (!existsSync11(abs)) return null;
+  try {
+    return readFileSync13(abs, "utf8");
+  } catch {
+    return null;
+  }
+}
+function fromJsonDeps(text, file, section) {
+  const out2 = [];
+  const starts = [];
+  const anySection = new RegExp(section.source, "g");
+  for (const m of text.matchAll(anySection)) {
+    const open = text.indexOf("{", m.index + m[0].length);
+    if (open !== -1) starts.push(open);
+  }
+  for (const open of starts) {
+    let depth = 0;
+    for (let i2 = open; i2 < text.length; i2++) {
+      const ch = text[i2];
+      if (ch === '"') {
+        const end = endOfString(text, i2);
+        if (depth === 1) {
+          const name2 = text.slice(i2 + 1, end);
+          const after = text.slice(end + 1, end + 3);
+          if (/^\s*:/.test(after)) out2.push({ name: name2, file, line: lineOf(text, i2) });
+        }
+        i2 = end;
+        continue;
+      }
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+  }
+  return out2;
+}
+function endOfString(text, quote) {
+  for (let i2 = quote + 1; i2 < text.length; i2++) {
+    if (text[i2] === "\\") i2++;
+    else if (text[i2] === '"') return i2;
+  }
+  return text.length;
+}
+function lineOf(text, offset) {
+  let line = 1;
+  for (let i2 = 0; i2 < offset; i2++) if (text[i2] === "\n") line++;
+  return line;
+}
+function fromTomlDeps(text, file, section) {
+  const out2 = [];
+  const lines = text.split("\n");
+  let inSection = false;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const line = lines[i2];
+    if (/^\[/.test(line)) {
+      inSection = section.test(line);
+      continue;
+    }
+    if (!inSection) continue;
+    const key = /^\s*([A-Za-z0-9_.-]+)\s*=/.exec(line);
+    if (key && key[1] !== "dependencies") out2.push({ name: key[1], file, line: i2 + 1 });
+    for (const m of line.matchAll(/["']([A-Za-z0-9_.-]+)\s*[<>=~!\[]/g)) {
+      out2.push({ name: m[1], file, line: i2 + 1 });
+    }
+  }
+  return out2;
+}
+function fromYamlDeps(text, file) {
+  const out2 = [];
+  const lines = text.split("\n");
+  let inSection = false;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const line = lines[i2];
+    if (/^(dependencies|dev_dependencies):/.test(line)) {
+      inSection = true;
+      continue;
+    }
+    if (/^\S/.test(line)) inSection = false;
+    if (!inSection) continue;
+    const m = /^\s{2}([A-Za-z0-9_.-]+)\s*:/.exec(line);
+    if (m) out2.push({ name: m[1], file, line: i2 + 1 });
+  }
+  return out2;
+}
+function fromGoMod(text, file) {
+  const out2 = [];
+  const lines = text.split("\n");
+  let inBlock = false;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const line = lines[i2];
+    if (/^require\s*\(/.test(line)) {
+      inBlock = true;
+      continue;
+    }
+    if (inBlock && /^\)/.test(line)) {
+      inBlock = false;
+      continue;
+    }
+    const m = inBlock ? /^\s*(\S+)/.exec(line) : /^require\s+(\S+)/.exec(line);
+    if (m && m[1] && !m[1].startsWith("//")) out2.push({ name: m[1], file, line: i2 + 1 });
+  }
+  return out2;
+}
+function fromLines(text, file, re) {
+  const out2 = [];
+  const lines = text.split("\n");
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const m = re.exec(lines[i2]);
+    if (m?.[1]) out2.push({ name: m[1], file, line: i2 + 1 });
+  }
+  return out2;
+}
+function evidenceFor(dialect, evidence) {
+  const spec = dialect.evidence;
+  if (spec.mode === "intrinsic") return { applies: true, cites: [] };
+  if (spec.mode === "catalog") {
+    return { applies: true, cites: spec.prefer ? factsFor(spec.prefer, evidence) : [] };
+  }
+  const cites = factsFor(spec, evidence);
+  return { applies: cites.length > 0, cites };
+}
+function factsFor(names, evidence) {
+  const out2 = [];
+  for (const dep of names.dependency ?? []) {
+    const fact = evidence.dependencies.get(dep);
+    if (fact) out2.push(fact);
+  }
+  for (const imported of names.importOf ?? []) {
+    const fact = evidence.imports.get(imported);
+    if (fact) out2.push(fact);
+  }
+  for (const path of names.configFile ?? []) {
+    if (evidence.files.has(path)) out2.push({ name: path, file: path, line: 1 });
+  }
+  return out2;
+}
+
+// src/plural/dialect/check.ts
+var MAX_PATTERN = 200;
+var CATASTROPHIC = /\((?:\.\*|\.\+|\[[^\]]*\]\*|\[[^\]]*\]\+)\)[*+]/;
+function compileDialect(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const row = { ...raw };
+  try {
+    const where = row.where;
+    if (where && typeof where.path === "string") where.path = toRegExp(where.path);
+    const read2 = row.read;
+    if (read2?.split?.kind === "path-regex" && typeof read2.split.re === "string") {
+      read2.split.re = toRegExp(read2.split.re);
+    }
+  } catch {
+    return null;
+  }
+  return { ...row, declaredBy: "project" };
+}
+function toRegExp(source) {
+  if (source.length > MAX_PATTERN) throw new Error("pattern too long");
+  if (CATASTROPHIC.test(source)) throw new Error("nested quantifier");
+  return new RegExp(source);
+}
+function checkDialects(ctx) {
+  const problems = [];
+  const shippedIds = new Set(ctx.shipped.map((d) => d.id));
+  const seen = /* @__PURE__ */ new Set();
+  const maxShipped = Math.max(0, ...ctx.shipped.map((d) => d.precedence));
+  for (const d of ctx.project) {
+    const say = (problem) => void problems.push({ dialect: d.id ?? "(unnamed)", problem });
+    if (!d.id || !/^[a-z0-9]+(\.[a-z0-9-]+)+$/.test(d.id)) {
+      say("id must be dotted lowercase, e.g. polyglot.quad-pipe");
+    }
+    if (seen.has(d.id)) say("duplicate dialect id");
+    seen.add(d.id);
+    if (shippedIds.has(d.id) && !d.overrides?.includes(d.id)) {
+      say(`this id is already shipped \u2014 name it in \`overrides\` to replace it deliberately`);
+    }
+    if (!d.docs || !/^https?:\/\/[^\s"'<>]+$/.test(d.docs)) {
+      say("needs a `docs` http(s) URL to the runtime's own documentation \u2014 a row without a citation is a hunch");
+    }
+    const primitive = d.primitive && PRIMITIVES[d.primitive];
+    if (!primitive) {
+      say(`unknown primitive ${String(d.primitive)} \u2014 a primitive is TypeScript and a row cannot write one`);
+      continue;
+    }
+    if (d.read?.primitive !== d.primitive) {
+      say(`read.primitive must be ${d.primitive}`);
+    }
+    for (const problem of primitive.validate(d.read)) say(problem);
+    if (d.cldr && d.read.order) {
+      say("`cldr` cannot be true for a scheme whose selectors are positions \u2014 `order` names an index, not a grammar");
+    }
+    if (d.evidence?.mode === "declared") {
+      const e = d.evidence;
+      if (!e.dependency?.length && !e.configFile?.length && !e.importOf?.length) {
+        say("`declared` evidence must name a dependency, a config file or an import, or it can never apply");
+      }
+    }
+    if (typeof d.precedence !== "number") say("needs a numeric `precedence`");
+    else if (d.precedence < maxShipped && !d.overrides?.length) {
+      say(`precedence ${d.precedence} preempts a shipped dialect \u2014 name what it overrides, or move it above ${maxShipped}`);
+    }
+  }
+  if (problems.length) return problems;
+  return [...problems, ...claimAndRegression(ctx)];
+}
+function claimAndRegression(ctx) {
+  const problems = [];
+  const before = ctx.detect(ctx.shipped);
+  const after = ctx.detect([...ctx.shipped, ...ctx.project]);
+  const claimedBefore = new Set(before.flatMap((f) => f.sites));
+  const byDialect = /* @__PURE__ */ new Map();
+  for (const family of after) {
+    if (family.sites.some((id) => !claimedBefore.has(id))) {
+      byDialect.set(family.dialect, (byDialect.get(family.dialect) ?? 0) + 1);
+    }
+  }
+  for (const d of ctx.project) {
+    if (!byDialect.get(d.id)) {
+      problems.push({
+        dialect: d.id,
+        problem: "claims nothing in this repository \u2014 a dialect is a description of what is here, not a guess about elsewhere"
+      });
+    }
+  }
+  const afterByAnchor = new Map(after.map((f) => [`${f.file}#${f.base}`, f]));
+  for (const family of before) {
+    const anchor2 = `${family.file}#${family.base}`;
+    const still = afterByAnchor.get(anchor2);
+    const categories = (f) => f.forms.map((x) => x.category).sort().join(",");
+    if (!still) {
+      problems.push({ dialect: owner(ctx, anchor2), problem: `${anchor2} was a family and is no longer one` });
+    } else if (categories(still) !== categories(family)) {
+      problems.push({
+        dialect: still.dialect,
+        problem: `${anchor2} used to read [${categories(family)}] and now reads [${categories(still)}]`
+      });
+    }
+  }
+  return problems;
+}
+function owner(ctx, anchor2) {
+  return ctx.project.map((d) => d.id).join(", ") || anchor2;
+}
+
+// src/plural/suspect.ts
+var NATIVE_TOKENS = [...CATEGORIES, "singular", "plural"];
+var CATEGORY_KEY = new RegExp(`(?:^|[_.\\-/\\[])(${NATIVE_TOKENS.join("|")})\\]?$`);
+var COUNTS2 = /\d|\{[^}]*\}|%[sd@]|%\{|#/;
+var DELIMITERS = ["||||", "|"];
+var STRUCTURAL_MARKER = /(?:^|\/)(msgid_plural|msgstr\[\d+\]|numerusform(?:\[\d+\])?|NSStringPluralRuleType|NSStringFormatValueTypeKey)(?:$|\/)|\/variations\/plural\//;
+var MARKER_IN_TEXT = /(?:^|\W)(msgid_plural|msgstr\s*\[\s*\d+\s*\]|numerusform|NSStringPluralRuleType|NSStringLocalizedFormatKey)/;
+function suspectPlurals(sites) {
+  const byPath = /* @__PURE__ */ new Map();
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    const key = `${site3.file}\0${parentOf(pathOf2(site3))}`;
+    const list = byPath.get(key);
+    if (list) list.push(site3);
+    else byPath.set(key, [site3]);
+  }
+  const suspicious = /* @__PURE__ */ new Map();
+  const note = (site3, signal) => {
+    const existing = suspicious.get(site3.id);
+    if (existing) {
+      if (!existing.signals.includes(signal)) existing.signals.push(signal);
+      return;
+    }
+    const path = pathOf2(site3);
+    suspicious.set(site3.id, {
+      siteId: site3.id,
+      siteKey: site3.siteKey,
+      file: site3.file,
+      line: site3.line,
+      path,
+      value: site3.value,
+      signals: [signal],
+      siblings: (byPath.get(`${site3.file}\0${parentOf(path)}`) ?? []).filter((s) => s.id !== site3.id).slice(0, 4).map((s) => ({ path: pathOf2(s), value: s.value }))
+    });
+  };
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    const path = pathOf2(site3);
+    if (STRUCTURAL_MARKER.test(path) || MARKER_IN_TEXT.test(site3.value)) note(site3, "structural-marker");
+    if (CATEGORY_KEY.test(leafOf(path))) note(site3, "category-key");
+    if (isDelimitedCounting(site3.value)) note(site3, "delimited-counting");
+    if (looksLikeIcu(site3.value) && !scanIcu(site3.value).ok) note(site3, "broken-icu");
+  }
+  for (const group of byPath.values()) {
+    for (const [a, b] of suffixPairs(group)) {
+      note(a, "sibling-suffix-pair");
+      note(b, "sibling-suffix-pair");
+    }
+  }
+  return [...suspicious.values()].sort((x, y) => x.siteKey < y.siteKey ? -1 : 1);
+}
+function suffixPairs(group) {
+  const out2 = [];
+  for (let i2 = 0; i2 < group.length; i2++) {
+    for (let j = i2 + 1; j < group.length; j++) {
+      const a = group[i2];
+      const b = group[j];
+      const [shorter, longer] = a.value.length <= b.value.length ? [a, b] : [b, a];
+      if (shorter.value.length < 3) continue;
+      if (!longer.value.startsWith(shorter.value)) continue;
+      const suffix = longer.value.slice(shorter.value.length);
+      if (suffix.length === 0 || suffix.length > 3) continue;
+      if (!new RegExp("^\\p{L}+$", "u").test(suffix)) continue;
+      if (!COUNTS2.test(a.value) && !COUNTS2.test(b.value)) continue;
+      out2.push([a, b]);
+    }
+  }
+  return out2;
+}
+function isDelimitedCounting(value) {
+  const delimiter = DELIMITERS.find((d) => value.includes(d));
+  if (!delimiter) return false;
+  const parts2 = value.split(delimiter).map((p) => p.trim());
+  if (parts2.length < 2) return false;
+  if (parts2.some((p) => !new RegExp("\\p{L}{2,}", "u").test(p))) return false;
+  return parts2.some((p) => COUNTS2.test(p));
+}
+function pathOf2(site3) {
+  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
+}
+function parentOf(path) {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? "" : path.slice(0, cut);
+}
+function leafOf(path) {
+  const cut = path.lastIndexOf("/");
+  return cut === -1 ? path : path.slice(cut + 1);
+}
+function unclaimedSuspicions(suspicions, claimedSiteIds) {
+  return suspicions.filter((s) => !claimedSiteIds.has(s.siteId));
+}
+
 // src/scan.ts
-var JSON_EXT = /* @__PURE__ */ new Set([".json", ".jsonc", ".json5", ".webmanifest", ".arb"]);
+var JSON_EXT = /* @__PURE__ */ new Set([".json", ".jsonc", ".json5", ".webmanifest", ".arb", ".xcstrings"]);
 var YAML_EXT = /* @__PURE__ */ new Set([".yml", ".yaml"]);
 var MARKDOWN_EXT2 = /* @__PURE__ */ new Set([".md", ".mdx", ".markdown"]);
 var CSS_EXT = /* @__PURE__ */ new Set([".css", ".scss", ".sass", ".less", ".styl"]);
@@ -24636,12 +25543,20 @@ async function scan2(opts) {
     (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start
   );
   linkDuplicates(sites);
+  const evidence = gatherEvidence(repo, tracked, sites);
+  const project = readProjectDialects(opts.dialectsPath ?? join25(repo, ".ultrai18n", "dialects.json"));
+  const catalog = mergeDialects(project);
+  const inert = new Set(catalog.filter((d) => !evidenceFor(d, evidence).applies).map((d) => d.id));
   const plurals = attachPlurals(sites, {
     repo,
     to,
     from,
+    dialects: project,
+    inert,
     ...opts.pluralSidecar !== void 0 ? { sidecarPath: opts.pluralSidecar } : {}
   });
+  const claimedSiteIds = new Set(plurals.flatMap((f) => f.sites));
+  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds);
   return {
     schemaVersion: 1,
     repo,
@@ -24663,8 +25578,21 @@ async function scan2(opts) {
     ],
     limits: LIMITS,
     recallClaim: "full",
-    plurals
+    plurals,
+    pluralResidual
   };
+}
+function readProjectDialects(path) {
+  if (!existsSync12(path)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync14(path, "utf8"));
+    return (parsed.dialects ?? []).flatMap((d) => {
+      const compiled = compileDialect(d);
+      return compiled ? [compiled] : [];
+    });
+  } catch {
+    return [];
+  }
 }
 function disambiguatePaths(sites) {
   const byPath = /* @__PURE__ */ new Map();
@@ -24677,11 +25605,11 @@ function disambiguatePaths(sites) {
   let surprising = 0;
   for (const group of byPath.values()) {
     if (group.length < 2) continue;
-    const ordered = [...group].sort(
+    const ordered2 = [...group].sort(
       (a, b) => Number(a.kind === "key") - Number(b.kind === "key") || a.span.start - b.span.start
     );
     const structural = group.length === 2 && group.filter((s) => s.kind === "key").length === 1;
-    for (const site3 of ordered.slice(1)) {
+    for (const site3 of ordered2.slice(1)) {
       let n = 2;
       while (taken.has(`${site3.path}~${n}`)) n++;
       const next = `${site3.path}~${n}`;
@@ -24697,14 +25625,16 @@ function isBundleFile(file) {
   return matchRules(RULES17, { file, path: "", value: "" }).some((m) => m.rule.ecosystem === "i18n");
 }
 function attachPlurals(sites, opts) {
-  const sidecar = opts.sidecarPath ?? join24(opts.repo, ".ultrai18n", "plurals.json");
+  const sidecar = opts.sidecarPath ?? join25(opts.repo, ".ultrai18n", "plurals.json");
   const { families, memberSites, pragmaSites } = assembleFamilies({
     sites,
     targetLanguage: opts.to,
     sourceLanguage: opts.from,
     fileLocale,
     isBundle: isBundleFile,
-    sidecarPath: sidecar
+    sidecarPath: sidecar,
+    ...opts.dialects ? { dialects: opts.dialects } : {},
+    ...opts.inert ? { inert: opts.inert } : {}
   });
   const byId = new Map(sites.map((s) => [s.id, s]));
   for (const [siteId2, member] of memberSites) {
@@ -24748,39 +25678,39 @@ function pluralAdvisories(families) {
   return out2;
 }
 async function extractFile(file, tokens, opts) {
-  const read = readTextEx(file.abs);
+  const read2 = readTextEx(file.abs);
   const base = {
     file,
     sites: [],
     extractor: null,
     degraded: false,
-    bytesTotal: read.bytes,
+    bytesTotal: read2.bytes,
     bytesClaimed: 0,
     complete: true
   };
-  if (!read.ok) return { ...base, reason: "unreadable", complete: false };
-  if (read.binary) return { ...base, reason: "nul-byte", complete: false };
-  if (read.text === "") return { ...base, extractor: "empty", bytesClaimed: 0 };
-  const map = new OffsetMap(read.text);
+  if (!read2.ok) return { ...base, reason: "unreadable", complete: false };
+  if (read2.binary) return { ...base, reason: "nul-byte", complete: false };
+  if (read2.text === "") return { ...base, extractor: "empty", bytesClaimed: 0 };
+  const map = new OffsetMap(read2.text);
   const ext = file.ext;
   if (!opts.noAst && AST_EXTENSIONS.has(ext)) {
     const parser2 = await parserForExt(ext);
     if (parser2) {
-      const tree = parser2.parse(read.text);
+      const tree = parser2.parse(read2.text);
       if (tree) {
         const { sites, tokens: contributed, errorSpans, hasError } = extractTs(
           file.rel,
-          read.text,
+          read2.text,
           tree,
           map
         );
         merge2(tokens, contributed);
         if (!hasError) {
-          return { ...base, sites, extractor: "ts-ast", bytesClaimed: read.bytes };
+          return { ...base, sites, extractor: "ts-ast", bytesClaimed: read2.bytes };
         }
         const unreadable = merge(errorSpans);
-        const claimed = [...complement(unreadable, read.bytes), ...sites.map((s) => s.span)];
-        const residual2 = sweepFile(file.rel, read.text, map, claimed, {
+        const claimed = [...complement(unreadable, read2.bytes), ...sites.map((s) => s.span)];
+        const residual2 = sweepFile(file.rel, read2.text, map, claimed, {
           identifiers: tokens.identifiers,
           extractor: "ts-ast",
           reason: `the ${ext} grammar could not parse this span; found by the residual sweep`
@@ -24791,7 +25721,7 @@ async function extractFile(file, tokens, opts) {
           sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
           extractor: "ts-ast",
           degraded: true,
-          bytesClaimed: Math.max(0, read.bytes - unreadableBytes),
+          bytesClaimed: Math.max(0, read2.bytes - unreadableBytes),
           complete: false,
           reason: `the ${ext} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`
         };
@@ -24805,34 +25735,34 @@ async function extractFile(file, tokens, opts) {
     };
   }
   if (JSON_EXT.has(ext)) {
-    const { sites, keys, claimedBytes, complete } = extractJson(file.rel, read.text, map);
+    const { sites, keys, claimedBytes, complete } = extractJson(file.rel, read2.text, map);
     for (const k of keys) tokens.identifiers.add(k);
     return { ...base, sites, extractor: "json", bytesClaimed: claimedBytes, complete };
   }
   if (YAML_EXT.has(ext)) {
-    const { sites, keys, claimedBytes, complete } = extractYaml(file.rel, read.text, map);
+    const { sites, keys, claimedBytes, complete } = extractYaml(file.rel, read2.text, map);
     for (const k of keys) tokens.identifiers.add(k);
     return { ...base, sites, extractor: "yaml", bytesClaimed: claimedBytes, complete };
   }
   if (MARKDOWN_EXT2.has(ext)) {
-    const { sites, claimedBytes } = extractMarkdown2(file.rel, read.text, map);
+    const { sites, claimedBytes } = extractMarkdown2(file.rel, read2.text, map);
     return { ...base, sites, extractor: "markdown", bytesClaimed: claimedBytes };
   }
   if (CSS_EXT.has(ext)) {
-    const { sites, claimedBytes, identifiers } = extractCss(file.rel, read.text, map);
+    const { sites, claimedBytes, identifiers } = extractCss(file.rel, read2.text, map);
     for (const id of identifiers) tokens.identifiers.add(id);
     return { ...base, sites, extractor: "css", bytesClaimed: claimedBytes };
   }
   if (HTML_EXT.has(ext)) {
-    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map);
+    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read2.text, map);
     for (const id of identifiers) tokens.identifiers.add(id);
     return { ...base, sites, extractor: "html", bytesClaimed: claimedBytes };
   }
   if (isPlainText(file.rel, ext)) {
-    const { sites, claimedBytes } = extractText(file.rel, read.text, map);
+    const { sites, claimedBytes } = extractText(file.rel, read2.text, map);
     return { ...base, sites, extractor: "text", bytesClaimed: claimedBytes };
   }
-  const residual = sweepFile(file.rel, read.text, map, [], {
+  const residual = sweepFile(file.rel, read2.text, map, [], {
     identifiers: tokens.identifiers,
     extractor: "none",
     reason: `no extractor for ${ext || "extensionless file"}; found by the residual sweep`
@@ -24841,7 +25771,7 @@ async function extractFile(file, tokens, opts) {
     ...base,
     sites: residual,
     extractor: "residual-sweep",
-    bytesClaimed: read.bytes,
+    bytesClaimed: read2.bytes,
     reason: `no extractor for ${ext || "extensionless file"}`
   };
 }
@@ -25091,15 +26021,17 @@ function formatPlurals(inv) {
   for (const f of families) {
     lines.push(
       `  ${f.file}#${f.base}
-      ${f.shape} \xB7 ${f.locale ?? "?"} \u2192 ${f.targetRequired?.join(", ") ?? "?"} \xB7 writes by ${f.writeMode}` + (f.ordinal ? " \xB7 ordinal" : "") + (f.declaredBy === "annotation" ? " \xB7 declared by annotation" : "") + (f.blocked ? `
+      ${f.shape} \xB7 ${f.locale ?? "?"} \u2192 ${f.targetRequired?.join(", ") ?? "?"} \xB7 writes by ${f.writeMode}` + (f.ordinal ? " \xB7 ordinal" : "") + (f.declaredBy === "annotation" ? " \xB7 declared by annotation" : "") + // Which row decided this, so a surprising family is traceable to the
+      // thing that claimed it rather than to the engine in general.
+      (f.dialect ? ` \xB7 ${f.dialect}` : "") + (f.blocked ? `
       blocked: ${f.blocked}` : "")
     );
   }
   lines.push("");
-  lines.push("SHAPES READ");
-  for (const shape of PLURAL_SHAPES) {
-    lines.push(`  ${shape.id.padEnd(16)} ${shape.title}
-      ${shape.docs}`);
+  lines.push("DIALECTS READ");
+  for (const dialect of ordered(DIALECTS)) {
+    lines.push(`  ${dialect.id.padEnd(26)} ${dialect.title}
+      ${dialect.docs}`);
   }
   return lines.join("\n");
 }
@@ -25385,152 +26317,9 @@ function formatPlan(p) {
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync13, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
-import { join as join25, dirname as dirname6 } from "path";
+import { readFileSync as readFileSync15, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync } from "fs";
+import { join as join26, dirname as dirname6 } from "path";
 import { createHash as createHash5 } from "crypto";
-
-// src/escape.ts
-var UnknownSyntaxError = class extends Error {
-  constructor(detail) {
-    super(detail);
-    this.detail = detail;
-    this.name = "UnknownSyntaxError";
-  }
-  detail;
-};
-function syntaxFor(site3) {
-  switch (site3.extractor) {
-    case "ts-ast":
-      if (site3.kind === "jsx-text") return "jsx-text";
-      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
-      if (site3.quote === "`") return "js-template";
-      if (site3.quote === '"') return site3.kind === "attr" ? "jsx-attr-string" : "js-double";
-      if (site3.quote === "'") return "js-single";
-      return "js-single";
-    case "json":
-      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
-      return "json-string";
-    case "yaml":
-      if (site3.kind === "comment") return "line-comment";
-      if (site3.kind === "block-scalar") return "yaml-block";
-      return "yaml-scalar";
-    case "markdown":
-      return "md-text";
-    case "html":
-      if (site3.kind === "attr") return "html-attr";
-      if (site3.kind === "comment") return "block-comment";
-      return "html-text";
-    case "css":
-      return site3.kind === "comment" ? "css-comment" : "js-double";
-    case "text":
-      return "plain";
-    default:
-      throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
-  }
-}
-function escapeFor(syntax, text, opts = {}) {
-  const out2 = escapeRaw(syntax, text, opts);
-  return opts.asciiOnly ? toAscii(out2, syntax) : out2;
-}
-function escapeRaw(syntax, text, opts) {
-  switch (syntax) {
-    case "js-single":
-      return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-    case "js-double":
-      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
-    case "jsx-attr-string":
-      return opts.quote === "'" ? text.replace(/'/g, "&apos;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : text.replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    case "js-template":
-      return text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${");
-    case "jsx-text":
-      return text.replace(/[{}]/g, (c2) => c2 === "{" ? "&#123;" : "&#125;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    case "json-string":
-      return JSON.stringify(text).slice(1, -1);
-    case "yaml-scalar":
-      if (opts.quote === '"') return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      if (opts.quote === "'") return text.replace(/'/g, "''");
-      return needsYamlQuoting(text) ? `'${text.replace(/'/g, "''")}'` : text;
-    case "yaml-block":
-      return opts.blockIndent ? text.split("\n").map((l) => l === "" ? l : opts.blockIndent + l).join("\n") : text;
-    case "md-text":
-      return opts.atLineStart === false ? text : text.replace(/^(\s*)([#>*+-]|\d+[.)])/, "$1\\$2");
-    case "html-text":
-      return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    case "html-attr":
-      return opts.quote === "'" ? text.replace(/&/g, "&amp;").replace(/'/g, "&#39;").replace(/</g, "&lt;") : text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-    case "css-comment":
-    case "block-comment":
-      return text.replace(/\*\//g, "*\\/");
-    case "line-comment":
-      return text.replace(/\r?\n/g, " ");
-    case "plain":
-      return text;
-  }
-}
-function needsYamlQuoting(text) {
-  if (text === "") return true;
-  if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(text)) return true;
-  if (/:\s|\s#/.test(text)) return true;
-  if (/^(y|Y|yes|Yes|YES|n|N|no|No|NO|true|True|TRUE|false|False|FALSE|on|On|ON|off|Off|OFF|null|Null|NULL|~)$/.test(text)) return true;
-  if (/^[\d.+-]/.test(text) && !Number.isNaN(Number(text))) return true;
-  if (/^\s|\s$/.test(text)) return true;
-  return false;
-}
-function toAscii(text, syntax) {
-  if (!/[^\x00-\x7F]/.test(text)) return text;
-  switch (syntax) {
-    case "js-single":
-    case "js-double":
-    case "js-template":
-    case "json-string":
-      return [...text].map((c2) => {
-        const code = c2.codePointAt(0);
-        if (code < 128) return c2;
-        return code > 65535 ? [...c2].map((u) => "\\u" + u.charCodeAt(0).toString(16).padStart(4, "0")).join("") : "\\u" + code.toString(16).padStart(4, "0");
-      }).join("");
-    case "html-text":
-    case "html-attr":
-    case "jsx-text":
-      return [...text].map((c2) => c2.codePointAt(0) < 128 ? c2 : `&#${c2.codePointAt(0)};`).join("");
-    default:
-      return text;
-  }
-}
-function unescapeFor(syntax, text, opts = {}) {
-  switch (syntax) {
-    case "js-single":
-    case "js-double":
-    case "js-template":
-      return text.replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, h) => String.fromCodePoint(parseInt(h, 16))).replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16))).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\(['"`$\\])/g, "$1");
-    case "json-string":
-      try {
-        return JSON.parse(`"${text}"`);
-      } catch {
-        return text;
-      }
-    case "jsx-attr-string":
-    case "html-attr":
-    case "html-text":
-    case "jsx-text":
-      return text.replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d))).replace(/&#123;/g, "{").replace(/&#125;/g, "}").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-    case "yaml-scalar":
-      if (opts.quote === '"') return text.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-      if (opts.quote === "'") return text.replace(/''/g, "'");
-      return text.startsWith("'") && text.endsWith("'") ? text.slice(1, -1).replace(/''/g, "'") : text;
-    case "yaml-block":
-      return opts.blockIndent ? text.split("\n").map((l) => l.startsWith(opts.blockIndent) ? l.slice(opts.blockIndent.length) : l).join("\n") : text;
-    case "md-text":
-      return text.replace(/^(\s*)\\([#>*+-]|\d+[.)])/, "$1$2");
-    case "css-comment":
-    case "block-comment":
-      return text.replace(/\*\\\//g, "*/");
-    case "line-comment":
-    case "plain":
-      return text;
-  }
-}
-
-// src/apply.ts
 function apply(opts) {
   const { repo, inventory } = opts;
   const write = opts.write ?? false;
@@ -25618,8 +26407,8 @@ function apply(opts) {
       }
       continue;
     }
-    const abs = join25(repo, file);
-    const before = readFileSync13(abs);
+    const abs = join26(repo, file);
+    const before = readFileSync15(abs);
     let patched;
     try {
       patched = applyPatches(before, patches);
@@ -25641,7 +26430,7 @@ function apply(opts) {
       });
     }
     if (write) {
-      const tmp = join25(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
+      const tmp = join26(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
       try {
         writeFileSync5(tmp, patched);
         renameSync2(tmp, abs);
@@ -25678,7 +26467,7 @@ function apply(opts) {
   };
 }
 function buildPatch(repo, site3, text, recover) {
-  const buf = readFileSync13(join25(repo, site3.file));
+  const buf = readFileSync15(join26(repo, site3.file));
   const syntax = syntaxFor(site3);
   let start2 = site3.span.start;
   let end = site3.span.end;
@@ -25756,15 +26545,15 @@ function buildInsertion(repo, site3, insertions) {
       `${site3.file}: a new plural form here would be a ${syntax} edit, and insertion is only supported in JSON and YAML locale bundles`
     );
   }
-  const buf = readFileSync13(join25(repo, site3.file));
+  const buf = readFileSync15(join26(repo, site3.file));
   if (buf.subarray(site3.span.start, site3.span.end).toString("utf8") !== site3.raw) {
     throw new Error(
       `drift at ${site3.file}:${site3.line} \u2014 the anchor for a new key no longer matches, so its position is unknown`
     );
   }
   const indent = indentOfLine(buf, site3.span.start);
-  const ordered = [...insertions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.key < b.key ? -1 : 1));
-  const entries = ordered.map((ins) => {
+  const ordered2 = [...insertions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.key < b.key ? -1 : 1));
+  const entries = ordered2.map((ins) => {
     const escaped = escapeFor(syntax, ins.text, { quote: '"', asciiOnly: usesUnicodeEscapes(buf) });
     return syntax === "json-string" ? `,
 ${indent}${JSON.stringify(ins.key)}: "${escaped}"` : `
@@ -25779,10 +26568,10 @@ ${indent}${ins.key}: "${escaped}"`;
     start: site3.span.end,
     end: site3.span.end,
     replacement: Buffer.from(entries.join(""), "utf8"),
-    intended: ordered.map((i2) => i2.text).join(" / "),
+    intended: ordered2.map((i2) => i2.text).join(" / "),
     recovered: false,
-    id: patch_id(site3.id, ordered),
-    writes: ordered.length,
+    id: patch_id(site3.id, ordered2),
+    writes: ordered2.length,
     inserted: true
   };
 }
@@ -25816,9 +26605,9 @@ function groupBy(items, key) {
   return out2;
 }
 function applyPatches(buf, patches) {
-  const ordered = [...patches].sort((a, b) => b.start - a.start);
+  const ordered2 = [...patches].sort((a, b) => b.start - a.start);
   let out2 = buf;
-  for (const p of ordered) {
+  for (const p of ordered2) {
     if (p.start < 0 || p.end > out2.length || p.start > p.end) {
       throw new Error(`patch span ${p.start}-${p.end} is outside the file`);
     }
@@ -25868,8 +26657,8 @@ function formatApply(r) {
 }
 
 // src/commands.ts
-import { existsSync as existsSync11, mkdirSync as mkdirSync4, readFileSync as readFileSync14, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
-import { join as join26 } from "path";
+import { existsSync as existsSync14, mkdirSync as mkdirSync4, readFileSync as readFileSync17, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { join as join28 } from "path";
 
 // src/translate.ts
 import { spawnSync as spawnSync3 } from "child_process";
@@ -26025,6 +26814,151 @@ function validatePlural(forms, expected, sourcePlaceholders) {
   return out2;
 }
 var PLACEHOLDER2 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
+
+// src/provider.ts
+import { existsSync as existsSync13, readFileSync as readFileSync16 } from "fs";
+import { join as join27 } from "path";
+var PROVIDERS = [
+  {
+    id: "anthropic",
+    title: "Anthropic Messages API",
+    docs: "https://docs.anthropic.com/en/api/messages",
+    endpoint: "https://api.anthropic.com/v1/messages",
+    model: "claude-haiku-4-5-20251001",
+    keyEnv: "ANTHROPIC_API_KEY",
+    headers: { "anthropic-version": "2023-06-01" },
+    wire: "anthropic"
+  },
+  {
+    id: "openai",
+    title: "OpenAI Chat Completions",
+    docs: "https://platform.openai.com/docs/api-reference/chat",
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    model: "gpt-4o-mini",
+    keyEnv: "OPENAI_API_KEY",
+    wire: "openai"
+  },
+  {
+    id: "openai-compatible",
+    title: "Anything speaking the OpenAI wire format",
+    docs: "https://platform.openai.com/docs/api-reference/chat",
+    // Ollama's default. Point `--endpoint` anywhere: a gateway, vLLM, LM Studio,
+    // a company proxy. The key env is optional for a local server, which is why
+    // a missing key is only an error when the endpoint is not on localhost.
+    endpoint: "http://localhost:11434/v1/chat/completions",
+    model: "qwen2.5:3b",
+    keyEnv: "OPENAI_API_KEY",
+    wire: "openai"
+  }
+];
+var PROVIDERS_BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
+function resolveProvider(repo, flags2 = {}, configPath) {
+  const file = readConfig(configPath ?? join27(repo, ".ultrai18n", "config.json"));
+  const env = readEnv();
+  const id = flags2.provider ?? env.provider ?? file.provider ?? "anthropic";
+  const preset = PROVIDERS_BY_ID.get(id);
+  if (!preset) {
+    throw new Error(
+      `unknown provider ${JSON.stringify(id)} \u2014 known: ${PROVIDERS.map((p) => p.id).join(", ")}. Any other endpoint speaking the OpenAI wire format works with --provider openai-compatible --endpoint <url>.`
+    );
+  }
+  const from = {};
+  const pick = (key, fallback) => {
+    if (flags2[key] !== void 0) {
+      from[key] = "flag";
+      return flags2[key];
+    }
+    if (env[key] !== void 0) {
+      from[key] = "env";
+      return env[key];
+    }
+    if (file[key] !== void 0) {
+      from[key] = "config";
+      return file[key];
+    }
+    from[key] = "preset";
+    return fallback;
+  };
+  from.provider = flags2.provider ? "flag" : env.provider ? "env" : file.provider ? "config" : "preset";
+  return {
+    provider: preset.id,
+    endpoint: pick("endpoint", preset.endpoint),
+    model: pick("model", preset.model),
+    keyEnv: pick("keyEnv", preset.keyEnv),
+    maxTokens: pick("maxTokens", 4096),
+    headers: { ...preset.headers, ...file.headers, ...flags2.headers },
+    wire: preset.wire,
+    from
+  };
+}
+function readEnv() {
+  const out2 = {};
+  const e = process.env;
+  if (e.ULTRAI18N_PROVIDER) out2.provider = e.ULTRAI18N_PROVIDER;
+  if (e.ULTRAI18N_ENDPOINT) out2.endpoint = e.ULTRAI18N_ENDPOINT;
+  if (e.ULTRAI18N_MODEL) out2.model = e.ULTRAI18N_MODEL;
+  if (e.ULTRAI18N_KEY_ENV) out2.keyEnv = e.ULTRAI18N_KEY_ENV;
+  if (e.ULTRAI18N_MAX_TOKENS) out2.maxTokens = Number(e.ULTRAI18N_MAX_TOKENS);
+  return out2;
+}
+function readConfig(path) {
+  if (!existsSync13(path)) return {};
+  try {
+    return JSON.parse(readFileSync16(path, "utf8")).translate ?? {};
+  } catch (err2) {
+    throw new Error(`${path} is not readable JSON: ${err2.message}`);
+  }
+}
+function requestBody(p, contract, payload) {
+  if (p.wire === "anthropic") {
+    return {
+      model: p.model,
+      max_tokens: p.maxTokens,
+      system: contract,
+      messages: [{ role: "user", content: payload }]
+    };
+  }
+  return {
+    model: p.model,
+    max_completion_tokens: p.maxTokens,
+    messages: [
+      { role: "system", content: contract },
+      { role: "user", content: payload }
+    ],
+    // Both wire formats accept it and both ignore it when unsupported; a model
+    // that honours it stops wrapping the answer in prose.
+    response_format: { type: "json_object" }
+  };
+}
+function requestHeaders(p, key) {
+  const headers = { "content-type": "application/json", ...p.headers };
+  if (!key) return headers;
+  if (p.wire === "anthropic") headers["x-api-key"] = key;
+  else headers.authorization = `Bearer ${key}`;
+  return headers;
+}
+function readAnswer(p, body2) {
+  const b = body2;
+  return (p.wire === "anthropic" ? b.content?.[0]?.text : b.choices?.[0]?.message?.content) ?? "";
+}
+function keyRequired(endpoint) {
+  return !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/)/.test(endpoint);
+}
+function formatProviders(resolved) {
+  const lines = [`ultrai18n translate \u2014 provider ${resolved.provider}`, ""];
+  for (const [key, value] of [
+    ["endpoint", resolved.endpoint],
+    ["model", resolved.model],
+    ["key env", resolved.keyEnv],
+    ["max tokens", String(resolved.maxTokens)]
+  ]) {
+    const source = resolved.from[key === "key env" ? "keyEnv" : key === "max tokens" ? "maxTokens" : key];
+    lines.push(`  ${key.padEnd(12)}${String(value).padEnd(46)}${source ? `(${source})` : ""}`);
+  }
+  lines.push("");
+  lines.push("  Known providers: " + PROVIDERS.map((p) => `${p.id} \u2192 ${p.model}`).join(", "));
+  return lines.join("\n");
+}
 
 // src/translate.ts
 var BATCH_SIZE = 8;
@@ -26204,36 +27138,27 @@ function parseResult(stdout, batchId) {
   }
 }
 async function runApiBackend(batch, opts) {
-  const key = process.env[opts.keyEnv];
-  if (!key) {
+  const key = process.env[opts.provider.keyEnv];
+  if (!key && keyRequired(opts.provider.endpoint)) {
     throw new Error(
-      `$${opts.keyEnv} is not set \u2014 set it, or use --translator '<command>', or --backend manual`
+      `$${opts.provider.keyEnv} is not set \u2014 set it, point --endpoint at a local server, or use --translator '<command>' or --backend manual`
     );
   }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 12e4);
   try {
-    const response = await fetch(opts.endpoint, {
+    const response = await fetch(opts.provider.endpoint, {
       method: "POST",
       signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": key,
-        authorization: `Bearer ${key}`,
-        ...opts.headers
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        max_tokens: 4096,
-        system: opts.contract,
-        messages: [{ role: "user", content: JSON.stringify(batch, null, 2) }]
-      })
+      headers: requestHeaders(opts.provider, key),
+      body: JSON.stringify(requestBody(opts.provider, opts.contract, JSON.stringify(batch, null, 2)))
     });
     if (!response.ok) {
-      throw new Error(`${opts.endpoint} returned ${response.status}: ${(await response.text()).slice(0, 200)}`);
+      throw new Error(
+        `${opts.provider.endpoint} returned ${response.status} for model ${opts.provider.model}: ${(await response.text()).slice(0, 200)}`
+      );
     }
-    const body2 = await response.json();
-    const text = body2.content?.[0]?.text ?? body2.choices?.[0]?.message?.content ?? "";
+    const text = readAnswer(opts.provider, await response.json());
     const parsed = parseResult(text, batch.batchId);
     if (!parsed) throw new Error(`batch ${batch.batchId}: the response was not the expected JSON`);
     return parsed;
@@ -26294,31 +27219,31 @@ orchestrator folds your results and the engine writes the files by byte offset.
 function runDir(out2) {
   return {
     root: out2,
-    inventory: join26(out2, "inventory.json"),
-    plan: join26(out2, "PLAN.json"),
-    batches: join26(out2, "batches"),
-    results: join26(out2, "results"),
-    translations: join26(out2, "TRANSLATIONS.json"),
-    glossary: join26(out2, "glossary.md"),
-    applyReport: join26(out2, "APPLY.json")
+    inventory: join28(out2, "inventory.json"),
+    plan: join28(out2, "PLAN.json"),
+    batches: join28(out2, "batches"),
+    results: join28(out2, "results"),
+    translations: join28(out2, "TRANSLATIONS.json"),
+    glossary: join28(out2, "glossary.md"),
+    applyReport: join28(out2, "APPLY.json")
   };
 }
 function readJson2(path, what) {
-  if (!existsSync11(path)) {
+  if (!existsSync14(path)) {
     throw new Error(`${what} not found at ${path} \u2014 run the step that produces it first`);
   }
-  return JSON.parse(readFileSync14(path, "utf8"));
+  return JSON.parse(readFileSync17(path, "utf8"));
 }
 function writeJson(path, value) {
-  mkdirSync4(join26(path, ".."), { recursive: true });
+  mkdirSync4(join28(path, ".."), { recursive: true });
   writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
 }
 var GEN_OPEN = "<!-- ul:gen key=proposals -->";
 var GEN_CLOSE = "<!-- /ul:gen key=proposals -->";
 function readGlossary(path) {
   const out2 = /* @__PURE__ */ new Map();
-  if (!existsSync11(path)) return out2;
-  const text = readFileSync14(path, "utf8");
+  if (!existsSync14(path)) return out2;
+  const text = readFileSync17(path, "utf8");
   for (const line of text.split("\n")) {
     const cells = line.split("|").map((c2) => c2.trim());
     if (cells.length < 4) continue;
@@ -26377,11 +27302,11 @@ function cmdPlan(out2, mode) {
   });
   mkdirSync4(dirs.batches, { recursive: true });
   for (const batch of batches) {
-    writeJson(join26(dirs.batches, `${batch.batchId}.batch.json`), batch);
+    writeJson(join28(dirs.batches, `${batch.batchId}.batch.json`), batch);
   }
-  mkdirSync4(join26(out2, "agents"), { recursive: true });
-  writeFileSync6(join26(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
-  const existing = existsSync11(dirs.glossary) ? readFileSync14(dirs.glossary, "utf8") : null;
+  mkdirSync4(join28(out2, "agents"), { recursive: true });
+  writeFileSync6(join28(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
+  const existing = existsSync14(dirs.glossary) ? readFileSync17(dirs.glossary, "utf8") : null;
   writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
   return { plan: p, batches };
 }
@@ -26389,6 +27314,7 @@ function projectName(repo) {
   return repo.split("/").filter(Boolean).pop() ?? "project";
 }
 async function cmdTranslateApi(opts) {
+  const provider = opts.resolved ?? resolveProvider(opts.repo, opts.provider ?? {}, opts.configPath);
   const dirs = runDir(opts.out);
   const p = readJson2(dirs.plan, "PLAN.json");
   const batches = readBatches(dirs.batches);
@@ -26398,16 +27324,13 @@ async function cmdTranslateApi(opts) {
   for (const batch of batches) {
     try {
       const result = await runApiBackend(batch, {
-        endpoint: opts.api?.endpoint ?? "https://api.anthropic.com/v1/messages",
-        model: opts.api?.model ?? "claude-haiku-4-5-20251001",
-        keyEnv: opts.api?.keyEnv ?? "ANTHROPIC_API_KEY",
-        headers: { "anthropic-version": "2023-06-01", ...opts.api?.headers },
+        provider,
         sourceLang: p.sourceLang,
         targetLang: p.targetLang,
         contract: TRANSLATOR_CONTRACT,
         ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
       });
-      const path = join26(dirs.results, `${batch.batchId}.result.json`);
+      const path = join28(dirs.results, `${batch.batchId}.result.json`);
       writeJson(path, result);
       wrote.push(path);
     } catch (err2) {
@@ -26415,10 +27338,10 @@ async function cmdTranslateApi(opts) {
     }
   }
   if (failed2.length) {
-    writeJson(join26(opts.out, "FAILED.json"), { failed: failed2 });
+    writeJson(join28(opts.out, "FAILED.json"), { failed: failed2 });
     throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
   }
-  return { backend: "api", batches: batches.length, wrote };
+  return { backend: "api", batches: batches.length, wrote, provider };
 }
 function cmdTranslate(opts) {
   const dirs = runDir(opts.out);
@@ -26441,7 +27364,7 @@ function cmdTranslate(opts) {
           targetLang: p.targetLang,
           ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
         });
-        const path = join26(dirs.results, `${batch.batchId}.result.json`);
+        const path = join28(dirs.results, `${batch.batchId}.result.json`);
         writeJson(path, result);
         wrote.push(path);
       } catch (err2) {
@@ -26449,7 +27372,7 @@ function cmdTranslate(opts) {
       }
     }
     if (failed2.length) {
-      writeJson(join26(opts.out, "FAILED.json"), { failed: failed2 });
+      writeJson(join28(opts.out, "FAILED.json"), { failed: failed2 });
       throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
     }
     return { backend: "cli", batches: batches.length, wrote };
@@ -26458,19 +27381,19 @@ function cmdTranslate(opts) {
     backend: opts.backend,
     batches: batches.length,
     wrote: [],
-    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join26(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
+    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join28(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
   };
 }
 function readBatches(dir) {
-  if (!existsSync11(dir)) return [];
-  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync14(join26(dir, f), "utf8")));
+  if (!existsSync14(dir)) return [];
+  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync17(join28(dir, f), "utf8")));
 }
 function readResults(dir) {
-  if (!existsSync11(dir)) return [];
+  if (!existsSync14(dir)) return [];
   return readdirSync4(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
-    const raw = readFileSync14(join26(dir, f), "utf8");
+    const raw = readFileSync17(join28(dir, f), "utf8");
     const parsed = parseResult(raw, f.replace(/\..*$/, ""));
-    if (!parsed) throw new Error(`${join26(dir, f)} is not a valid batch result`);
+    if (!parsed) throw new Error(`${join28(dir, f)} is not a valid batch result`);
     return parsed;
   });
 }
@@ -26513,7 +27436,7 @@ function cmdTranslateApply(out2) {
     }
   }
   writeJson(dirs.translations, { schemaVersion: 1, translations, insertions, report });
-  if (structural.length) writeJson(join26(out2, "PLURALS.todo.json"), { schemaVersion: 1, families: structural });
+  if (structural.length) writeJson(join28(out2, "PLURALS.todo.json"), { schemaVersion: 1, families: structural });
   return {
     accepted: report.accepted.length,
     rejected: report.rejected.length,
@@ -26546,7 +27469,7 @@ function writeFamily(family, forms, bySiteId) {
     const siteId2 = family.sites[0];
     const site3 = siteId2 ? bySiteId.get(siteId2) : void 0;
     if (!site3) return { translations: [], insertions: [] };
-    const rebuilt = family.shape === "inline-select" ? rebuildIcu(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(" | ");
+    const rebuilt = family.primitive === "icu" ? rebuildIcu(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(family.join ?? " | ");
     return rebuilt === null ? { translations: [], insertions: [] } : { translations: [{ id: site3.id, text: rebuilt }], insertions: [] };
   }
   const byCategory = new Map(family.forms.map((f) => [f.category, f]));
@@ -26597,8 +27520,8 @@ function cmdApply(repo, out2, write, recover) {
 }
 
 // src/check.ts
-import { existsSync as existsSync12, readFileSync as readFileSync15 } from "fs";
-import { join as join27 } from "path";
+import { existsSync as existsSync15, readFileSync as readFileSync18 } from "fs";
+import { join as join29 } from "path";
 var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "identifier",
   "module-specifier",
@@ -26618,7 +27541,9 @@ var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "explicitly-marked",
   "proper-noun",
   "escaping-fixture",
-  "genuinely-source-language"
+  "genuinely-source-language",
+  // For G7: a site that looks plural-shaped and genuinely is not.
+  "not-a-plural"
 ]);
 function check(opts) {
   const { repo, inventory } = opts;
@@ -26631,7 +27556,8 @@ function check(opts) {
     gateUnadjudicated(inventory, excused),
     gateSourceLanguage(inventory, excused, minConfidence),
     gateExceptions(inventory, exceptions),
-    gateCoherence(inventory, repo)
+    gateCoherence(inventory, repo),
+    gatePluralsClaimed(inventory, excused)
   ];
   if (opts.baseline) {
     for (const gate of gates) {
@@ -26731,6 +27657,30 @@ function gateExceptions(inv, exceptions) {
   }
   return { id: "G5", name: "exceptions-valid", ok: findings.length === 0, count: findings.length, findings };
 }
+function gatePluralsClaimed(inv, excused) {
+  const findings = [];
+  for (const suspicion of inv.pluralResidual ?? []) {
+    if (excused.has(suspicion.siteKey)) continue;
+    findings.push({
+      file: suspicion.file,
+      line: suspicion.line,
+      siteKey: suspicion.siteKey,
+      kind: "plural-unclaimed",
+      message: `looks like a plural (${suspicion.signals.join(", ")}) and no dialect claimed it: ${JSON.stringify(clipValue(suspicion.value))}`
+    });
+  }
+  return {
+    id: "G7",
+    name: "plurals-claimed",
+    ok: findings.length === 0,
+    count: findings.length,
+    findings
+  };
+}
+function clipValue(value) {
+  const flat = value.replace(/\s+/g, " ").trim();
+  return flat.length > 60 ? flat.slice(0, 59) + "\u2026" : flat;
+}
 function gateCoherence(inv, repo) {
   const findings = [];
   for (const site3 of inv.sites) {
@@ -26813,7 +27763,7 @@ function gateCoherence(inv, repo) {
       message: `${family.base} is a plural family in ${family.locale ?? "an unknown locale"}, which selects ${family.ownRequired?.join(", ") ?? "?"} \u2014 and it has ${parts2.join(", and ")}`
     });
   }
-  for (const key of danglingSidecarKeys(join27(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
+  for (const key of danglingSidecarKeys(join29(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
     findings.push({
       siteKey: key,
       kind: "plural-dangling",
@@ -26835,9 +27785,9 @@ function gateCoherence(inv, repo) {
   const from = inv.sourceLanguage;
   if (from && from !== inv.targetLanguage) {
     for (const rel2 of ["CONTRIBUTING.md", "README.md", "docs/CONTRIBUTING.md"]) {
-      const abs = join27(repo, rel2);
-      if (!existsSync12(abs)) continue;
-      const text = readFileSync15(abs, "utf8");
+      const abs = join29(repo, rel2);
+      if (!existsSync15(abs)) continue;
+      const text = readFileSync18(abs, "utf8");
       const policy = /\b(commit messages|comments|documentation|everything in this repository|tout(?:e)? (?:le|la)? ?(?:dépôt|projet)|les commentaires|les messages de commit)\b[^.\n]{0,80}\b(français|french|anglais|english|español|spanish|deutsch|german)\b/i;
       const m = policy.exec(text);
       if (m && namesLanguage(m[0], from)) {
@@ -26871,8 +27821,8 @@ function clip3(s, n = 56) {
   return flat.length > n ? flat.slice(0, n - 1) + "\u2026" : flat;
 }
 function readExceptions(path) {
-  if (!existsSync12(path)) return { entries: [] };
-  return JSON.parse(readFileSync15(path, "utf8"));
+  if (!existsSync15(path)) return { entries: [] };
+  return JSON.parse(readFileSync18(path, "utf8"));
 }
 function formatCheck(r) {
   const lines = [];
@@ -26898,8 +27848,8 @@ function formatCheck(r) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync13, readFileSync as readFileSync16 } from "fs";
-import { join as join28 } from "path";
+import { existsSync as existsSync16, readFileSync as readFileSync19 } from "fs";
+import { join as join30 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 var VERIFY_MAX = 40;
 function buildVerify(opts) {
@@ -26959,16 +27909,16 @@ function censusReason(group) {
   return null;
 }
 function readLive(repo, site3) {
-  const abs = join28(repo, site3.file);
-  if (!existsSync13(abs)) return null;
-  const buf = readFileSync16(abs);
+  const abs = join30(repo, site3.file);
+  if (!existsSync16(abs)) return null;
+  const buf = readFileSync19(abs);
   const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
   return sha256(slice).slice(0, 16);
 }
 function currentValue(repo, site3) {
-  const abs = join28(repo, site3.file);
-  if (!existsSync13(abs)) return null;
-  const buf = readFileSync16(abs);
+  const abs = join30(repo, site3.file);
+  if (!existsSync16(abs)) return null;
+  const buf = readFileSync19(abs);
   return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
 }
 function applyVerdicts(opts) {
@@ -27076,22 +28026,255 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync14, mkdirSync as mkdirSync5, readFileSync as readFileSync17, writeFileSync as writeFileSync7 } from "fs";
-import { join as join29 } from "path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync6, readFileSync as readFileSync20, writeFileSync as writeFileSync8 } from "fs";
+import { join as join33 } from "path";
+
+// src/dialects.ts
+import { existsSync as existsSync17, mkdirSync as mkdirSync5, writeFileSync as writeFileSync7 } from "fs";
+import { join as join31 } from "path";
+var SAMPLE = 40;
+function viewDialects(repo, inventory, dialectsPath) {
+  const project = readProjectDialects(dialectsPath ?? join31(repo, ".ultrai18n", "dialects.json"));
+  const catalog = mergeDialects(project);
+  const evidence = gatherEvidence(repo, inventory.census.map((c2) => c2.file), inventory.sites);
+  const claimed = /* @__PURE__ */ new Map();
+  for (const family of inventory.plurals ?? []) {
+    if (!family.dialect) continue;
+    claimed.set(family.dialect, (claimed.get(family.dialect) ?? 0) + 1);
+  }
+  return ordered(catalog).map((d) => {
+    const verdict = evidenceFor(d, evidence);
+    return {
+      id: d.id,
+      title: d.title,
+      docs: d.docs,
+      primitive: d.primitive,
+      precedence: d.precedence,
+      shape: d.shape,
+      cldr: d.cldr,
+      declaredBy: d.declaredBy,
+      active: verdict.applies,
+      cites: verdict.cites,
+      families: claimed.get(d.id) ?? 0
+    };
+  });
+}
+function explainFile(repo, inventory, file, dialectsPath) {
+  const bundle = isBundleFile(file);
+  return viewDialects(repo, inventory, dialectsPath).flatMap((view) => {
+    const d = mergeDialects(readProjectDialects(dialectsPath ?? join31(repo, ".ultrai18n", "dialects.json"))).find((x) => x.id === view.id);
+    if (!view.active) return [{ dialect: view, reason: "inert: its declared evidence is absent from this repository" }];
+    if (d.where.bundleOnly && !bundle) return [];
+    if (d.where.file?.length && !d.where.file.some((g) => file.endsWith(g.replace(/^\*\*\//, "").replace(/^\*/, "")))) return [];
+    const cited = view.cites.map((c2) => `${c2.file}:${c2.line}`).join(", ");
+    return [
+      {
+        dialect: view,
+        reason: cited ? `applies, cited by ${cited}` : "applies"
+      }
+    ];
+  });
+}
+function runCheck(repo, inventory, dialectsPath) {
+  const path = dialectsPath ?? join31(repo, ".ultrai18n", "dialects.json");
+  if (!existsSync17(path)) return [];
+  const project = readProjectDialects(path);
+  if (project.length === 0) {
+    return [{ dialect: "(file)", problem: `${path} declares no readable dialect \u2014 a row with a bad regex is dropped here and reported nowhere else` }];
+  }
+  return checkDialects({
+    shipped: DIALECTS,
+    project,
+    sites: inventory.sites,
+    detect: (dialects) => detectFamilies(inventory.sites, { isBundle: isBundleFile, dialects: dialects.filter((d) => d.declaredBy === "project") })
+  });
+}
+function buildTodo(repo, inventory) {
+  const evidence = gatherEvidence(repo, inventory.census.map((c2) => c2.file), inventory.sites);
+  const residual = inventory.pluralResidual ?? [];
+  return {
+    schemaVersion: 1,
+    evidence: {
+      dependencies: [...evidence.dependencies.values()],
+      imports: [...evidence.imports.values()],
+      configFiles: [...evidence.files].filter((f) => /i18n|locale|intl|translat/i.test(f)).slice(0, 40)
+    },
+    claimed: {
+      dialects: [...new Set((inventory.plurals ?? []).map((f) => f.dialect).filter((d) => !!d))],
+      families: (inventory.plurals ?? []).length
+    },
+    // Sorted by siteKey and capped, so the artifact is bounded and identical
+    // across runs. An unbounded worklist on a large repository is a file nobody
+    // reads and a prompt nobody can afford.
+    residual: residual.slice(0, SAMPLE).map((s) => ({
+      id: s.siteId,
+      file: s.file,
+      line: s.line,
+      path: s.path,
+      value: s.value,
+      signals: s.signals,
+      siblings: s.siblings
+    })),
+    residualTotal: residual.length,
+    primitives: PRIMITIVE_HELP
+  };
+}
+var PRIMITIVE_HELP = [
+  {
+    id: "path-part",
+    reads: "One form per site, with the category read off the site anchor path.",
+    parameters: [
+      'split.kind: "leaf-suffix" (item_one) | "leaf-is-token" (item/one) | "path-regex"',
+      'split.separators: e.g. ["_", "."] \u2014 leaf-suffix only',
+      "split.re: two capture groups, base then token \u2014 path-regex only, given as a string",
+      'tokens: { "<native token>": "<CLDR category>" }',
+      "order: { <form count>: [<category>, ...] } \u2014 for NUMERIC tokens like msgstr[0]",
+      'ordinalInfix: e.g. ["ordinal"]',
+      "minForms: distinct categories needed before this is a family (default 1)",
+      `selectorTemplate: how the selector reads in a report, e.g. 'quantity="{token}"'`
+    ]
+  },
+  {
+    id: "value-split",
+    reads: "Every form in one value, separated by a literal, categorised by position.",
+    parameters: [
+      'delimiters: e.g. ["||||"] \u2014 tried longest first',
+      "order: { <part count>: [<category>, ...] }",
+      'requiresCounting: true keeps "Save | Cancel" out',
+      "trim: default true"
+    ]
+  },
+  {
+    id: "icu",
+    reads: "Every form in one value, categorised by the ICU MessageFormat parser.",
+    parameters: ["ordinals: whether selectordinal is read as ordinal (default true)"]
+  }
+];
+var DIALECTICIAN_CONTRACT = `# Contract: dialectician
+
+You declare how this repository spells its plurals. You do not translate, and you
+do not edit source.
+
+\`dialects.todo.json\` gives you three things: the EVIDENCE this repository carries
+\u2014 its declared dependencies, its config files, the modules it imports \u2014 the
+arrangements the shipped catalog already CLAIMED, and the RESIDUAL: sites that
+look like a plural to a signal knowing nothing about any library, which no
+dialect claimed.
+
+For each residual, do exactly one of:
+
+- name the shipped dialect that should have claimed it, and say what stopped it;
+- write a dialect row;
+- say it is not a plural, and why.
+
+A row you write must:
+
+- pick one \`primitive\`: \`path-part\`, \`value-split\` or \`icu\`. If none of them can
+  read the arrangement, SAY SO. A primitive is TypeScript and you cannot write one
+  here \u2014 claiming otherwise produces a row that validates and reads nothing.
+- carry \`docs\`: an http(s) URL to the runtime's OWN documentation of this
+  arrangement. Not a blog post, not an answer site, not a plausible-looking URL
+  you have not read. A row without a citation is a hunch, and \`dialects --check\`
+  rejects one. The engine has no network and cannot verify the page exists, so
+  this is a promise a human will check in the diff.
+- set \`cldr: false\` unless the arrangement's selectors ARE CLDR categories.
+  Positional schemes and gettext indices are not, and claiming otherwise makes the
+  engine report rendering bugs that do not exist.
+- claim at least one residual IN THIS REPOSITORY, and change nothing that already
+  works. A row that claims nothing here is speculation about somebody else's
+  repository; a row that re-reads an existing family differently is rejected
+  unless it names what it \`overrides\`.
+
+Write the rows to \`.ultrai18n/dialects.json\` as
+\`{ "schemaVersion": 1, "dialects": [ ... ] }\`, then stop. Regexes are strings.
+
+**Do not edit any other file.**
+`;
+function writeTodo(out2, todo) {
+  mkdirSync5(join31(out2, "agents"), { recursive: true });
+  const todoPath = join31(out2, "dialects.todo.json");
+  const contractPath = join31(out2, "agents", "dialectician.md");
+  writeFileSync7(todoPath, JSON.stringify(todo, null, 2) + "\n");
+  writeFileSync7(contractPath, DIALECTICIAN_CONTRACT);
+  return { todo: todoPath, contract: contractPath };
+}
+function formatDialects(views) {
+  const lines = [];
+  lines.push(`ultrai18n dialects \u2014 ${views.length} row(s), ${views.filter((v) => v.active).length} active`);
+  lines.push("");
+  for (const v of views) {
+    const mark = v.active ? " " : "\xB7";
+    lines.push(
+      `${mark} ${String(v.precedence).padStart(3)} ${v.id.padEnd(26)} ${v.primitive.padEnd(12)} ${v.families ? `${v.families} famil${v.families === 1 ? "y" : "ies"}` : "\u2014"}${v.declaredBy === "project" ? "  [project]" : ""}${v.cldr ? "" : "  [not CLDR]"}`
+    );
+    if (v.cites.length) lines.push(`      evidence: ${v.cites.map((c2) => `${c2.name} (${c2.file}:${c2.line})`).join(", ")}`);
+    if (!v.active) lines.push("      inert: its declared evidence is absent");
+  }
+  lines.push("");
+  lines.push("\xB7 = inert in this repository");
+  return lines.join("\n");
+}
+function formatTodo(todo, paths) {
+  const lines = [];
+  lines.push(
+    `ultrai18n dialects --propose \u2014 ${todo.residual.length} of ${todo.residualTotal} unclaimed site(s), ${todo.claimed.families} family(ies) already claimed`
+  );
+  if (todo.residualTotal > todo.residual.length) {
+    lines.push(`  sampled ${todo.residual.length}, capped at ${SAMPLE} \u2014 ${todo.residualTotal - todo.residual.length} not shown`);
+  }
+  lines.push("");
+  if (todo.residualTotal === 0) {
+    lines.push("  Nothing is unclaimed. There is no dialect to declare.");
+    return lines.join("\n");
+  }
+  for (const r of todo.residual.slice(0, 8)) {
+    lines.push(`  ${r.file}:${r.line}  [${r.signals.join(", ")}]`);
+    lines.push(`      ${r.path} = ${JSON.stringify(r.value.slice(0, 70))}`);
+  }
+  if (todo.residual.length > 8) lines.push(`  \u2026 and ${todo.residual.length - 8} more in the worklist`);
+  lines.push("");
+  lines.push(`  wrote ${paths.todo}`);
+  lines.push(`  wrote ${paths.contract}`);
+  lines.push("");
+  lines.push("  Dispatch one agent following that contract, then run `dialects --check`.");
+  return lines.join("\n");
+}
+function formatProblems(problems) {
+  if (problems.length === 0) return "ultrai18n dialects --check  ok";
+  const lines = [`ultrai18n dialects --check  ${problems.length} problem(s)`, ""];
+  for (const p of problems) lines.push(`  ${p.dialect}
+      ${p.problem}`);
+  return lines.join("\n");
+}
+
+// src/orchestrate.ts
 var BATCH_SIZE2 = 8;
 var SMALL_WORKLIST = 3;
 function phaseStatuses(out2) {
-  const planPath = join29(out2, "PLAN.json");
-  const plan2 = existsSync14(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
-  const batches = existsSync14(join29(out2, "batches"));
-  const todo = existsSync14(join29(out2, "VERIFY.todo.json"));
-  const applied = existsSync14(join29(out2, "APPLY.json"));
-  const pluralPath = join29(out2, "PLURALS.todo.json");
-  const pluralTodo = existsSync14(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
+  const planPath = join33(out2, "PLAN.json");
+  const plan2 = existsSync18(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
+  const batches = existsSync18(join33(out2, "batches"));
+  const todo = existsSync18(join33(out2, "VERIFY.todo.json"));
+  const applied = existsSync18(join33(out2, "APPLY.json"));
+  const dialectPath = join33(out2, "dialects.todo.json");
+  const dialectTodo = existsSync18(dialectPath) ? (JSON.parse(readOr(dialectPath, '{"residual":[]}')).residual ?? []).length : 0;
+  const pluralPath = join33(out2, "PLURALS.todo.json");
+  const pluralTodo = existsSync18(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
   const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
   const hazards = plan2?.hazards?.length ?? 0;
   const structural = plan2?.structural?.length ?? 0;
   return [
+    {
+      // First in the list on purpose: an arrangement nobody claimed is a gap in
+      // what the engine UNDERSTANDS, and every later phase reasons about a
+      // repository it has already misread.
+      name: "dialect",
+      ready: dialectTodo > 0,
+      ...dialectTodo > 0 ? {} : { reason: "nothing unclaimed \u2014 run `dialects --propose` after `scan`" },
+      worklist: dialectPath,
+      items: dialectTodo,
+      writes: true
+    },
     {
       name: "adjudicate",
       ready: !!plan2 && hazards > 0,
@@ -27106,7 +28289,7 @@ function phaseStatuses(out2) {
       // the hazard rule exists to prevent.
       ready: !!plan2 && batches && hazards === 0 && pending > 0,
       ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
-      worklist: join29(out2, "batches"),
+      worklist: join33(out2, "batches"),
       items: Math.ceil(pending / BATCH_SIZE2),
       writes: false
     },
@@ -27114,8 +28297,8 @@ function phaseStatuses(out2) {
       name: "review",
       ready: todo,
       ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
-      worklist: join29(out2, "VERIFY.todo.json"),
-      items: todo ? JSON.parse(readOr(join29(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      worklist: join33(out2, "VERIFY.todo.json"),
+      items: todo ? JSON.parse(readOr(join33(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
       writes: false
     },
     {
@@ -27124,7 +28307,7 @@ function phaseStatuses(out2) {
       // edits files, and `apply` is the sole writer until it has finished.
       ready: pluralTodo > 0 && applied,
       ...pluralTodo === 0 ? { reason: "no plural family in this run needs a code edit" } : !applied ? { reason: "plural code edits run after `apply --write`, never alongside it" } : {},
-      worklist: join29(out2, "PLURALS.todo.json"),
+      worklist: join33(out2, "PLURALS.todo.json"),
       items: pluralTodo,
       writes: true
     },
@@ -27148,19 +28331,19 @@ function orchestrate(opts) {
     err2.exitCode = 2;
     throw err2;
   }
-  const dir = join29(opts.out, "orchestration");
-  const agents = join29(dir, "agents");
-  mkdirSync5(agents, { recursive: true });
+  const dir = join33(opts.out, "orchestration");
+  const agents = join33(dir, "agents");
+  mkdirSync6(agents, { recursive: true });
   const files = [];
   const contract = CONTRACTS[phase];
-  const contractPath = join29(agents, `${contract.role}.md`);
-  writeFileSync7(contractPath, contract.body);
+  const contractPath = join33(agents, `${contract.role}.md`);
+  writeFileSync8(contractPath, contract.body);
   files.push(contractPath);
-  const workflowPath = join29(dir, `${phase}.workflow.mjs`);
-  writeFileSync7(workflowPath, workflowScript(phase, opts, status2, contract.role));
+  const workflowPath = join33(dir, `${phase}.workflow.mjs`);
+  writeFileSync8(workflowPath, workflowScript(phase, opts, status2, contract.role));
   files.push(workflowPath);
-  const runbookPath = join29(dir, "RUNBOOK.md");
-  writeFileSync7(runbookPath, runbook(statuses, opts));
+  const runbookPath = join33(dir, "RUNBOOK.md");
+  writeFileSync8(runbookPath, runbook(statuses, opts));
   files.push(runbookPath);
   return {
     phase,
@@ -27171,6 +28354,7 @@ function orchestrate(opts) {
   };
 }
 var CONTRACTS = {
+  dialect: { role: "dialectician", body: DIALECTICIAN_CONTRACT },
   translate: { role: "translator", body: TRANSLATOR_CONTRACT },
   adjudicate: {
     role: "adjudicator",
@@ -27265,6 +28449,7 @@ Return \`{siteId, file, note}\` describing what you changed and why.
   }
 };
 var JOINS = {
+  dialect: (o) => `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}`,
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
@@ -27349,14 +28534,14 @@ ${rows}
 }
 function readOr(path, fallback) {
   try {
-    return readFileSync17(path, "utf8");
+    return readFileSync20(path, "utf8");
   } catch {
     return fallback;
   }
 }
 
 // src/sync.ts
-import { existsSync as existsSync15, readFileSync as readFileSync18 } from "fs";
+import { existsSync as existsSync19, readFileSync as readFileSync21 } from "fs";
 import "path";
 var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
 function sync(opts) {
@@ -27537,9 +28722,9 @@ function sameSet(a, b) {
   return true;
 }
 function readState(path) {
-  if (!path || !existsSync15(path)) return null;
+  if (!path || !existsSync19(path)) return null;
   try {
-    return JSON.parse(readFileSync18(path, "utf8"));
+    return JSON.parse(readFileSync21(path, "utf8"));
   } catch {
     return null;
   }
@@ -27577,8 +28762,8 @@ function formatSync(r) {
 }
 
 // src/init.ts
-import { mkdirSync as mkdirSync6, writeFileSync as writeFileSync8 } from "fs";
-import { dirname as dirname7, join as join31 } from "path";
+import { mkdirSync as mkdirSync7, writeFileSync as writeFileSync9 } from "fs";
+import { dirname as dirname7, join as join35 } from "path";
 function buildBaseline(report) {
   const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
   return { schemaVersion: 1, from: report.from, to: report.to, accepted };
@@ -27590,24 +28775,24 @@ function init2(opts) {
   const written = [];
   const notes = [];
   if (opts.baseline) {
-    const path = join31(opts.out, "baseline.json");
-    mkdirSync6(dirname7(path), { recursive: true });
-    writeFileSync8(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
+    const path = join35(opts.out, "baseline.json");
+    mkdirSync7(dirname7(path), { recursive: true });
+    writeFileSync9(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
     written.push(path);
     notes.push(
       `froze ${opts.baseline.gates.reduce((n, g) => n + g.count, 0)} existing finding(s) \u2014 from here only new ones block`
     );
   }
   if (opts.ci) {
-    const path = join31(opts.repo, ".github/workflows/ultrai18n.yml");
-    mkdirSync6(dirname7(path), { recursive: true });
-    writeFileSync8(path, WORKFLOW);
+    const path = join35(opts.repo, ".github/workflows/ultrai18n.yml");
+    mkdirSync7(dirname7(path), { recursive: true });
+    writeFileSync9(path, WORKFLOW);
     written.push(path);
   }
   if (opts.hook) {
-    const path = join31(opts.repo, ".git/hooks/pre-commit");
-    mkdirSync6(dirname7(path), { recursive: true });
-    writeFileSync8(path, HOOK, { mode: 493 });
+    const path = join35(opts.repo, ".git/hooks/pre-commit");
+    mkdirSync7(dirname7(path), { recursive: true });
+    writeFileSync9(path, HOOK, { mode: 493 });
     written.push(path);
     notes.push("a local hook is bypassable and does not see other people's commits; --ci is the durable guard");
   }
@@ -27660,7 +28845,7 @@ node "$ENGINE" check --repo . || {
 `;
 
 // src/cli.ts
-import { existsSync as existsSync16 } from "fs";
+import { existsSync as existsSync20 } from "fs";
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
 Usage:
@@ -27672,10 +28857,12 @@ Usage:
   ultrai18n adjudicate [--out <dir>] [--batch <n>]
   ultrai18n plan       [--out <dir>] [--mode audit|swap|i18n|sync] [--json]
   ultrai18n translate  [--backend <k>] [--translator '<cmd>'] [--apply "<glob>"] [--json]
+                       [--provider <id>] [--model <name>] [--endpoint <url>] [--key-env <VAR>]
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
   ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
+  ultrai18n dialects   [--explain <file>] [--check] [--propose] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
   ultrai18n orchestrate [--phase <name>] [--eco] [--list]
@@ -27692,6 +28879,25 @@ Commands:
               forms it actually has. Exits 1 when one is short \u2014 that is a wrong
               string rendering today, not a missing translation.
 
+  dialects    How this repository spells its plurals: the shipped catalog plus
+              anything \`.ultrai18n/dialects.json\` declares, with the manifest
+              line supporting each. \`--propose\` writes the sites no dialect
+              claimed, for an agent to declare; \`--check\` validates what it
+              wrote, and rejects a row that cites nothing, claims nothing, or
+              re-reads a family that already worked.
+
+Translation backend (everything is overridable; --flag beats ULTRAI18N_* env
+beats .ultrai18n/config.json beats the provider preset):
+  --provider     anthropic | openai | openai-compatible  (default: anthropic)
+  --model        Defaults to the provider's SMALL tier \u2014 that is the whole point:
+                 eight short strings and a one-page contract per batch is not
+                 work a frontier model does better.
+  --endpoint     Any URL. With --provider openai-compatible this reaches Ollama,
+                 vLLM, LM Studio or a company gateway.
+  --key-env      Name of the environment variable holding the key. A localhost
+                 endpoint may have none.
+  --max-tokens   Response cap (default 4096)
+
 Options:
   --repo <dir>   Repository root (default: cwd)
   --out <dir>    Run directory (default: <repo>/.ultrai18n)
@@ -27704,6 +28910,7 @@ Exit codes:
   2  usage error, or an orchestrate phase is not ready
 `;
 var COMMANDS = /* @__PURE__ */ new Set([
+  "dialects",
   "scan",
   "census",
   "sites",
@@ -27745,7 +28952,12 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "phase",
   "sample-rate",
   "translator-timeout",
-  "config"
+  "config",
+  "provider",
+  "model",
+  "endpoint",
+  "key-env",
+  "max-tokens"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "json",
@@ -27768,7 +28980,9 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "strict",
   "help",
   "no-ast",
-  "no-recover"
+  "no-recover",
+  "propose",
+  "check"
 ]);
 function fail(msg) {
   process.stderr.write(`ultrai18n: ${msg}
@@ -27870,26 +29084,26 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
         to: String(p.flags.to ?? "en"),
         noAst: p.flags["no-ast"] === true
       });
-      mkdirSync7(out2, { recursive: true });
-      writeFileSync9(join33(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      mkdirSync8(out2, { recursive: true });
+      writeFileSync10(join36(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         process.stdout.write(formatScan(inv) + "\n");
         process.stderr.write(`
-wrote ${join33(out2, "inventory.json")}
+wrote ${join36(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -27903,7 +29117,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -27918,16 +29132,29 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       }
       const backend = String(p.flags.backend ?? (p.flags.translator ? "cli" : "subagent"));
       if (backend === "api") {
+        const overrides = {
+          ...p.flags.provider ? { provider: String(p.flags.provider) } : {},
+          ...p.flags.model ? { model: String(p.flags.model) } : {},
+          ...p.flags.endpoint ? { endpoint: String(p.flags.endpoint) } : {},
+          ...p.flags["key-env"] ? { keyEnv: String(p.flags["key-env"]) } : {},
+          ...p.flags["max-tokens"] ? { maxTokens: Number(p.flags["max-tokens"]) } : {}
+        };
+        const resolved = resolveProvider(repo, overrides, p.flags.config ? String(p.flags.config) : void 0);
+        if (!json) process.stderr.write(formatProviders(resolved) + "\n\n");
         const outcome2 = await cmdTranslateApi({
           out: out2,
           backend,
           repo,
+          resolved,
           ...p.flags["translator-timeout"] ? { timeoutMs: Number(p.flags["translator-timeout"]) * 1e3 } : {}
         });
-        process.stdout.write(`ultrai18n translate: backend api, ${outcome2.batches} batch(es)
+        if (json) process.stdout.write(JSON.stringify(outcome2, null, 2) + "\n");
+        else {
+          process.stdout.write(`ultrai18n translate: backend api, ${outcome2.batches} batch(es)
 `);
-        for (const w of outcome2.wrote) process.stdout.write(`  wrote ${w}
+          for (const w of outcome2.wrote) process.stdout.write(`  wrote ${w}
 `);
+        }
         return;
       }
       const outcome = cmdTranslate({
@@ -27949,7 +29176,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, p.flags.write === true, p.flags["no-recover"] !== true);
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatApply(report) + "\n");
@@ -27957,8 +29184,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
-      const todoPath = join33(out2, "VERIFY.todo.json");
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const todoPath = join36(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
@@ -27967,7 +29194,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         );
         const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
         const result = applyVerdicts({ todo: todo2, verdicts: list });
-        writeJson(join33(out2, "VERIFY.json"), result);
+        writeJson(join36(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else {
           process.stdout.write(
@@ -27989,7 +29216,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
       });
       writeJson(todoPath, todo);
-      writeFileSync9(join33(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      writeFileSync10(join36(out2, "VERIFY.md"), formatVerifyTodo(todo));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
@@ -28002,7 +29229,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const engine = resolve3(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
@@ -28038,8 +29265,53 @@ join:     ${emitted.join}
       }
       return;
     }
+    case "dialects": {
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      if (p.flags.check === true) {
+        const problems2 = runCheck(repo, inventory);
+        if (json) process.stdout.write(JSON.stringify({ problems: problems2, ok: problems2.length === 0 }, null, 2) + "\n");
+        else process.stdout.write(formatProblems(problems2) + "\n");
+        if (problems2.length) process.exitCode = 1;
+        return;
+      }
+      if (p.flags.propose === true) {
+        const todo = buildTodo(repo, inventory);
+        const paths = writeTodo(out2, todo);
+        if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
+        else process.stdout.write(formatTodo(todo, paths) + "\n");
+        return;
+      }
+      const explain = p.flags.explain;
+      if (typeof explain === "string") {
+        const applicable = explainFile(repo, inventory, explain);
+        if (json) process.stdout.write(JSON.stringify({ file: explain, dialects: applicable }, null, 2) + "\n");
+        else {
+          process.stdout.write(`ultrai18n dialects \u2014 what applies to ${explain}
+
+`);
+          if (applicable.length === 0) process.stdout.write("  none\n");
+          for (const a of applicable) {
+            process.stdout.write(`  ${a.dialect.id}
+      ${a.reason}
+      ${a.dialect.docs}
+`);
+          }
+        }
+        return;
+      }
+      const views = viewDialects(repo, inventory);
+      const problems = runCheck(repo, inventory);
+      if (json) process.stdout.write(JSON.stringify({ dialects: views, problems }, null, 2) + "\n");
+      else {
+        process.stdout.write(formatDialects(views) + "\n");
+        if (problems.length) process.stdout.write("\n" + formatProblems(problems) + "\n");
+      }
+      if (problems.length) process.exitCode = 1;
+      return;
+    }
     case "plurals": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const families = inventory.plurals ?? [];
       const incomplete = families.filter((f) => f.missing.length || f.extra.length);
@@ -28050,7 +29322,14 @@ join:     ${emitted.join}
               repo,
               targetLanguage: inventory.targetLanguage,
               tier: pluralTier(),
-              shapes: PLURAL_SHAPES,
+              dialects: ordered(DIALECTS).map((d) => ({
+                id: d.id,
+                title: d.title,
+                docs: d.docs,
+                primitive: d.primitive,
+                shape: d.shape,
+                cldr: d.cldr
+              })),
               families,
               incomplete: incomplete.map((f) => f.id),
               ok: incomplete.length === 0
@@ -28066,13 +29345,13 @@ join:     ${emitted.join}
       return;
     }
     case "sync": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
         inventory,
         ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
-        statePath: join33(out2, "catalog-state.json")
+        statePath: join36(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else process.stdout.write(formatSync(report) + "\n");
@@ -28080,9 +29359,9 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const report = check({ repo, inventory, exceptions: readExceptions(join33(out2, "exceptions.json")) });
+      const report = check({ repo, inventory, exceptions: readExceptions(join36(out2, "exceptions.json")) });
       const result = init2({
         repo,
         out: out2,
@@ -28101,26 +29380,29 @@ join:     ${emitted.join}
       return;
     }
     case "check": {
-      const out2 = resolve3(String(p.flags.out ?? join33(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join33(out2, "exceptions.json"));
-      const baselinePath = join33(out2, "baseline.json");
-      const baseline = existsSync16(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
+      const exceptions = readExceptions(join36(out2, "exceptions.json"));
+      const baselinePath = join36(out2, "baseline.json");
+      const baseline = existsSync20(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({ repo, inventory, exceptions, ...baseline ? { baseline } : {} });
       if (p.flags.semantic) {
-        const todoPath = join33(out2, "VERIFY.todo.json");
-        const resultPath = join33(out2, "VERIFY.json");
+        const todoPath = join36(out2, "VERIFY.todo.json");
+        const resultPath = join36(out2, "VERIFY.json");
         const semantic = checkSemantic({
           repo,
           inventory,
-          todo: existsSync16(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
-          result: existsSync16(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
+          todo: existsSync20(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
+          result: existsSync20(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
         });
         if (!semantic.ok) {
           report.ok = false;
           report.exitCode = 1;
           report.gates.push({
-            id: "G6",
+            // G8, not G6. Two gates sharing an id made `fingerprint()` collide
+            // across them, so baselining a coherence finding silently baselined
+            // a semantic one with the same site and message, and vice versa.
+            id: "G8",
             name: "semantic",
             ok: false,
             count: semantic.findings.length,

@@ -1,0 +1,17 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "task_count" : {
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : { "stringUnit" : { "value" : "One task remaining" } },
+              "other" : { "stringUnit" : { "value" : "%lld tasks remaining" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}

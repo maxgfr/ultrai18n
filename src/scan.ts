@@ -5,6 +5,7 @@
 // cannot be answered while still reading the repo. Classifying as we go would
 // make a site's verdict depend on file order, and a verdict that depends on
 // file order is not a verdict.
+import { existsSync, readFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
 import { walk, type WalkedFile } from './vendor/walk'
 import { readTextEx, OffsetMap } from './vendor/text'
@@ -23,11 +24,17 @@ import { classify } from './classify'
 import { detect } from './lang/detect'
 import { matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
-import { assembleFamilies, pluralTier, type PluralFamily } from './plural'
+import { assembleFamilies, mergeDialects, pluralTier, type PluralDialect, type PluralFamily } from './plural'
+import { evidenceFor, gatherEvidence } from './plural/dialect/evidence'
+import { compileDialect } from './plural/dialect/check'
+import { suspectPlurals, unclaimedSuspicions } from './plural/suspect'
 import type { Advisory, CensusEntry, Inventory, Site } from './types'
 import { gitLsFiles } from './census'
 
-const JSON_EXT = new Set(['.json', '.jsonc', '.json5', '.webmanifest', '.arb'])
+// `.xcstrings` is JSON with an Apple extension. Without it here the file sweeps,
+// its structure is lost, and a String Catalog's `variations/plural` — the one
+// thing in it worth finding — is unreachable by any path-based rule.
+const JSON_EXT = new Set(['.json', '.jsonc', '.json5', '.webmanifest', '.arb', '.xcstrings'])
 const YAML_EXT = new Set(['.yml', '.yaml'])
 const MARKDOWN_EXT = new Set(['.md', '.mdx', '.markdown'])
 const CSS_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl'])
@@ -43,6 +50,8 @@ export interface ScanOptions {
   noAst?: boolean
   /** Where plural declarations live. Defaults to `<repo>/.ultrai18n/plurals.json`. */
   pluralSidecar?: string
+  /** Where project dialects live. Defaults to `<repo>/.ultrai18n/dialects.json`. */
+  dialectsPath?: string
 }
 
 interface FileResult {
@@ -111,12 +120,26 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   // Pass 3 — plural families, which are cross-site by nature: `item_one` and
   // `item_other` are one unit of work living at two sites, and neither of them
   // means anything on its own.
+  // Evidence is gathered before the dialects run, so a `declared`-strength row
+  // whose dependency is absent never claims anything.
+  const evidence = gatherEvidence(repo, tracked, sites)
+  const project = readProjectDialects(opts.dialectsPath ?? join(repo, '.ultrai18n', 'dialects.json'))
+  const catalog = mergeDialects(project)
+  const inert = new Set(catalog.filter((d) => !evidenceFor(d, evidence).applies).map((d) => d.id))
+
   const plurals = attachPlurals(sites, {
     repo,
     to,
     from,
+    dialects: project,
+    inert,
     ...(opts.pluralSidecar !== undefined ? { sidecarPath: opts.pluralSidecar } : {}),
   })
+
+  // What LOOKS like a plural and no dialect claimed. Reported on the inventory
+  // so `plurals`, `dialects --propose` and the gate all read one list.
+  const claimedSiteIds = new Set(plurals.flatMap((f) => f.sites))
+  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds)
 
   return {
     schemaVersion: 1,
@@ -146,6 +169,30 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
     limits: LIMITS,
     recallClaim: 'full',
     plurals,
+    pluralResidual,
+  }
+}
+
+/**
+ * Project dialects, when the repository declares any.
+ *
+ * Regexes arrive as strings and are compiled here rather than by the caller, so
+ * a row whose pattern does not compile is a `dialects --check` failure and never
+ * a crash in the middle of a scan.
+ */
+export function readProjectDialects(path: string): PluralDialect[] {
+  if (!existsSync(path)) return []
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { dialects?: unknown[] }
+    return (parsed.dialects ?? []).flatMap((d) => {
+      const compiled = compileDialect(d)
+      return compiled ? [compiled] : []
+    })
+  } catch {
+    // A malformed file is reported by `dialects --check`, whose job that is.
+    // Failing the scan here would make a typo in an optional file look like a
+    // broken engine.
+    return []
   }
 }
 
@@ -217,7 +264,14 @@ export function isBundleFile(file: string): boolean {
 
 function attachPlurals(
   sites: Site[],
-  opts: { repo: string; to: string; from: string | null; sidecarPath?: string },
+  opts: {
+    repo: string
+    to: string
+    from: string | null
+    sidecarPath?: string
+    dialects?: PluralDialect[]
+    inert?: Set<string>
+  },
 ): PluralFamily[] {
   const sidecar = opts.sidecarPath ?? join(opts.repo, '.ultrai18n', 'plurals.json')
   const { families, memberSites, pragmaSites } = assembleFamilies({
@@ -227,6 +281,8 @@ function attachPlurals(
     fileLocale,
     isBundle: isBundleFile,
     sidecarPath: sidecar,
+    ...(opts.dialects ? { dialects: opts.dialects } : {}),
+    ...(opts.inert ? { inert: opts.inert } : {}),
   })
 
   const byId = new Map(sites.map((s) => [s.id, s]))

@@ -47,7 +47,11 @@ describe('the gates', () => {
   it('holds every gate open rather than stopping at the first failure', () => {
     // Fixing one failure should not mean discovering the next one run later.
     //
-    expect(report.gates).toHaveLength(6)
+    // Pinned on IDENTITY rather than on a count. A number here fails on every
+    // added gate while telling nobody which one, and this file's own sibling
+    // warns against exactly that: "the assertions are about BEHAVIOUR, never
+    // about totals". The property worth keeping is that all of them ran.
+    expect(report.gates.map((g) => g.id)).toEqual(['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7'])
     expect(report.gates.every((g) => typeof g.count === 'number')).toBe(true)
   })
 

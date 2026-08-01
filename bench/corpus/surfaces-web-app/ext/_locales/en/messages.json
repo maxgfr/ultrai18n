@@ -1,0 +1,4 @@
+{
+  "appName": { "message": "Atelier pour le navigateur", "description": "Nom affiché dans la boutique" },
+  "openAction": { "message": "Ouvrir l'atelier" }
+}

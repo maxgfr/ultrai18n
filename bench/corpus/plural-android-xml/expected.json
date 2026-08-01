@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 1,
+  "case": "plural-android-xml",
+  "title": "Android <plurals>, and a Russian catalog rendering the wrong string today",
+  "scan": { "from": "en", "to": "ru" },
+
+  "gates": {
+    "G1": "pass",
+    "G2": "pass",
+    "G3": "any",
+    "G4": "any",
+    "G5": "pass",
+    "G6": "fail",
+    "G7": "pass"
+  },
+
+  "census": [
+    { "file": "res/values/strings.xml", "bucket": "scanned", "extractor": "html", "why": "XML routes to the markup extractor, which is what gives `<item quantity>` a structural path a dialect can read." },
+    { "file": "res/values-ru/strings.xml", "bucket": "scanned", "extractor": "html", "why": "The translated catalog, whose locale comes from its DIRECTORY rather than from its name." }
+  ],
+
+  "expectations": [
+    {
+      "id": "plural.one",
+      "file": "res/values/strings.xml",
+      "find": "<item quantity=\"one\">One task remaining</item>",
+      "expect": { "verdict": "translate", "rule": "android.strings-xml" },
+      "why": "A form of a family, not a string on its own. Its verdict is the easy part; being grouped with its sibling is the point."
+    },
+    {
+      "id": "plural.other",
+      "file": "res/values/strings.xml",
+      "find": "<item quantity=\"other\">%d tasks remaining</item>",
+      "expect": { "verdict": "translate", "rule": "android.strings-xml" },
+      "why": "The second form. Together these two are one unit of work, and neither means anything alone."
+    },
+    {
+      "id": "translatable-false",
+      "file": "res/values/strings.xml",
+      "find": "translatable=\"false\">https://api.example.com",
+      "expect": { "verdict": "do-not-translate", "reason": "explicitly-marked", "hard": true },
+      "mustNotClaim": true,
+      "why": "A platform-native, machine-readable exception, and the catalog rule for this file says out loud that it must win over any heuristic. It did not: the file-level rule marked every string here translatable, so a URL somebody had deliberately fenced off came back `translate`. Checked before the rules now, and `hard`, so no agent verdict can undo it."
+    },
+    {
+      "id": "ordinary-string",
+      "file": "res/values/strings.xml",
+      "find": "<string name=\"publish_action\">Publier</string>",
+      "expect": { "verdict": "translate", "rule": "android.strings-xml" },
+      "why": "An ordinary resource string in the same file, so the case shows the rule working rather than only refusing."
+    },
+    {
+      "id": "ru.plural.one",
+      "file": "res/values-ru/strings.xml",
+      "find": "Осталась %d задача",
+      "expect": { "verdict": "translate" },
+      "why": "Already Russian, and still found: `plurals` measures a catalog against ITS OWN locale, which needs the forms read whatever language they are in."
+    }
+  ],
+
+  "plurals": [
+    {
+      "anchor": "res/values/strings.xml#plurals[task_count]",
+      "categories": ["one", "other"],
+      "locale": "en",
+      "missing": [],
+      "writeMode": "code-edit",
+      "why": "English selects two, and this has two. Complete. `code-edit` because adding an `<item quantity>` element is a markup edit, and the engine will not write XML it did not parse structurally."
+    },
+    {
+      "anchor": "res/values-ru/strings.xml#plurals[task_count]",
+      "categories": ["one", "other"],
+      "locale": "ru",
+      "missing": ["few", "many"],
+      "why": "The most valuable thing this whole tool produces. Russian selects four categories and this catalog has two, so the application renders the WRONG STRING for 2, 3 and 4 — today, in production, with nothing translated and no target language involved. The locale comes from the directory name, `values-ru`, which is Android's own convention and not a filename this tool invented."
+    }
+  ],
+
+  "knownGaps": [
+    "`<string-array>` items are not read as a family and should not be — an array of weekday initials is calendar vocabulary, not a plural. They currently come back as ordinary translatable strings with no signal that reordering them breaks the calendar."
+  ]
+}

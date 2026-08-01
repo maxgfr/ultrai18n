@@ -38,6 +38,8 @@ const EXCEPTION_REASONS = new Set([
   'vendored-legal', 'code-token', 'numeric-or-symbolic', 'already-target-language',
   'interpolation', 'explicitly-marked', 'proper-noun', 'escaping-fixture',
   'genuinely-source-language',
+  // For G7: a site that looks plural-shaped and genuinely is not.
+  'not-a-plural',
 ])
 
 export interface Finding {
@@ -49,7 +51,7 @@ export interface Finding {
 }
 
 export interface Gate {
-  id: 'G1' | 'G2' | 'G3' | 'G4' | 'G5' | 'G6'
+  id: 'G1' | 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G8'
   name: string
   ok: boolean
   count: number
@@ -88,6 +90,7 @@ export function check(opts: CheckOptions): CheckReport {
     gateSourceLanguage(inventory, excused, minConfidence),
     gateExceptions(inventory, exceptions),
     gateCoherence(inventory, repo),
+    gatePluralsClaimed(inventory, excused),
   ]
 
   if (opts.baseline) {
@@ -213,6 +216,53 @@ function gateExceptions(inv: Inventory, exceptions: Exceptions): Gate {
  * the result is still broken — which is precisely what a per-site tool cannot
  * see.
  */
+/**
+ * G7 — every plural-shaped site is claimed by some dialect.
+ *
+ * The semantic twin of this gate is G2, not G6. G6 exists for states where each
+ * individual site is correct and the REPOSITORY is not; this is not that. It is
+ * "the engine looked, saw something plural-shaped, and could not account for it"
+ * — G2's proposition one level up. G2 says no BYTE went unaccounted for; G7 says
+ * no plural ARRANGEMENT did.
+ *
+ * Keeping them apart buys something concrete for anyone reading `check --json`:
+ * G6's `plural-incomplete` means "your repository has a rendering bug", and G7
+ * means "my engine does not understand your repository". Those are the user's
+ * problem and the tool's problem respectively, and merging them is exactly the
+ * kind of quiet conflation this codebase is built against.
+ *
+ * It is also what makes the dialect catalog CHECKABLE rather than merely
+ * extensible. `dialects --propose` hands an agent this list; the loop ends when
+ * the list is empty.
+ */
+function gatePluralsClaimed(inv: Inventory, excused: Map<string, Exception>): Gate {
+  const findings: Finding[] = []
+  for (const suspicion of inv.pluralResidual ?? []) {
+    if (excused.has(suspicion.siteKey)) continue
+    findings.push({
+      file: suspicion.file,
+      line: suspicion.line,
+      siteKey: suspicion.siteKey,
+      kind: 'plural-unclaimed',
+      message:
+        `looks like a plural (${suspicion.signals.join(', ')}) and no dialect claimed it: ` +
+        `${JSON.stringify(clipValue(suspicion.value))}`,
+    })
+  }
+  return {
+    id: 'G7',
+    name: 'plurals-claimed',
+    ok: findings.length === 0,
+    count: findings.length,
+    findings,
+  }
+}
+
+function clipValue(value: string): string {
+  const flat = value.replace(/\s+/g, ' ').trim()
+  return flat.length > 60 ? flat.slice(0, 59) + '\u2026' : flat
+}
+
 function gateCoherence(inv: Inventory, repo: string): Gate {
   const findings: Finding[] = []
 

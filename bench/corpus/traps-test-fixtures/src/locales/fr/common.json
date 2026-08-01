@@ -1,0 +1,6 @@
+{
+  "cart": {
+    "empty": "Votre panier est vide",
+    "checkout": "Passer la commande"
+  }
+}

@@ -1,0 +1,20 @@
+name: Signaler une anomalie
+description: Quelque chose ne fonctionne pas comme prévu
+title: "[Bug] "
+labels: [bug, triage]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Que s'est-il passé ?
+      description: Décrivez ce que vous attendiez et ce qui est arrivé.
+      placeholder: En cliquant sur Publier, rien ne se passe.
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Navigateur
+      options:
+        - Firefox
+        - Chrome

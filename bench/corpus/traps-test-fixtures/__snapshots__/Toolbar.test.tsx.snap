@@ -1,0 +1,7 @@
+// Vitest Snapshot v1
+
+exports[`Toolbar > renders the idle state 1`] = `
+"<div class=\\"toolbar toolbar--compact\\" role=\\"toolbar\\">
+  <span aria-live=\\"polite\\">Toutes les modifications sont enregistrées</span>
+</div>"
+`;

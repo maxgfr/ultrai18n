@@ -24,6 +24,16 @@ import type { PluralForm } from './shapes'
 
 export const PRAGMA = /(^|\s)ultrai18n:plural\b/
 
+/**
+ * How a declared family is written back.
+ *
+ *  - `auto` — decided by the FORMAT, not by the fact that somebody declared it.
+ *    A declaration landing on a JSON or YAML scalar can be inserted; one landing
+ *    inside an expression cannot.
+ *  - anything else — said explicitly, and taken at its word.
+ */
+export type DeclaredWrite = 'auto' | 'insert' | 'replace' | 'code-edit'
+
 export interface AnnotatedFamily {
   /** The site the annotation applies to. */
   siteKey: string
@@ -31,6 +41,18 @@ export interface AnnotatedFamily {
   file: string
   /** The counting expression, when given. Reported, never evaluated. */
   count: string | null
+  /** Default `auto`. */
+  write: DeclaredWrite
+  /** `insert` only: how to spell a new key. `{category}` is the form. */
+  keyTemplate: string | null
+  /**
+   * Which form the annotated site ALREADY IS.
+   *
+   * Not optional in practice. If a declaration supplies `one` and `other` for a
+   * site that is one JSON scalar, insertion has to know which of the two the
+   * site holds in order to rewrite it in place and insert only the rest.
+   */
+  ownCategory: Category | null
   /**
    * Source forms, when the annotation spells them out. Empty when it only
    * declares the site a plural — then the site's own value is the single form
@@ -71,12 +93,18 @@ export function readPragmas(sites: Site[]): AnnotatedFamily[] {
       const target = ordered.slice(i + 1).find((s) => s.kind !== 'comment' && s.kind !== 'key')
       if (!target) continue
 
+      // No parser change is needed for the three new fields: `parseFields` has
+      // always read arbitrary `k=v`, so `write=insert keyTemplate=item_{category}`
+      // works the day the reader below understands it.
       const fields = parseFields(comment.value)
       out.push({
         siteKey: target.siteKey,
         siteId: target.id,
         file,
         count: fields.count ?? null,
+        write: writeFrom(fields.write),
+        keyTemplate: fields.keyTemplate ?? null,
+        ownCategory: isCategory(fields.category ?? '') ? (fields.category as Category) : null,
         forms: formsFrom(fields, target.id),
         categories: categoriesFrom(fields.categories),
         pragmaSiteId: comment.id,
@@ -100,6 +128,12 @@ export interface PluralSidecar {
     count?: string
     categories?: string[]
     forms?: Record<string, string>
+    /** Default `auto` — decided by the format. See `DeclaredWrite`. */
+    write?: DeclaredWrite
+    /** `insert` only. `{category}` is the form. Derived from the siteKey if absent. */
+    keyTemplate?: string
+    /** Which form this site already is. Read off the path when absent. */
+    category?: string
   }[]
 }
 
@@ -129,6 +163,9 @@ export function readSidecar(path: string, sites: Site[]): AnnotatedFamily[] {
       siteId: site.id,
       file: site.file,
       count: entry.count ?? null,
+      write: writeFrom(entry.write),
+      keyTemplate: entry.keyTemplate ?? null,
+      ownCategory: isCategory(entry.category ?? '') ? (entry.category as Category) : null,
       forms: sortForms(forms),
       categories: categoriesFrom(entry.categories?.join(',')),
       pragmaSiteId: null,
@@ -177,6 +214,13 @@ function formsFrom(fields: Record<string, string>, siteId: string): PluralForm[]
     forms.push({ category: key, selector: key, siteId, value })
   }
   return sortForms(forms)
+}
+
+const WRITE_MODES = new Set<DeclaredWrite>(['auto', 'insert', 'replace', 'code-edit'])
+
+/** An unrecognised value falls back to `auto` rather than being obeyed blindly. */
+function writeFrom(spec: string | undefined): DeclaredWrite {
+  return spec && WRITE_MODES.has(spec as DeclaredWrite) ? (spec as DeclaredWrite) : 'auto'
 }
 
 function categoriesFrom(spec: string | undefined): Category[] | null {

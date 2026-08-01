@@ -165,9 +165,30 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
         from + body.length,
         body,
         null,
-        { isKey: false, element: enclosing },
+        {
+          isKey: false,
+          element: enclosing,
+          ...(declaredUntranslatable() ? { untranslatable: true } : {}),
+        },
       )
     }
+  }
+
+  /**
+   * Does the enclosing element — or its parent — say this must not be translated?
+   *
+   * `<string translatable="false">` is Android's own machine-readable exception,
+   * and the catalog rule for `strings.xml` says out loud that it must win over
+   * any heuristic. It could not: the file-level rule marks every string in the
+   * resource translatable, and the attribute never reached the site. The parent
+   * is checked too, because `<string-array translatable="false">` marks its
+   * items rather than itself.
+   */
+  function declaredUntranslatable(): boolean {
+    for (const frame of openStack.slice(-2)) {
+      if (frame.attrs.translatable === 'false') return true
+    }
+    return false
   }
 
   /**

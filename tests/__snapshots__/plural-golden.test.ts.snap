@@ -1,0 +1,141 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`detectFamilies, pinned > produces exactly this, family for family and form for form 1`] = `
+[
+  {
+    "base": "/en/tasks/count",
+    "exact": [],
+    "file": "config/locales/en.yml",
+    "forms": [
+      "one[one]=One task is due today",
+      "other[other]=%{count} tasks are due today",
+    ],
+    "ordinal": false,
+    "shape": "sibling-object",
+    "siteCount": 2,
+  },
+  {
+    "base": "plurals[task_count]",
+    "exact": [],
+    "file": "res/values/strings.xml",
+    "forms": [
+      "one[quantity="one"]=One task remaining",
+      "other[quantity="other"]=%d tasks remaining",
+    ],
+    "ordinal": false,
+    "shape": "attr-quantity",
+    "siteCount": 2,
+  },
+  {
+    "base": "/cars",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "zero[[0]]=no cars available",
+      "one[[1]]=one car available",
+      "other[[2]]={count} cars available",
+    ],
+    "ordinal": false,
+    "shape": "delimited",
+    "siteCount": 1,
+  },
+  {
+    "base": "/cart/item",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "one[_one]={{count}} item",
+      "other[_other]={{count}} items",
+    ],
+    "ordinal": false,
+    "shape": "key-suffix",
+    "siteCount": 2,
+  },
+  {
+    "base": "/inbox",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "one[one]=# unread message",
+      "other[other]=# unread messages",
+    ],
+    "ordinal": false,
+    "shape": "inline-select",
+    "siteCount": 1,
+  },
+  {
+    "base": "/invite",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "one[_ordinal_one]=This is your {{count}}st invitation",
+      "other[_ordinal_other]=This is your {{count}}th invitation",
+    ],
+    "ordinal": true,
+    "shape": "key-suffix",
+    "siteCount": 2,
+  },
+  {
+    "base": "/notice",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "one[_one]=One notice is waiting for you",
+      "few[_few]=A few notices are waiting for you",
+      "other[_other]={{count}} notices are waiting for you",
+    ],
+    "ordinal": false,
+    "shape": "key-suffix",
+    "siteCount": 3,
+  },
+  {
+    "base": "/place",
+    "exact": [],
+    "file": "src/locales/en/common.json",
+    "forms": [
+      "one[one]=#st",
+      "two[two]=#nd",
+      "few[few]=#rd",
+      "other[other]=#th",
+    ],
+    "ordinal": true,
+    "shape": "inline-select",
+    "siteCount": 1,
+  },
+  {
+    "base": "/cart/item",
+    "exact": [],
+    "file": "src/locales/ja/common.json",
+    "forms": [
+      "other[_other]={{count}}件",
+    ],
+    "ordinal": false,
+    "shape": "key-suffix",
+    "siteCount": 1,
+  },
+  {
+    "base": "/cart/item",
+    "exact": [],
+    "file": "src/locales/ru/common.json",
+    "forms": [
+      "one[_one]={{count}} товар",
+      "other[_other]={{count}} товаров",
+    ],
+    "ordinal": false,
+    "shape": "key-suffix",
+    "siteCount": 2,
+  },
+  {
+    "base": "/inbox",
+    "exact": [],
+    "file": "src/locales/ru/common.json",
+    "forms": [
+      "one[one]=# непрочитанное сообщение",
+      "other[other]=# непрочитанных сообщений",
+    ],
+    "ordinal": false,
+    "shape": "inline-select",
+    "siteCount": 1,
+  },
+]
+`;

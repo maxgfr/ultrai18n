@@ -1,0 +1,10 @@
+{
+  "name": "atelier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Un atelier de publication pour petites équipes",
+  "main": "src/protocol.ts",
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

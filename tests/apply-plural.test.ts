@@ -143,7 +143,7 @@ describe('refusals', () => {
   it('refuses an anchor that is not in the inventory', () => {
     const report = apply({
       repo,
-      inventory: { schemaVersion: 1, repo, sourceLanguage: 'en', targetLanguage: 'ru', sites: [], census: [], advisories: [], limits: [], recallClaim: 'full', plurals: [] },
+      inventory: { schemaVersion: 1, repo, sourceLanguage: 'en', targetLanguage: 'ru', sites: [], census: [], advisories: [], limits: [], recallClaim: 'full', plurals: [], pluralResidual: [] },
       translations: [],
       insertions: [{ afterSiteId: 'ul_nope', key: 'few', text: 'x' }],
       write: true,

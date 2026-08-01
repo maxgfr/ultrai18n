@@ -1,0 +1,11 @@
+# The exact bytes of a corpus file ARE the test.
+#
+# Without this, git's end-of-line normalisation rewrites `assets/crlf.md` to LF
+# on checkout and the case silently stops testing anything — on every machine
+# except the one that wrote it. The same normalisation, and the same silence,
+# threatens every BOM, UTF-16 and binary fixture here.
+#
+# `-text` means: never guess, never convert, store and restore these byte for
+# byte. It is the right default for a corpus, where a fixture that arrives
+# subtly different is worse than one that fails to arrive at all.
+* -text

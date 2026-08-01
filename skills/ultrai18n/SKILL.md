@@ -52,7 +52,12 @@ to fake; and a model does nothing but translate strings it is handed.
    per *site*, not per string. Both roles are legitimate; one of them has to be renamed.
 5. **You want the language surface explained for one file** — `catalog --explain <file>` prints
    every rule that applies and why.
-6. **Plurals** — run `plurals`. It exits 1 when a family lacks a form its own locale selects, which
+6. **The engine does not understand an arrangement** — G7 names what is plural-shaped and unclaimed.
+   Run `dialects --propose`, dispatch one agent on the contract it writes, then `dialects --check`
+   and `scan` again. The declaration is data: it is cached, re-runnable, and costs one row per
+   library rather than one answer per key.
+
+7. **Plurals** — run `plurals`. It exits 1 when a family lacks a form its own locale selects, which
    is a live rendering bug and worth fixing before any translation happens. Families the engine
    cannot write mechanically land in `PLURALS.todo.json` with their forms already translated; the
    `pluralist` contract turns those into a code edit.
@@ -68,6 +73,9 @@ to fake; and a model does nothing but translate strings it is handed.
 - `verify [--apply <verdicts.json>]` — adversarial review of what actually shipped.
 - `check [--semantic] [--new-only]` — the six gates. Exit 1 on any failure.
 - `plurals` — every plural family, what its locale selects, what it has. Exit 1 when one is short.
+- `dialects [--explain <file>] [--check] [--propose]` — how this repository spells its plurals, with
+  the manifest line supporting each. `--propose` writes the unclaimed sites for an agent; `--check`
+  validates what it wrote. Exit 1 on any problem.
 - `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
 - `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
 - `init --ci --baseline` — freeze today, so only new regressions block a pull request.
@@ -85,20 +93,30 @@ most string extractors miss entirely), Vue, Svelte and Astro single-file compone
 and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework interpolation
 (`{{ msg }}`, `{msg}`, `${x}`) becomes a placeholder the translator may reorder but may not drop.
 
-**Plurals are read by arrangement, not by library.** Five shapes, and no dependency on any i18n
-runtime: the category appended to a key (`item_one` — i18next, Rails, anything hand-rolled), the
-categories as sibling keys (`item: { one, other }`), an ICU argument
-(`{n, plural, one {…} other {…}}` — react-intl, FormatJS, ARB), a quantity attribute
-(Android `<plurals>`), and pipe-separated positional forms (vue-i18n). Categories come from
-`Intl.PluralRules`, so any BCP-47 tag works and no language list is baked in. Anything none of that
-covers is declared in place:
+**Plurals are read by arrangement, and the arrangements are DATA.** Three mechanical primitives
+live in the engine — one form per site with the category on its anchor path, every form in one value
+split by a delimiter, and every form in one value read by a real parser. Everything else is a row in
+a catalog: `dialects` lists them, each citing the runtime's own documentation, exactly as a surface
+rule does. Categories come from `Intl.PluralRules`, so any BCP-47 tag works and no language list is
+baked in.
+
+**A dialect a repository needs and the catalog does not have is DECLARED, not coded.** `dialects
+--propose` writes what no dialect claimed, plus the repository's own evidence — its declared
+dependencies, its imports — and an agent writes `.ultrai18n/dialects.json`. `dialects --check` then
+refuses a row that cites no documentation, claims nothing in this repository, or silently re-reads a
+family that already worked. Gate **G7** fails while anything plural-shaped is unclaimed, so the loop
+ends rather than being trusted.
+
+A rule baked into an expression is still declared in place, because no catalog can read one:
 
 ```js
 // ultrai18n:plural count=n one="One item in your cart" other="{0} items in your cart"
 const label = `${n} item${n > 1 ? 's' : ''} in your cart`
 ```
 
-Formats without comments use `.ultrai18n/plurals.json`, keyed by `siteKey`.
+Formats without comments use `.ultrai18n/plurals.json`, keyed by `siteKey`. Both channels accept
+`write`, `keyTemplate` and `category`; the default is decided by the FORMAT, so a declaration landing
+on a JSON or YAML scalar is inserted like any detected family rather than deferred to a code edit.
 
 ## Scope notes
 
@@ -116,9 +134,26 @@ Formats without comments use `.ultrai18n/plurals.json`, keyed by `siteKey`.
 - **Plural limits.** New forms are written only into JSON and YAML locale bundles, as a sibling of a
   key that is already there. Android XML, `.stringsdict` and any rule living in an expression are
   reported with their translated forms and left to a code edit — a plural is a call-site decision,
-  and a tool that rewrites call sites is no longer patching bytes. gettext `msgid_plural` and Apple
-  `.stringsdict` have no reader yet: listed, not claimed. Ordinal families and vue-i18n's positional
-  forms are translated and preserved but never measured against CLDR, because neither follows it.
+  and a tool that rewrites call sites is no longer patching bytes.
+- **A dialect cannot invent a reader.** `.po`, `.stringsdict`, `.ftl` and Qt's `.ts` have no
+  extractor, so their sites do not exist and no row can claim what was never parsed. They are
+  surfaced as `unclassified` and G2 refuses to pass — listed, not claimed. gettext additionally needs
+  its `Plural-Forms:` header, a C expression this engine does not evaluate: an index there is a
+  POSITION, never `few`, which is why such a family would be `cldr: false` and never measured for
+  completeness.
+- **Evidence is presence, never usage.** `i18next` in `package.json` proves the dependency is
+  installed, not that the file in front of you is one of its bundles. Two dialects claiming one site
+  resolve by declared precedence, then by id — determinism, not correctness.
+- **`dialects --check` verifies the shape of a citation, not the citation.** No network, ever. A
+  well-formed URL to a page that does not exist passes, and the only thing between that and a shipped
+  lie is a human reading the diff.
+- **Positional and ordinal families are never measured against CLDR.** vue-i18n's pipes, Polyglot's
+  `||||` and gettext's indices answer to their own runtime, and an ordinal family answers to the
+  ordinal rule set where English has four forms and its cardinals have two.
+- **The dialectician sees strings.** Its worklist carries residual values and sibling values, because
+  an arrangement is not recognisable from a path alone. It still never opens a file and the sample is
+  bounded and deterministic, but "the model only ever sees `{id, text}`" is now true of the
+  translator rather than of every agent in the pipeline.
 - **`claimRatio` is a measurement, in bytes, on both sides.** A ratio below 1 means the extractor
   genuinely did not account for part of the file, never that the file contained an accented
   character. Anything it did not claim is swept, so the shortfall shows up as `unclassified` rather
@@ -131,6 +166,24 @@ Every command in the cheat-sheet works, plus `plurals`, `sync`, `orchestrate` an
 Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS
 and plain text through hand-written byte-indexed lexers, with a residual sweep behind them so a
 format with no extractor surfaces as `unclassified` rather than as nothing.
+
+**The model, the endpoint and the key are all configurable, and the default tier is SMALL.** Eight
+short strings and a one-page contract per batch is not work a frontier model does better, and paying
+frontier prices per batch is how a cheap operation becomes an expensive one.
+
+```sh
+ultrai18n translate --backend api                       # anthropic, claude-haiku-4-5
+ultrai18n translate --backend api --provider openai     # openai, gpt-4o-mini
+ultrai18n translate --backend api --provider openai --model <any>
+ultrai18n translate --backend api --provider openai-compatible \
+  --endpoint http://localhost:11434/v1/chat/completions --model qwen2.5:3b
+```
+
+Precedence is `--flag` > `ULTRAI18N_*` env > `.ultrai18n/config.json` > the provider preset, and the
+resolved settings are PRINTED with their source before a single request is sent. The two wire formats
+differ in where the system prompt goes, what the token cap is called and where the answer sits; the
+provider row carries all three, so pointing at an OpenAI-compatible gateway is one flag rather than a
+400 that reads like a bad key. A localhost endpoint needs no key at all.
 
 Backends: `--translator '<command>'` (batch JSON on stdin, result JSON on stdout — ollama, a Python
 script, anything), `--backend api` (direct HTTP on `fetch`, key from the environment), and

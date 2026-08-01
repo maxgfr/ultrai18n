@@ -13,6 +13,7 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import type { Group } from './plan'
 import { validate, validatePlural, rejects, type Violation } from './validate'
+import { keyRequired, readAnswer, requestBody, requestHeaders, type ResolvedProvider } from './provider'
 
 export interface BatchItem {
   id: string
@@ -328,10 +329,8 @@ export function parseResult(stdout: string, batchId: string): BatchResult | null
 }
 
 export interface ApiBackendOptions {
-  endpoint: string
-  model: string
-  keyEnv: string
-  headers?: Record<string, string>
+  /** Endpoint, model, key env, headers and wire format, already resolved. */
+  provider: ResolvedProvider
   sourceLang: string
   targetLang: string
   contract: string
@@ -346,39 +345,29 @@ export interface ApiBackendOptions {
  * backends comes out in two voices.
  */
 export async function runApiBackend(batch: Batch, opts: ApiBackendOptions): Promise<BatchResult> {
-  const key = process.env[opts.keyEnv]
-  if (!key) {
+  const key = process.env[opts.provider.keyEnv]
+  if (!key && keyRequired(opts.provider.endpoint)) {
     throw new Error(
-      `$${opts.keyEnv} is not set — set it, or use --translator '<command>', or --backend manual`,
+      `$${opts.provider.keyEnv} is not set — set it, point --endpoint at a local server, ` +
+        `or use --translator '<command>' or --backend manual`,
     )
   }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 120_000)
   try {
-    const response = await fetch(opts.endpoint, {
+    const response = await fetch(opts.provider.endpoint, {
       method: 'POST',
       signal: controller.signal,
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        authorization: `Bearer ${key}`,
-        ...opts.headers,
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        max_tokens: 4096,
-        system: opts.contract,
-        messages: [{ role: 'user', content: JSON.stringify(batch, null, 2) }],
-      }),
+      headers: requestHeaders(opts.provider, key),
+      body: JSON.stringify(requestBody(opts.provider, opts.contract, JSON.stringify(batch, null, 2))),
     })
     if (!response.ok) {
-      throw new Error(`${opts.endpoint} returned ${response.status}: ${(await response.text()).slice(0, 200)}`)
+      throw new Error(
+        `${opts.provider.endpoint} returned ${response.status} for model ${opts.provider.model}: ` +
+          `${(await response.text()).slice(0, 200)}`,
+      )
     }
-    const body = (await response.json()) as {
-      content?: { text?: string }[]
-      choices?: { message?: { content?: string } }[]
-    }
-    const text = body.content?.[0]?.text ?? body.choices?.[0]?.message?.content ?? ''
+    const text = readAnswer(opts.provider, await response.json())
     const parsed = parseResult(text, batch.batchId)
     if (!parsed) throw new Error(`batch ${batch.batchId}: the response was not the expected JSON`)
     return parsed

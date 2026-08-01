@@ -1,0 +1,5 @@
+[package]
+name = "atelier-core"
+description = "Le noyau de l'atelier, en Rust"
+keywords = ["publication", "editeur"]
+version = "1.0.0"

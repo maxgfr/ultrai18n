@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="app_name">Atelier</string>
+  <string name="publish_action">Publier</string>
+  <string name="api_base" translatable="false">https://api.example.com</string>
+  <plurals name="task_count">
+    <item quantity="one">One task remaining</item>
+    <item quantity="other">%d tasks remaining</item>
+  </plurals>
+  <string-array name="weekday_initials">
+    <item>M</item>
+    <item>T</item>
+  </string-array>
+</resources>

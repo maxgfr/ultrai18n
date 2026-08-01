@@ -13,8 +13,9 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { TRANSLATOR_CONTRACT } from './translate'
+import { DIALECTICIAN_CONTRACT } from './dialects'
 
-export type PhaseName = 'adjudicate' | 'translate' | 'review' | 'plural' | 'structural'
+export type PhaseName = 'dialect' | 'adjudicate' | 'translate' | 'review' | 'plural' | 'structural'
 
 export interface PhaseStatus {
   name: PhaseName
@@ -50,6 +51,11 @@ export function phaseStatuses(out: string): PhaseStatus[] {
   const todo = existsSync(join(out, 'VERIFY.todo.json'))
   const applied = existsSync(join(out, 'APPLY.json'))
 
+  const dialectPath = join(out, 'dialects.todo.json')
+  const dialectTodo = existsSync(dialectPath)
+    ? ((JSON.parse(readOr(dialectPath, '{"residual":[]}')) as { residual?: unknown[] }).residual ?? []).length
+    : 0
+
   const pluralPath = join(out, 'PLURALS.todo.json')
   const pluralTodo = existsSync(pluralPath)
     ? ((JSON.parse(readOr(pluralPath, '{"families":[]}')) as { families?: unknown[] }).families ?? []).length
@@ -60,6 +66,17 @@ export function phaseStatuses(out: string): PhaseStatus[] {
   const structural = plan?.structural?.length ?? 0
 
   return [
+    {
+      // First in the list on purpose: an arrangement nobody claimed is a gap in
+      // what the engine UNDERSTANDS, and every later phase reasons about a
+      // repository it has already misread.
+      name: 'dialect',
+      ready: dialectTodo > 0,
+      ...(dialectTodo > 0 ? {} : { reason: 'nothing unclaimed — run `dialects --propose` after `scan`' }),
+      worklist: dialectPath,
+      items: dialectTodo,
+      writes: true,
+    },
     {
       name: 'adjudicate',
       ready: !!plan && hazards > 0,
@@ -169,6 +186,7 @@ export function orchestrate(opts: OrchestrateOptions): Emitted {
 }
 
 const CONTRACTS: Record<PhaseName, { role: string; body: string }> = {
+  dialect: { role: 'dialectician', body: DIALECTICIAN_CONTRACT },
   translate: { role: 'translator', body: TRANSLATOR_CONTRACT },
   adjudicate: {
     role: 'adjudicator',
@@ -264,6 +282,8 @@ Return \`{siteId, file, note}\` describing what you changed and why.
 }
 
 const JOINS: Record<PhaseName, (o: OrchestrateOptions) => string> = {
+  dialect: (o) =>
+    `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}`,
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,

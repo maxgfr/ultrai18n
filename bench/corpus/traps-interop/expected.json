@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "case": "traps-interop",
+  "title": "Formats other tools depend on, and text the licence forbids rewriting",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "fail",
+    "G3": "fail",
+    "G4": "fail",
+    "G5": "pass",
+    "G6": "pass",
+    "G7": "pass"
+  },
+  "census": [
+    {
+      "file": "exports/abonnés.csv",
+      "bucket": "scanned",
+      "extractor": "residual-sweep",
+      "reason": "no extractor for .csv",
+      "why": "There is no CSV extractor, so the sweep reads the file and forces its header row into the inventory as `unclassified`. That is the design working: the bytes are LISTED, and G2 refuses to pass until somebody decides. A tool that silently skipped `.csv` would report this repository clean."
+    },
+    {
+      "file": ".env.example",
+      "bucket": "scanned",
+      "extractor": "residual-sweep",
+      "reason": "no extractor for .example",
+      "why": "Same mechanism on a different unsupported extension, and a reminder that `.example` files are committed precisely so a human reads them."
+    },
+    {
+      "file": "LICENSE",
+      "bucket": "scanned",
+      "extractor": "text",
+      "why": "Extensionless. It has to be READ in order to be protected — a rule saying 'never translate this file' cannot fire on a file no extractor ever opened."
+    },
+    {
+      "file": "third_party/leaflet/LICENSE",
+      "bucket": "scanned",
+      "extractor": "text",
+      "why": "Vendored, and matched by path rather than by name."
+    },
+    {
+      "file": "src/http.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "The code that names the same columns the CSV does."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "csv.header",
+      "file": "exports/abonnés.csv",
+      "find": "email,nom,statut,inscrit_le",
+      "expect": {
+        "verdict": "unclassified"
+      },
+      "mustNotClaim": true,
+      "why": "The correct answer is `surfaced`, NOT `do-not-translate`, and writing that down is the whole point of the case. The engine has no CSV reader, so it cannot know these are column names another tool consumes — it can only refuse to pretend. Translating this header breaks every import that has ever consumed the export."
+    },
+    {
+      "id": "csv.row",
+      "file": "exports/abonnés.csv",
+      "find": "actif,2024-03-11",
+      "mustNotClaim": true,
+      "why": "Data, not copy. `actif` is a stored value that looks exactly like a French adjective, because it is one."
+    },
+    {
+      "id": "env.url",
+      "file": ".env.example",
+      "find": "postgres://localhost:5432/atelier",
+      "mustNotClaim": true,
+      "why": "A connection string surfaced by the sweep. Human-looking enough to be found, and not a sentence."
+    },
+    {
+      "id": "env.comment",
+      "file": ".env.example",
+      "find": "Copiez ce fichier en .env avant de démarrer le serveur.",
+      "expect": {
+        "verdict": "unclassified"
+      },
+      "why": "Genuinely a French sentence a reader sees, and still `unclassified`, because no extractor claimed the file. The honest report is 'found, not understood' rather than a verdict the engine has no grounds for."
+    },
+    {
+      "id": "license.body",
+      "file": "LICENSE",
+      "find": "Permission is hereby granted, free of charge",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "vendored-legal",
+        "rule": "legal.vendored-verbatim",
+        "hard": true
+      },
+      "mustNotClaim": true,
+      "why": "`hard` is the load-bearing field: no agent verdict may override it. Altering LICENSE breaks GitHub's licence detection and the repository starts displaying 'Other'."
+    },
+    {
+      "id": "license.vendored",
+      "file": "third_party/leaflet/LICENSE",
+      "find": "Redistribution and use in source and binary forms",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "vendored-legal",
+        "hard": true
+      },
+      "mustNotClaim": true,
+      "why": "Matched by its path rather than its name. Somebody else's licence, and not ours to restate."
+    },
+    {
+      "id": "http.content-type",
+      "file": "src/http.ts",
+      "find": "'application/json'",
+      "expect": {
+        "verdict": "do-not-translate"
+      },
+      "mustNotClaim": true,
+      "why": "Negotiated with a server. The header NAME beside it is equally untouchable, and equally English-looking."
+    },
+    {
+      "id": "http.column-names",
+      "file": "src/http.ts",
+      "find": "['email', 'nom', 'statut', 'inscrit_le']",
+      "mustNotClaim": true,
+      "why": "The same French words as the CSV header, here as an array of column names. `nom` and `statut` are ordinary French nouns AND an interop contract; only their use decides, and it is in another file."
+    },
+    {
+      "id": "http.button",
+      "file": "src/http.ts",
+      "find": "'Exporter les abonnés'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A button label sitting one line below the column names it exports. Same file, same language, opposite treatment."
+    }
+  ],
+  "knownGaps": [
+    "`'Content-Type'`, `'Accept-Language'` and `'XMLHttpRequest'` come back needs-judgment/ambiguous-role rather than as the API contract they are. Refused, so nothing breaks — but by a generic hesitation rather than by recognising an HTTP header, so a longer header name in the same object would read as copy.",
+    "`'fr-FR'` lands on needs-judgment/ambiguous-role. It is a locale marker in a header map, which is the one thing in this file that SHOULD be retargeted rather than left alone; the engine sees neither."
+  ]
+}

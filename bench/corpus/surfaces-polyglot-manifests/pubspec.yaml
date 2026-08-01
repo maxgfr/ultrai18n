@@ -1,0 +1,5 @@
+name: atelier
+description: L'atelier, sur mobile
+version: 1.0.0
+environment:
+  sdk: ">=3.4.0 <4.0.0"

@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 1,
+  "case": "census-edges",
+  "title": "Every path git tracks lands in one bucket with a reason",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "pass",
+    "G3": "fail",
+    "G4": "fail",
+    "G5": "pass",
+    "G6": "pass",
+    "G7": "pass"
+  },
+  "generate": [
+    {
+      "file": "assets/huge.md",
+      "repeat": "Une ligne de remplissage pour dépasser le plafond du marcheur.\n",
+      "bytes": 1200000,
+      "why": "Over the walker's 1 MiB default. Committing a megabyte of filler to measure a size cap would be a poor trade, so it is declared here instead of stored."
+    },
+    {
+      "file": "hosts-link",
+      "symlinkTo": "/etc/hosts",
+      "why": "A symlink whose target is outside the repository. Generated rather than committed so the corpus stays checkout-portable, and pointed at a path that exists on every Linux and macOS — a BROKEN symlink is a different case, and one the walker currently drops silently."
+    },
+    {
+      "file": ".gitignore",
+      "repeat": "secrets/\n",
+      "bytes": 9,
+      "why": "Declared rather than committed, because a `.gitignore` stored inside the corpus applies to THIS repository too: `secrets/token.txt` would be silently dropped from the commit and the case would fail on a fresh clone. Keeping the whole ignored-but-tracked scenario in one place is also how it stays readable."
+    }
+  ],
+  "forceAdd": [
+    "secrets/token.txt"
+  ],
+  "census": [
+    {
+      "file": "README.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "why": "The ordinary case, present so the others are read against a baseline rather than in isolation."
+    },
+    {
+      "file": "Makefile",
+      "bucket": "scanned",
+      "extractor": "text",
+      "why": "Extensionless and readable. An extension-driven scanner skips it; PLAIN_TEXT_BASENAMES is why this one is not."
+    },
+    {
+      "file": "AUTHORS",
+      "bucket": "scanned",
+      "extractor": "text",
+      "why": "Same, and the file most likely to hold a sentence nobody thinks of as copy."
+    },
+    {
+      "file": ".gitignore",
+      "bucket": "scanned-zero",
+      "extractor": "residual-sweep",
+      "reason": "no extractor for extensionless file",
+      "why": "No extractor claims it, so the residual sweep reads the whole file and finds nothing human-looking. `scanned-zero` is the honest answer — 'looked at all of it, found no text' — and it must not be confused with `skipped`."
+    },
+    {
+      "file": "assets/bom.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "why": "A UTF-8 BOM is stripped before extraction, so every span in this file sits three bytes below its raw-file offset. The expectations below resolve against the decoded text for exactly that reason."
+    },
+    {
+      "file": "assets/crlf.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "why": "Two-byte line endings. Line and column arithmetic has to survive them without drifting."
+    },
+    {
+      "file": "assets/utf16.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "why": "Readable but not byte-addressable: a decoded-string offset is not a file-byte offset here, which is why `apply` refuses to patch such a file rather than writing at a plausible-looking wrong place. Being READ is the claim; being patchable is not."
+    },
+    {
+      "file": "assets/binary.dat",
+      "bucket": "scanned-zero",
+      "reason": "nul-byte",
+      "why": "A NUL byte makes a file binary regardless of its extension. Named as such, not lumped in with the extension-based skips."
+    },
+    {
+      "file": "assets/huge.md",
+      "bucket": "skipped",
+      "reason": "over-max-bytes",
+      "mustVerifyManually": false,
+      "why": "Past the size cap. It carries text a person could read, but the cap is a deliberate refusal rather than an inability, so it is not flagged for manual verification."
+    },
+    {
+      "file": "docs/réglages.png",
+      "bucket": "skipped",
+      "reason": "binary-ext",
+      "mustVerifyManually": true,
+      "why": "The distinction the `unscannable` bucket exists for: a font carries no message, a screenshot carries the entire UI. Reporting both as 'binary' is how a translated app ships with English screenshots."
+    },
+    {
+      "file": "docs/notes de version.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "why": "A space in the filename. Every path handed to git, to the walker and to the report has to survive it unquoted."
+    },
+    {
+      "file": "dist/bundled.js",
+      "bucket": "skipped",
+      "reason": "ignore-dir",
+      "why": "Tracked by git under a directory the walker refuses to descend into. Without directory-level attribution this path is simply unaccounted for and G1 fails with nothing anybody can act on."
+    },
+    {
+      "file": "secrets/token.txt",
+      "bucket": "skipped",
+      "reason": "gitignored",
+      "why": "Gitignored and tracked anyway, which happens more often than it should. The census has to attribute it rather than call it unaccounted."
+    },
+    {
+      "file": "pnpm-lock.yaml",
+      "bucket": "skipped",
+      "reason": "lockfile",
+      "why": "Machine-generated and huge. Skipped by name, and named in the report so the skip is a decision rather than a silence."
+    },
+    {
+      "file": "hosts-link",
+      "bucket": "skipped",
+      "reason": "symlink-outside-root",
+      "why": "Following it would pull bytes from outside the repository into a report that claims to describe the repository."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "readme.prose",
+      "file": "README.md",
+      "find": "Aucun d'entre eux ne doit finir sans explication.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Ordinary markdown prose in the source language. If this is not found, nothing else in the case means anything."
+    },
+    {
+      "id": "makefile.comment",
+      "file": "Makefile",
+      "find": "Construire la documentation avant de publier une version.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A sentence inside an extensionless build file — a place no extension-driven scanner looks."
+    },
+    {
+      "id": "authors.sentence",
+      "file": "AUTHORS",
+      "find": "Les personnes ayant contribué à ce projet",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "AUTHORS is read as prose, so the line above the names is copy while the names themselves are not."
+    },
+    {
+      "id": "bom.heading",
+      "file": "assets/bom.md",
+      "find": "Préférences",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Resolves at decoded offset 2, not raw offset 5. This expectation exists to prove the BOM was stripped without shifting every span in the file."
+    },
+    {
+      "id": "crlf.prose",
+      "file": "assets/crlf.md",
+      "find": "Une ligne terminée à la mode Windows.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The span has to land on the text and not swallow or drop the carriage return."
+    },
+    {
+      "id": "utf16.prose",
+      "file": "assets/utf16.md",
+      "find": "Encodé en UTF-16, comme tout ce qui sort de certains éditeurs.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Found and inventoried even though the file cannot be patched. A tool that skipped it would report this repository as clean while a whole file of copy sat unread."
+    },
+    {
+      "id": "spaced-path.prose",
+      "file": "docs/notes de version.md",
+      "find": "La recherche accepte maintenant les accents.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Proves the space in the path did not stop the file being read, as opposed to merely being listed."
+    }
+  ],
+  "pathSites": [
+    {
+      "file": "docs/réglages.png",
+      "segment": "réglages",
+      "verdict": "needs-judgment",
+      "why": "The filename is in the source language while the file itself is an unreadable binary. A tool treating every path as an untouchable slug reports this repository as clean; one that renames it breaks every referrer it failed to find. Refusing, and saying so, is the only correct answer."
+    }
+  ],
+  "knownGaps": [
+    "assets/utf16.md reports claimRatio 0.506 because bytesClaimed counts decoded UTF-8 while bytesTotal counts the UTF-16 file. It reads as 'the extractor skipped half this file' when it skipped nothing. Not asserted here, because writing 0.506 into ground truth would turn a measurement artefact into a decision.",
+    "A BROKEN symlink is dropped by the walker before it reaches any skip list, so a tracked one would surface as G1 `unaccounted` with no reason. Not exercised here — the case would fail, and it deserves a fix rather than a pinned expectation."
+  ]
+}

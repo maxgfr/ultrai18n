@@ -1,0 +1,186 @@
+{
+  "schemaVersion": 1,
+  "case": "traps-test-fixtures",
+  "title": "Strings that exist to be compared, not read: assertions, ARIA, class names, date patterns, keys",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "fail",
+    "G3": "fail",
+    "G4": "fail",
+    "G5": "pass",
+    "G6": "pass",
+    "G7": "pass"
+  },
+  "census": [
+    {
+      "file": "tests/escape.test.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "The assertion arguments need their callee to be readable, which is an AST-tier fact."
+    },
+    {
+      "file": "src/Toolbar.tsx",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "JSX attributes carry their element and attribute name only at the AST tier."
+    },
+    {
+      "file": "src/Cart.tsx",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "Holds a translation KEY, whose value lives in another file."
+    },
+    {
+      "file": "src/locales/fr/common.json",
+      "bucket": "scanned",
+      "extractor": "json",
+      "why": "The bundle holding the value that key points at."
+    },
+    {
+      "file": "__snapshots__/Toolbar.test.tsx.snap",
+      "bucket": "scanned",
+      "extractor": "residual-sweep",
+      "reason": "no extractor for .snap",
+      "why": "No `.snap` reader, so the sweep surfaces its contents as `unclassified` and G2 refuses to pass. Correct: a snapshot mirrors production copy and has to be regenerated WITH it, never edited alongside it, and the engine cannot know that on its own."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "assert.escaped-quote",
+      "file": "tests/escape.test.ts",
+      "find": "toBe('a\\\\\"b')",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "test-fixture"
+      },
+      "mustNotClaim": true,
+      "why": "This string exists to exercise quote escaping. Translate it and the test stays GREEN while testing nothing — the worst outcome available, because it is silent."
+    },
+    {
+      "id": "assert.escaped-backslash",
+      "file": "tests/escape.test.ts",
+      "find": "toBe('c\\\\\\\\d')",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "test-fixture"
+      },
+      "mustNotClaim": true,
+      "why": "Same, one escape level deeper. The pair is what proves the classifier reads the assertion's callee rather than the string's shape."
+    },
+    {
+      "id": "assert.accented-expectation",
+      "file": "tests/escape.test.ts",
+      "find": "toBe('déjà vu')",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "test-fixture"
+      },
+      "mustNotClaim": true,
+      "why": "Real French inside an assertion, so language detection alone would say translate. Position decides, not appearance."
+    },
+    {
+      "id": "test.name",
+      "file": "tests/escape.test.ts",
+      "find": "'échappe les guillemets'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A test NAME is prose a human reads in the runner output, and it sits two tokens from a fixture that must not move."
+    },
+    {
+      "id": "aria.vocabulary",
+      "file": "src/Toolbar.tsx",
+      "find": "aria-live=\"polite\"",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "aria-vocabulary"
+      },
+      "mustNotClaim": true,
+      "why": "`polite` is a value from the ARIA specification, not an adverb. Translating it silently disables the live region for every screen-reader user."
+    },
+    {
+      "id": "aria.orientation",
+      "file": "src/Toolbar.tsx",
+      "find": "aria-orientation=\"horizontal\"",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "aria-vocabulary"
+      },
+      "mustNotClaim": true,
+      "why": "Same vocabulary, and a word that exists in French with the same spelling."
+    },
+    {
+      "id": "css.classes",
+      "file": "src/Toolbar.tsx",
+      "find": "className=\"toolbar toolbar--compact\"",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "style-token"
+      },
+      "mustNotClaim": true,
+      "why": "Class names are a contract with the stylesheet. Two ordinary words separated by a space is exactly what a sentence looks like."
+    },
+    {
+      "id": "date.short",
+      "file": "src/Toolbar.tsx",
+      "find": "'dd/MM/yyyy'",
+      "expect": {
+        "verdict": "needs-judgment",
+        "reason": "symbol-set"
+      },
+      "mustNotClaim": true,
+      "why": "Locale-dependent and not translatable: `dd/MM/yyyy` and `MM/dd/yyyy` are the same pattern in two locales, so leaving it alone is as wrong as rewriting it and only a person knows which. Refusing is the answer."
+    },
+    {
+      "id": "date.long",
+      "file": "src/Toolbar.tsx",
+      "find": "\"EEEE d MMMM yyyy 'à' HH:mm\"",
+      "expect": {
+        "verdict": "needs-judgment",
+        "reason": "symbol-set"
+      },
+      "mustNotClaim": true,
+      "why": "The bug this case was written to catch. The quoted `'à'` made the whole pattern read as French, so it came back `translate` while its two short siblings in the same object were refused — three answers to one question. A model handed this renders the field letters and every date on the site breaks."
+    },
+    {
+      "id": "date.iso",
+      "file": "src/Toolbar.tsx",
+      "find": "'yyyy-MM-dd'",
+      "mustNotClaim": true,
+      "why": "The third sibling, present so the object gives one consistent answer rather than three."
+    },
+    {
+      "id": "jsx.copy",
+      "file": "src/Toolbar.tsx",
+      "find": "Toutes les modifications sont enregistrées",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Genuine copy inside the same element as two ARIA values that must not move."
+    },
+    {
+      "id": "i18n.key",
+      "file": "src/Cart.tsx",
+      "find": "t('cart.empty')",
+      "expect": {
+        "verdict": "do-not-translate"
+      },
+      "mustNotClaim": true,
+      "why": "A key, not a phrase. Translating it detaches the component from its bundle and the UI renders the key itself."
+    },
+    {
+      "id": "i18n.value",
+      "file": "src/locales/fr/common.json",
+      "find": "Votre panier est vide",
+      "why": "The phrase that key points at. It is what should move, in a different file from the key that must not — which is the whole shape of the mistake."
+    }
+  ],
+  "knownGaps": [
+    "The values in `src/locales/fr/common.json` come back do-not-translate/already-target-language on a fr→en run. The bundle is in the SOURCE language, so under `swap` it is exactly what should be rewritten; the reason given is the opposite of the situation. Asserted only as accounted-for here, because pinning the verdict would pin the confusion.",
+    "`'Enregistrement en cours'` lands on needs-judgment/no-rule while its ternary sibling `'Toutes les modifications sont enregistrées'` comes back translate. Same expression, two answers — the same inconsistency traps-persistence records in a switch."
+  ]
+}

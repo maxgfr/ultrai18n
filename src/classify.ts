@@ -39,6 +39,13 @@ const ARIA_TEXT = /^(aria-(label|description|roledescription|valuetext|placehold
 const TEXT_ATTRS = /^(alt|title|placeholder|label|summary|abbr|download|content|srcdoc)$/
 const LABEL_KEY = /^(label|title|name|text|message|description|caption|placeholder|summary|heading|alt|tooltip|hint|prompt|subtitle|body|content)$/i
 const CALENDAR_NAME = /(WEEKDAY|WEEKDAYS|DAY|DAYS|MONTH|MONTHS|QUARTER|INITIAL|ABBR|SHORT)/i
+/**
+ * Date/time field letters, as every formatter spells them.
+ *
+ * Restricted to the common subset rather than the full CLDR alphabet, which is
+ * nearly every letter and would match ordinary words.
+ */
+const DATE_FIELD = /^[yYuMLdDEecawWkKhHmsSAzZGqQ]$/
 const TEST_MATCHER = /^(toBe|toEqual|toContain|toMatch|toHaveTextContent|toHaveAttribute|toMatchObject|getByRole|getByText|getByLabelText|getByTitle|getByPlaceholderText|findByRole|findByText|queryByText|getByTestId)$/
 
 export function classify(raw: RawSite, opts: ClassifyOptions): Site {
@@ -153,6 +160,24 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
     key,
     isKey: c.isKey,
   })
+
+  // 0 — the host format said so.
+  //
+  // `<string translatable="false">` is Android's own machine-readable exception,
+  // and the catalog rule for `strings.xml` says out loud that it must win over
+  // any heuristic. It is checked before the rules, not after, because the rule
+  // it has to beat is the file-level one that marks every string in that file
+  // translatable — including a URL somebody deliberately fenced off.
+  if (c.untranslatable) {
+    return {
+      surface: 'token.api-contract',
+      verdict: 'do-not-translate',
+      reason: 'explicitly-marked',
+      confidence: 'high',
+      hard: true,
+      skipDetection: true,
+    }
+  }
 
   // 1 — hard catalog rules (vendored legal). No agent verdict overrides these.
   const hard = matches.find((m) => m.emit.hard)
@@ -295,8 +320,19 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
     return { surface: 'token.url-slug', verdict: 'do-not-translate', reason: 'numeric-or-symbolic', confidence: 'high', skipDetection: true }
   }
 
-  // 11 — calendar vocabulary disguised as symbols.
-  if (isCalendarSymbol(raw)) {
+  // 11 — calendar vocabulary disguised as symbols, and its close cousin, a
+  // date/time PATTERN.
+  //
+  // Both are locale-dependent despite looking symbolic, and both are refused
+  // rather than decided: `dd/MM/yyyy` and `MM/dd/yyyy` are the same pattern in
+  // two locales, so leaving it alone is as wrong as rewriting it, and only a
+  // person knows which. The engine's job is to say so.
+  //
+  // A long pattern is the dangerous one. `'EEEE d MMMM yyyy \'à\' HH:mm'` used
+  // to reach the language detector, read as French because of the quoted word
+  // inside it, and come back `translate` — where a model would happily render
+  // the field letters into another language and break every date on the site.
+  if (isCalendarSymbol(raw) || isDatePattern(value)) {
     return { surface: 'ui.string-literal', verdict: 'needs-judgment', reason: 'symbol-set', confidence: 'high' }
   }
 
@@ -341,6 +377,55 @@ function isCalendarSymbol(raw: RawSite): boolean {
   if (!match) return false
   const binding = raw.container.enclosingSymbol ?? ''
   return CALENDAR_NAME.test(binding)
+}
+
+/**
+ * A date/time format pattern — `dd/MM/yyyy`, `EEEE d MMMM yyyy 'à' HH:mm`.
+ *
+ * Three conditions, and all three are load-bearing:
+ *
+ *  - Every character outside a quoted literal is a date field letter or a
+ *    separator. Ordinary prose fails this on its first `n` or `t`.
+ *  - At least two DISTINCT field letters, so `'aaa'` is not a pattern.
+ *  - A pattern either SEPARATES its fields (`dd/MM/yyyy`, `hh:mm a`) or PACKS
+ *    them as repeated runs (`yyyyMMdd`). Without this last condition the French
+ *    words `masse`, `assez` and `Sammy` all read as patterns: they happen to be
+ *    spelled entirely from field letters and to contain one doubled pair.
+ *
+ * Quoted literals are stripped first, because that is exactly where a formatter
+ * puts the one human word a pattern may contain, and it is what let
+ * `EEEE d MMMM yyyy 'à' HH:mm` read as French and come back translatable.
+ *
+ * What still gets through is a hyphenated token spelled entirely from field
+ * letters — `AAA-SSS`. That is a product code, `needs-judgment` is the right
+ * answer for one anyway, and the cost of being wrong here is one adjudication
+ * rather than a corrupted format string.
+ */
+export function isDatePattern(value: string): boolean {
+  const body = value.replace(/'[^']*'/g, '')
+  if (body.trim().length < 3) return false
+
+  const fields = new Set<string>()
+  let separated = false
+  for (const ch of body) {
+    if (DATE_FIELD.test(ch)) fields.add(ch)
+    else if (/[\s./:,\-–—[\]()+]/.test(ch)) separated = true
+    else return false
+  }
+  if (fields.size < 2) return false
+  if (!/([yYuMLdDEecawWkKhHmsSAzZGqQ])\1/.test(body)) return false
+  return separated || everyCharInARun(body)
+}
+
+/** True when the string is nothing but runs of two or more identical letters. */
+function everyCharInARun(body: string): boolean {
+  for (let i = 0; i < body.length; ) {
+    let j = i
+    while (j < body.length && body[j] === body[i]) j++
+    if (j - i < 2) return false
+    i = j
+  }
+  return true
 }
 
 function surfaceFor(raw: RawSite): Surface {

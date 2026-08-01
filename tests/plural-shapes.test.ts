@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { detectFamilies, splitPluralKey, PLURAL_SHAPES } from '../src/plural/shapes'
+import { detectFamilies, splitPluralKey } from '../src/plural/shapes'
+import { DIALECTS } from '../src/plural/dialect/dialects'
+import { PRIMITIVES } from '../src/plural/primitives'
 import type { Site } from '../src/types'
 
 /** A site with only the fields the shape detectors read. */
@@ -160,12 +162,34 @@ describe('splitPluralKey', () => {
   })
 })
 
-describe('the shape table', () => {
-  it('cites evidence for every shape, exactly as a catalog rule must', () => {
-    expect(PLURAL_SHAPES.filter((s) => !s.docs?.startsWith('http'))).toEqual([])
+describe('the dialect catalog', () => {
+  it('cites evidence for every dialect, exactly as a catalog rule must', () => {
+    expect(DIALECTS.filter((d) => !/^https?:\/\//.test(d.docs)).map((d) => d.id)).toEqual([])
   })
 
   it('has no duplicate ids', () => {
-    expect(new Set(PLURAL_SHAPES.map((s) => s.id)).size).toBe(PLURAL_SHAPES.length)
+    expect(new Set(DIALECTS.map((d) => d.id)).size).toBe(DIALECTS.length)
+  })
+
+  it('gives every dialect a distinct precedence, so two rows never race', () => {
+    expect(new Set(DIALECTS.map((d) => d.precedence)).size).toBe(DIALECTS.length)
+  })
+
+  it('names a primitive that exists, and a `read` that primitive accepts', () => {
+    for (const d of DIALECTS) {
+      const primitive = PRIMITIVES[d.primitive]
+      expect(primitive, d.id).toBeDefined()
+      expect(primitive.validate(d.read), d.id).toEqual([])
+    }
+  })
+
+  it('never claims CLDR governs a positional scheme', () => {
+    // A scheme whose selectors are POSITIONS cannot know CLDR by construction:
+    // `order` says "the second part", not `few`. Claiming otherwise makes the
+    // engine report rendering bugs that do not exist.
+    for (const d of DIALECTS) {
+      const read = d.read as { order?: unknown }
+      if (read.order) expect(d.cldr, d.id).toBe(false)
+    }
   })
 })

@@ -1,0 +1,228 @@
+[
+  {
+    "id": "gettext.msgid-plural",
+    "dialect": "gettext",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "^msgid_plural\\b",
+    "why": "The only token that distinguishes a plural entry from a singular one in a PO catalog. It cannot appear by accident."
+  },
+  {
+    "id": "gettext.msgstr-indexed",
+    "dialect": "gettext",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "^msgstr\\[[0-9]+\\]",
+    "why": "The indexed forms themselves."
+  },
+  {
+    "id": "gettext.ngettext",
+    "dialect": "gettext",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "\\b(n|np|dn|dcn)gettext\\s*\\(",
+    "why": "The call site, in any of gettext's four plural spellings. WEAK, not strong: a call site is CODE that renders text, and its arguments are often variables — `ngettext(singular, plural, n)` has nothing to translate. Only a locator pointing at TEXT can accuse the engine of missing a string."
+  },
+  {
+    "id": "django.blocktrans",
+    "dialect": "django",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\\{%\\s*(blocktrans|blocktranslate)\\b|\\{%\\s*plural\\s*%\\}",
+    "why": "A template-level plural. Lives in `.html`, which DOES have an extractor — so a hit here is as likely to be a precision question as a recall one."
+  },
+  {
+    "id": "android.plurals",
+    "dialect": "android",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "<plurals\\b|<item\\s+quantity=",
+    "why": "Android's resource form."
+  },
+  {
+    "id": "android.runtime",
+    "dialect": "android",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "getQuantityString\\s*\\(|pluralStringResource\\s*\\(",
+    "why": "The call sites, including Compose's. WEAK for the same reason as gettext's: the string lives in a resource file, not here."
+  },
+  {
+    "id": "apple.stringsdict",
+    "dialect": "apple",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "NSStringPluralRuleType|NSStringLocalizedFormatKey",
+    "why": "Apple's plural dictionary keys."
+  },
+  {
+    "id": "apple.xcstrings",
+    "dialect": "apple",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\"variations\"\\s*:|\"plural\"\\s*:\\s*\\{",
+    "why": "Xcode 15 String Catalogs."
+  },
+  {
+    "id": "apple.runtime",
+    "dialect": "apple",
+    "kind": "surface",
+    "confidence": "weak",
+    "pattern": "NSLocalizedString\\s*\\(|String\\(localized:",
+    "why": "Any localized string, plural or not. Weak on purpose: it nominates files, it does not accuse them."
+  },
+  {
+    "id": "fluent.selector",
+    "dialect": "fluent",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\\*\\[other\\]|\\{\\s*\\$[A-Za-z_]\\w*\\s*->",
+    "why": "Fluent's default-variant marker, which nothing else writes."
+  },
+  {
+    "id": "qt.numerusform",
+    "dialect": "qt",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "<numerusform>|QT_TRANSLATE_NOOP",
+    "why": "Qt's plural element. Its file extension is `.ts`, which this engine hands to the TypeScript grammar."
+  },
+  {
+    "id": "icu.plural",
+    "dialect": "icu",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\\{\\s*\\w+\\s*,\\s*(plural|selectordinal)\\s*,",
+    "why": "An ICU plural argument."
+  },
+  {
+    "id": "icu.offset",
+    "dialect": "icu",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "\\boffset:\\s*\\d",
+    "why": "Only meaningful inside a plural argument, and it points at a skeleton rather than at a branch body."
+  },
+  {
+    "id": "polyglot.quad-pipe",
+    "dialect": "polyglot",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\\|\\|\\|\\|",
+    "why": "Four consecutive pipes. Rare enough elsewhere to be strong."
+  },
+  {
+    "id": "symfony.interval",
+    "dialect": "symfony",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\\]\\s*-?Inf\\s*\\[",
+    "why": "Symfony's unbounded interval. Specific enough to stand alone; the `{n}` explicit-index half was split off below after it matched a regex alternation `(Jan|Feb|…)` preceded by `{2}` in a repository with no i18n at all."
+  },
+  {
+    "id": "symfony.explicit-index",
+    "dialect": "symfony",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "\\{\\d+\\}\\s+\\S[^|\\n]*\\|\\s*(\\{\\d+\\}|\\]|\\[)",
+    "why": "Symfony's `{0} … |{1} …` form. WEAK, and requiring a second selector after the pipe, because `{2}` is also a regex quantifier and `|` is also a regex alternation — the combination is exactly what a date-parsing regex looks like."
+  },
+  {
+    "id": "vuei18n.tc",
+    "dialect": "vue-i18n",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "\\$tc\\s*\\(|\\bi18n\\.tc\\b",
+    "why": "vue-i18n's plural call. Weak: `tc` is a common abbreviation."
+  },
+  {
+    "id": "keysuffix.category",
+    "dialect": "i18next",
+    "kind": "plural",
+    "confidence": "strong",
+    "pattern": "\"[A-Za-z0-9_.-]+_(zero|one|two|few|many|other)\"\\s*:",
+    "include": [
+      "**/locales/**",
+      "**/locale/**",
+      "**/i18n/**",
+      "**/translations/**",
+      "**/lang/**"
+    ],
+    "why": "A category-suffixed key, scoped to bundle directories so an ordinary object key is not accused."
+  },
+  {
+    "id": "sibling.category",
+    "dialect": "rails",
+    "kind": "plural",
+    "confidence": "weak",
+    "pattern": "^\\s*\"?(zero|one|two|few|many|other)\"?\\s*:",
+    "include": [
+      "**/locales/**",
+      "**/locale/**",
+      "**/i18n/**"
+    ],
+    "why": "A category as a child key. Weak because `other` is a word people use for other things."
+  },
+  {
+    "id": "runtime.imports",
+    "kind": "surface",
+    "confidence": "weak",
+    "pattern": "from ['\"](react-i18next|next-intl|vue-i18n|i18next|react-intl|@lingui/|svelte-i18n)",
+    "why": "Nominates the files an i18n runtime touches."
+  },
+  {
+    "id": "runtime.calls",
+    "kind": "surface",
+    "confidence": "weak",
+    "pattern": "useTranslation\\s*\\(|<FormattedMessage|defineMessages\\s*\\(|\\bI18n\\.t\\s*\\(|gettext_lazy",
+    "why": "Same, at the call site."
+  },
+  {
+    "id": "surface.manifest-description",
+    "kind": "surface",
+    "confidence": "strong",
+    "pattern": "\"description\"\\s*:",
+    "include": [
+      "**/package.json",
+      "**/composer.json",
+      "**/manifest.json",
+      "**/*.webmanifest"
+    ],
+    "why": "The miss that motivated this whole tool."
+  },
+  {
+    "id": "surface.toml-manifest",
+    "kind": "surface",
+    "confidence": "strong",
+    "pattern": "^description\\s*=",
+    "include": [
+      "**/Cargo.toml",
+      "**/pyproject.toml"
+    ],
+    "why": "Two rules exist for these and neither can fire: there is no TOML extractor."
+  },
+  {
+    "id": "surface.oci-label",
+    "kind": "surface",
+    "confidence": "strong",
+    "pattern": "org\\.opencontainers\\.image\\.(description|title)",
+    "why": "`docker.label` matches a key the prose extractor never produces."
+  },
+  {
+    "id": "surface.html-meta",
+    "kind": "surface",
+    "confidence": "strong",
+    "pattern": "<meta\\s+(name|property)=[\"'](description|keywords|og:[a-z:]+|twitter:[a-z]+)",
+    "why": "Head metadata, never on screen and therefore never reviewed visually."
+  },
+  {
+    "id": "surface.workflow-body",
+    "kind": "surface",
+    "confidence": "strong",
+    "pattern": "^\\s+(body|release_name|release_notes):\\s*\\|",
+    "include": [
+      ".github/workflows/**"
+    ],
+    "why": "Markdown nested in YAML, rendered on the public Releases page."
+  }
+]

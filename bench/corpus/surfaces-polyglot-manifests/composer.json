@@ -1,0 +1,6 @@
+{
+  "name": "atelier/core",
+  "description": "Le noyau de l'atelier, en PHP",
+  "keywords": ["publication", "éditeur"],
+  "require": { "php": ">=8.2" }
+}

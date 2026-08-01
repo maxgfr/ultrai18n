@@ -1,0 +1,237 @@
+{
+  "schemaVersion": 1,
+  "totals": {
+    "cases": 8,
+    "expectations": 80,
+    "accounted": 80,
+    "expectationMismatches": 0,
+    "trapViolations": 0,
+    "censusMismatches": 0,
+    "gateMismatches": 0,
+    "determinismFailures": 0,
+    "malformed": 0,
+    "crashed": 0,
+    "accountingCoverage": 1,
+    "otherFindings": 0
+  },
+  "thresholds": {
+    "accountingCoverage": 1,
+    "expectationMismatches": 0,
+    "trapViolations": 0,
+    "censusMismatches": 0,
+    "gateMismatches": 0,
+    "determinismFailures": 0
+  },
+  "catalog": {
+    "partial": false,
+    "exercised": [
+      "android.strings-xml",
+      "dart.pubspec.description",
+      "github.issue-forms",
+      "github.release-notes-body",
+      "github.workflow-prose",
+      "html.meta.prose",
+      "i18n.message-bundles",
+      "legal.vendored-verbatim",
+      "npm.package-json.description",
+      "path.segment",
+      "php.composer.description",
+      "web.manifest.inlined-in-build-config",
+      "web.manifest.text-fields",
+      "webext.locales.messages",
+      "webext.manifest.text"
+    ],
+    "neverExercised": [
+      "cargo.package.description",
+      "docker.label",
+      "html.title",
+      "python.pyproject.description"
+    ],
+    "allowlisted": [
+      "cargo.package.description",
+      "docker.label",
+      "html.title",
+      "python.pyproject.description"
+    ]
+  },
+  "breaches": [],
+  "ok": true,
+  "cases": [
+    {
+      "case": "census-edges",
+      "title": "Every path git tracks lands in one bucket with a reason",
+      "expectations": 7,
+      "accounted": 7,
+      "sites": 15,
+      "tracked": 15,
+      "gates": {
+        "G1": "pass",
+        "G2": "pass",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "assets/utf16.md reports claimRatio 0.506 because bytesClaimed counts decoded UTF-8 while bytesTotal counts the UTF-16 file. It reads as 'the extractor skipped half this file' when it skipped nothing. Not asserted here, because writing 0.506 into ground truth would turn a measurement artefact into a decision.",
+        "A BROKEN symlink is dropped by the walker before it reaches any skip list, so a tracked one would surface as G1 `unaccounted` with no reason. Not exercised here — the case would fail, and it deserves a fix rather than a pinned expectation."
+      ],
+      "findings": []
+    },
+    {
+      "case": "plural-android-xml",
+      "title": "Android <plurals>, and a Russian catalog rendering the wrong string today",
+      "expectations": 5,
+      "accounted": 5,
+      "sites": 7,
+      "tracked": 2,
+      "gates": {
+        "G1": "pass",
+        "G2": "pass",
+        "G3": "pass",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "fail",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "`<string-array>` items are not read as a family and should not be — an array of weekday initials is calendar vocabulary, not a plural. They currently come back as ordinary translatable strings with no signal that reordering them breaks the calendar."
+      ],
+      "findings": []
+    },
+    {
+      "case": "plural-unread-dialects",
+      "title": "Arrangements the engine does not read — listed, never claimed",
+      "expectations": 6,
+      "accounted": 6,
+      "sites": 43,
+      "tracked": 6,
+      "gates": {
+        "G1": "pass",
+        "G2": "fail",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "fail"
+      },
+      "knownGaps": [
+        "The Symfony interval string in `src/locales/messages.en.yaml` is claimed by `vue-i18n.pipe-positional` as a three-part `zero|one|other` family. It is not one: `{0} …|]0,1] …|]1,Inf[ …` carries an explicit selector on each part, and reading them as positions mislabels all three. The `value-split` primitive has no `partSelector`, so a correct Symfony row cannot be written today — and adding an interval guard to the vue-i18n row would put Symfony knowledge inside somebody else's dialect, which is the coupling this design exists to remove.",
+        "`.stringsdict` and `.ftl` produce no plural RESIDUAL, only `unclassified` sites. The suspicion signals look for a marker in a path or a token in the text, and the sweep fragments both formats below the level where either survives. Nothing is lost — G2 still refuses to pass — but G7 cannot say 'this looks like a plural', so the dialect worklist will not mention them.",
+        "gettext's `Plural-Forms:` header is read by nothing. Even with a `.po` extractor, an index would map to a POSITION and never to a CLDR category, so such a family would be `cldr: false` and never measured for completeness. That is a smaller claim than the one made for i18next, and the true one."
+      ],
+      "findings": []
+    },
+    {
+      "case": "surfaces-polyglot-manifests",
+      "title": "Package descriptions across ecosystems — and the three catalog rules that cannot fire",
+      "expectations": 6,
+      "accounted": 6,
+      "sites": 18,
+      "tracked": 5,
+      "gates": {
+        "G1": "pass",
+        "G2": "fail",
+        "G3": "pass",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "Three catalog rules — `cargo.package.description`, `python.pyproject.description`, `docker.label` — are well-formed, cite documentation, and cannot fire in any repository. `checkCatalog` validates a rule's SHAPE and never its reachability, so nothing in the engine says so. This case is why the benchmark carries a `neverExercisedRules` ratchet: the list may only shrink, and a fourth dead rule fails the run.",
+        "`html.title` is the fourth, recorded in surfaces-web-app rather than here."
+      ],
+      "findings": []
+    },
+    {
+      "case": "surfaces-web-app",
+      "title": "Where user-visible text hides in a web project: build configs, CI, store listings",
+      "expectations": 20,
+      "accounted": 20,
+      "sites": 86,
+      "tracked": 10,
+      "gates": {
+        "G1": "pass",
+        "G2": "pass",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "fail",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "`html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.",
+        "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises."
+      ],
+      "findings": []
+    },
+    {
+      "case": "traps-interop",
+      "title": "Formats other tools depend on, and text the licence forbids rewriting",
+      "expectations": 9,
+      "accounted": 9,
+      "sites": 25,
+      "tracked": 5,
+      "gates": {
+        "G1": "pass",
+        "G2": "fail",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "`'Content-Type'`, `'Accept-Language'` and `'XMLHttpRequest'` come back needs-judgment/ambiguous-role rather than as the API contract they are. Refused, so nothing breaks — but by a generic hesitation rather than by recognising an HTTP header, so a longer header name in the same object would read as copy.",
+        "`'fr-FR'` lands on needs-judgment/ambiguous-role. It is a locale marker in a header map, which is the one thing in this file that SHOULD be retargeted rather than left alone; the engine sees neither."
+      ],
+      "findings": []
+    },
+    {
+      "case": "traps-persistence",
+      "title": "Values that leave the process: translating one corrupts data, and no gate would catch it",
+      "expectations": 14,
+      "accounted": 14,
+      "sites": 45,
+      "tracked": 4,
+      "gates": {
+        "G1": "pass",
+        "G2": "pass",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "`'Synchronisation en cours'` comes back needs-judgment/no-rule while `'Réinitialisation demandée'`, its sibling in the same switch, comes back translate. Same position, same shape, two answers. Not asserted either way here: pinning the inconsistent pair would make it look decided.",
+        "`'email'` and `'push'` — the Channel enum VALUES — land on needs-judgment/short-string rather than enum-member, so they are refused for the right outcome by the wrong reason. Only their brevity saves them; a longer enum value in the same position reads as copy."
+      ],
+      "findings": []
+    },
+    {
+      "case": "traps-test-fixtures",
+      "title": "Strings that exist to be compared, not read: assertions, ARIA, class names, date patterns, keys",
+      "expectations": 13,
+      "accounted": 13,
+      "sites": 48,
+      "tracked": 6,
+      "gates": {
+        "G1": "pass",
+        "G2": "fail",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "The values in `src/locales/fr/common.json` come back do-not-translate/already-target-language on a fr→en run. The bundle is in the SOURCE language, so under `swap` it is exactly what should be rewritten; the reason given is the opposite of the situation. Asserted only as accounted-for here, because pinning the verdict would pin the confusion.",
+        "`'Enregistrement en cours'` lands on needs-judgment/no-rule while its ternary sibling `'Toutes les modifications sont enregistrées'` comes back translate. Same expression, two answers — the same inconsistency traps-persistence records in a switch."
+      ],
+      "findings": []
+    }
+  ]
+}

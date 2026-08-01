@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+  <key>task_count</key>
+  <dict>
+    <key>NSStringLocalizedFormatKey</key>
+    <string>%#@tasks@</string>
+    <key>tasks</key>
+    <dict>
+      <key>NSStringFormatSpecTypeKey</key>
+      <string>NSStringPluralRuleType</string>
+      <key>one</key>
+      <string>One task remaining</string>
+      <key>other</key>
+      <string>%d tasks remaining</string>
+    </dict>
+  </dict>
+</dict>
+</plist>

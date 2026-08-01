@@ -1,0 +1,4 @@
+[project]
+name = "atelier"
+description = "L'atelier, en Python"
+version = "1.0.0"

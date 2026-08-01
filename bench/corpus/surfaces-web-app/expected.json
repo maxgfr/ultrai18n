@@ -1,0 +1,248 @@
+{
+  "schemaVersion": 1,
+  "case": "surfaces-web-app",
+  "title": "Where user-visible text hides in a web project: build configs, CI, store listings",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "pass",
+    "G3": "any",
+    "G4": "fail",
+    "G5": "pass",
+    "G6": "any",
+    "G7": "pass"
+  },
+  "census": [
+    {
+      "file": "rspack.config.ts",
+      "bucket": "scanned",
+      "extractor": "ts-ast",
+      "why": "A build config, read as code. The manifest inside it exists only at build time."
+    },
+    {
+      "file": "index.html",
+      "bucket": "scanned",
+      "extractor": "html",
+      "why": "Head metadata is the surface most likely to be forgotten because it is not on screen."
+    },
+    {
+      "file": "public/manifest.webmanifest",
+      "bucket": "scanned",
+      "extractor": "json",
+      "why": "An extension no JSON-driven scanner registers by default."
+    },
+    {
+      "file": "ext/manifest.json",
+      "bucket": "scanned",
+      "extractor": "json",
+      "why": "Shares a filename with the web manifest and means something else entirely."
+    },
+    {
+      "file": ".github/workflows/release.yml",
+      "bucket": "scanned",
+      "extractor": "yaml",
+      "why": "Markdown nested inside YAML. Ordinary YAML tooling reports one opaque scalar."
+    },
+    {
+      "file": "src/theme.scss",
+      "bucket": "scanned",
+      "extractor": "css",
+      "why": "Comments in a stylesheet — the miss two separate human passes both made on the reference repository."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "manifest.inlined-description",
+      "file": "rspack.config.ts",
+      "find": "'Un atelier de publication pour petites équipes'",
+      "expect": {
+        "verdict": "translate",
+        "rule": "web.manifest.inlined-in-build-config"
+      },
+      "why": "The manifest exists only at build time, so `find -name manifest.json` returns nothing and a filename-driven search misses the entire install listing. Found by STRUCTURE — `…/manifest/description` — not by the file's name."
+    },
+    {
+      "id": "manifest.inlined-name",
+      "file": "rspack.config.ts",
+      "find": "short_name: 'Atelier'",
+      "expect": {
+        "verdict": "translate",
+        "rule": "web.manifest.inlined-in-build-config"
+      },
+      "why": "Deliberately rspack rather than vite, so the rule is exercised on a bundler the reference repository never used. Anchored on `short_name` because `name: 'Atelier'` also matches it — which the runner reported rather than silently picking one."
+    },
+    {
+      "id": "manifest.inlined-start-url",
+      "file": "rspack.config.ts",
+      "find": "start_url: '/atelier/'",
+      "mustNotClaim": true,
+      "why": "A companion of the same rule. Translating a start_url breaks the installed app's entry point."
+    },
+    {
+      "id": "webmanifest.description",
+      "file": "public/manifest.webmanifest",
+      "find": "Publier sans friction, à plusieurs",
+      "expect": {
+        "verdict": "translate",
+        "rule": "web.manifest.text-fields"
+      },
+      "why": "`.webmanifest` is an extension most scanners do not register as JSON."
+    },
+    {
+      "id": "webmanifest.lang",
+      "file": "public/manifest.webmanifest",
+      "find": "\"lang\": \"fr\"",
+      "expect": {
+        "verdict": "locale-marker"
+      },
+      "why": "Not translated and not left alone: RETARGETED. A manifest still declaring `fr` in an English build is a bug, and `locale-marker` is the only verdict that says so."
+    },
+    {
+      "id": "webext.action-title",
+      "file": "ext/manifest.json",
+      "find": "\"default_title\": \"Ouvrir l'atelier\"",
+      "expect": {
+        "verdict": "translate",
+        "rule": "webext.manifest.text"
+      },
+      "why": "A store listing. The same filename as the web manifest, discriminated by `manifest_version` being present at all."
+    },
+    {
+      "id": "webext.host-permission",
+      "file": "ext/manifest.json",
+      "find": "https://*.example.com/*",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "api-contract"
+      },
+      "mustNotClaim": true,
+      "why": "A match pattern looks like a URL because it is one. Translating it silently disables the extension."
+    },
+    {
+      "id": "webext.messages",
+      "file": "ext/_locales/en/messages.json",
+      "find": "Nom affiché dans la boutique",
+      "expect": {
+        "verdict": "translate",
+        "rule": "webext.locales.messages"
+      },
+      "why": "A message bundle with its own schema: `/*/message` and `/*/description` are copy, `placeholders` are not."
+    },
+    {
+      "id": "issue-form.label",
+      "file": ".github/ISSUE_TEMPLATE/bug.yml",
+      "find": "Que s'est-il passé ?",
+      "expect": {
+        "verdict": "translate",
+        "rule": "github.issue-forms"
+      },
+      "why": "Public-facing, and invisible to anyone grepping the application source."
+    },
+    {
+      "id": "issue-form.id",
+      "file": ".github/ISSUE_TEMPLATE/bug.yml",
+      "find": "id: what-happened",
+      "mustNotClaim": true,
+      "why": "A field id the template's own validation references. Two lines from a label that must move."
+    },
+    {
+      "id": "issue-form.contact-link",
+      "file": ".github/ISSUE_TEMPLATE/config.yml",
+      "find": "Pour tout ce qui n'est pas une anomalie",
+      "expect": {
+        "verdict": "translate",
+        "rule": "github.issue-forms"
+      },
+      "why": "`config.yml` is covered by the same rule and lives beside the templates, so a case exercising only `bug.yml` would leave half of it untested."
+    },
+    {
+      "id": "release.body",
+      "file": ".github/workflows/release.yml",
+      "find": "L'éditeur accepte maintenant les tableaux.",
+      "expect": {
+        "verdict": "translate",
+        "rule": "github.release-notes-body"
+      },
+      "why": "Markdown nested inside YAML that renders on the public Releases page. Ordinary YAML tooling reports one opaque scalar and this line is invisible."
+    },
+    {
+      "id": "workflow.job-name",
+      "file": ".github/workflows/release.yml",
+      "find": "name: Construire et publier",
+      "expect": {
+        "verdict": "translate",
+        "rule": "github.workflow-prose"
+      },
+      "why": "Shown in the Actions UI. A separate rule from the release body, in the same file."
+    },
+    {
+      "id": "workflow.uses",
+      "file": ".github/workflows/release.yml",
+      "find": "softprops/action-gh-release@v2",
+      "mustNotClaim": true,
+      "why": "An action reference. It sits in the same step as the release body that must be translated."
+    },
+    {
+      "id": "html.meta-description",
+      "file": "index.html",
+      "find": "Un atelier de publication pour petites équipes.",
+      "expect": {
+        "verdict": "translate",
+        "rule": "html.meta.prose"
+      },
+      "why": "Rendered by search engines and never on screen, which is why a visual review misses it."
+    },
+    {
+      "id": "html.og-description",
+      "file": "index.html",
+      "find": "Publier sans friction, à plusieurs.",
+      "expect": {
+        "verdict": "translate",
+        "rule": "html.meta.prose"
+      },
+      "why": "The social preview. Same element, same attribute, different property."
+    },
+    {
+      "id": "html.viewport",
+      "file": "index.html",
+      "find": "width=device-width, initial-scale=1",
+      "mustNotClaim": true,
+      "why": "Identical markup to the description beside it, and entirely machine-facing. Only the `name` attribute separates them."
+    },
+    {
+      "id": "html.alt",
+      "file": "index.html",
+      "find": "Capture de l'éditeur",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The accessible name of an image. Copy by any definition, and easy to skip because it is an attribute."
+    },
+    {
+      "id": "scss.comment",
+      "file": "src/theme.scss",
+      "find": "Les commentaires d'une feuille de style sont de la prose",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Four French comments in a stylesheet were what two separate human translation passes both missed on the reference repository."
+    },
+    {
+      "id": "npm.description",
+      "file": "package.json",
+      "find": "L'atelier, côté navigateur",
+      "expect": {
+        "verdict": "translate",
+        "rule": "npm.package-json.description"
+      },
+      "why": "Rendered on npmjs.com and by `npm search`, and read by everyone as dependency config."
+    }
+  ],
+  "knownGaps": [
+    "`html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.",
+    "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises."
+  ]
+}

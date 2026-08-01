@@ -1,0 +1,18 @@
+name: Publier une version
+on:
+  push:
+    tags: ['v*']
+jobs:
+  release:
+    name: Construire et publier
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer les sources
+        uses: actions/checkout@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## Nouveautés
+
+            L'éditeur accepte maintenant les tableaux.
+          tag_name: ${{ github.ref_name }}

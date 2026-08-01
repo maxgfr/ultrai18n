@@ -4,6 +4,7 @@
 // counted, or gated on, and the moment one is accepted the exceptions file
 // becomes a place to write prose instead of a place to record decisions.
 import type { PluralFamily } from './plural'
+import type { Suspicion } from './plural/suspect'
 
 /** What kind of syntactic thing the text was found in. */
 export type SiteKind =
@@ -297,6 +298,15 @@ export interface Inventory {
    * so the cycle it appears to create does not exist at runtime.
    */
   plurals: PluralFamily[]
+  /**
+   * What looks like a plural and no dialect claimed.
+   *
+   * The plural counterpart of an `unclassified` site: not "this is broken" but
+   * "the engine looked, saw something plural-shaped, and could not account for
+   * it". It is what makes a dialect catalog checkable rather than merely
+   * extensible — the loop ends when this list is empty.
+   */
+  pluralResidual: Suspicion[]
 }
 
 /**

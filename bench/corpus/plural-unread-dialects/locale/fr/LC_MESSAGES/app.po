@@ -1,0 +1,9 @@
+msgid ""
+msgstr ""
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: src/app.py:12
+msgid "one unread message"
+msgid_plural "%d unread messages"
+msgstr[0] "un message non lu"
+msgstr[1] "%d messages non lus"

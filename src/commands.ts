@@ -16,6 +16,7 @@ import {
   type Batch, type BatchResult,
 } from './translate'
 import { apply, type Insertion, type Translation } from './apply'
+import { resolveProvider, type ProviderOverrides, type ResolvedProvider } from './provider'
 
 export interface RunDir {
   root: string
@@ -191,7 +192,15 @@ export interface ApiConfig {
   headers?: Record<string, string>
 }
 
-export async function cmdTranslateApi(opts: TranslateOptions & { api?: ApiConfig }): Promise<TranslateOutcome> {
+export async function cmdTranslateApi(
+  opts: TranslateOptions & {
+    /** Already resolved, so the caller can show it before spending anything. */
+    resolved?: ResolvedProvider
+    provider?: ProviderOverrides
+    configPath?: string
+  },
+): Promise<TranslateOutcome & { provider: ResolvedProvider }> {
+  const provider = opts.resolved ?? resolveProvider(opts.repo, opts.provider ?? {}, opts.configPath)
   const dirs = runDir(opts.out)
   const p = readJson<Plan>(dirs.plan, 'PLAN.json')
   const batches = readBatches(dirs.batches)
@@ -201,10 +210,7 @@ export async function cmdTranslateApi(opts: TranslateOptions & { api?: ApiConfig
   for (const batch of batches) {
     try {
       const result = await runApiBackend(batch, {
-        endpoint: opts.api?.endpoint ?? 'https://api.anthropic.com/v1/messages',
-        model: opts.api?.model ?? 'claude-haiku-4-5-20251001',
-        keyEnv: opts.api?.keyEnv ?? 'ANTHROPIC_API_KEY',
-        headers: { 'anthropic-version': '2023-06-01', ...opts.api?.headers },
+        provider,
         sourceLang: p.sourceLang,
         targetLang: p.targetLang,
         contract: TRANSLATOR_CONTRACT,
@@ -221,7 +227,7 @@ export async function cmdTranslateApi(opts: TranslateOptions & { api?: ApiConfig
     writeJson(join(opts.out, 'FAILED.json'), { failed })
     throw new Error(`${failed.length} of ${batches.length} batches failed — see FAILED.json; re-run to retry only those`)
   }
-  return { backend: 'api', batches: batches.length, wrote }
+  return { backend: 'api', batches: batches.length, wrote, provider }
 }
 
 export function cmdTranslate(opts: TranslateOptions): TranslateOutcome {
@@ -426,9 +432,9 @@ function writeFamily(
     const site = siteId ? bySiteId.get(siteId) : undefined
     if (!site) return { translations: [], insertions: [] }
     const rebuilt =
-      family.shape === 'inline-select'
+      family.primitive === 'icu'
         ? rebuildIcu(site.value, family, forms, target)
-        : [...target].map((c) => forms[c] ?? '').join(' | ')
+        : [...target].map((c) => forms[c] ?? '').join(family.join ?? ' | ')
     return rebuilt === null
       ? { translations: [], insertions: [] }
       : { translations: [{ id: site.id, text: rebuilt }], insertions: [] }

@@ -1,0 +1,49 @@
+{
+  "$comment": "Every number here is a floor somebody raised deliberately. Lowering one needs a commit message that says why. The `hard` entries are not per-case negotiable: they are the claims the product makes.",
+
+  "hard": {
+    "accountingCoverage": 1.0,
+    "expectationMismatches": 0,
+    "trapViolations": 0,
+    "censusMismatches": 0,
+    "gateMismatches": 0,
+    "determinismFailures": 0
+  },
+
+  "$catalog": "The ratchet. `checkCatalog` validates a rule's SHAPE — docs present, reason present — and never its REACHABILITY, so a rule can be well-formed, cited, and unable to fire in any repository. The runner fails when a rule outside the allowlist goes unexercised (a new dead rule), and fails when a listed one starts firing (the list is stale). It may only shrink.",
+
+  "allRules": [
+    "android.strings-xml",
+    "cargo.package.description",
+    "dart.pubspec.description",
+    "docker.label",
+    "github.issue-forms",
+    "github.release-notes-body",
+    "github.workflow-prose",
+    "html.meta.prose",
+    "html.title",
+    "i18n.message-bundles",
+    "legal.vendored-verbatim",
+    "npm.package-json.description",
+    "php.composer.description",
+    "python.pyproject.description",
+    "web.manifest.inlined-in-build-config",
+    "web.manifest.text-fields",
+    "webext.locales.messages",
+    "webext.manifest.text"
+  ],
+
+  "neverExercisedRules": [
+    "cargo.package.description",
+    "python.pyproject.description",
+    "docker.label",
+    "html.title"
+  ],
+
+  "$neverExercisedWhy": {
+    "cargo.package.description": "A `pointer` matcher on `**/Cargo.toml`. There is no TOML extractor, so the file falls to the residual sweep and `classify` short-circuits on `tier === 'sweep'` before `matchRules` is called. Remedy: src/extract/toml.ts.",
+    "python.pyproject.description": "Same file format, same missing extractor.",
+    "docker.label": "A `keyName` matcher on `**/Dockerfile*`. Dockerfile is read by the prose extractor, whose sites carry `key = \"p[0]\"`, so the pattern never matches. Remedy: a Dockerfile extractor that emits LABEL keys, or a rule that matches the value instead.",
+    "html.title": "Matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and translated — by the generic prose path — so this is a traceability gap, not a recall one."
+  }
+}

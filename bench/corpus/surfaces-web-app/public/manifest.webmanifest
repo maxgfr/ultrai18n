@@ -1,0 +1,8 @@
+{
+  "name": "Atelier",
+  "short_name": "Atelier",
+  "description": "Publier sans friction, à plusieurs",
+  "lang": "fr",
+  "start_url": "/atelier/",
+  "display": "standalone"
+}
