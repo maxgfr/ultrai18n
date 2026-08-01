@@ -8,7 +8,7 @@
 import type { Hole, SiteKind, Span } from '../types'
 import type { Container, RawSite, TokenIndex } from './raw'
 import { addToken } from './raw'
-import { walkTree, type Node, type Tree } from '../ast/parse'
+import { walkTree, ancestorOfType, type Node, type Tree } from '../ast/parse'
 import { OffsetMap } from '../vendor/text'
 
 const COMPARISON_OPERATORS = new Set(['===', '!==', '==', '!='])
@@ -25,6 +25,9 @@ const PERSIST_RECEIVERS = new Set([
 const MEMBERSHIP_CALLEES = new Set(['includes', 'startsWith', 'endsWith', 'hasOwn', 'has', 'indexOf'])
 
 const TEST_FILE = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//
+
+/** For the ancestor lookup that recovers a JSX attribute's context. */
+const JSX_ATTRIBUTE = new Set(['jsx_attribute'])
 
 export interface TsExtractResult {
   sites: RawSite[]
@@ -179,7 +182,10 @@ export function extractTs(
         const container = classifyStringContainer(node)
         const decoded = decodeString(node)
         recordTokens(node, decoded.value, container, { enums, compared, persisted }, file)
-        push(node, 'string-literal', decoded.value, null, decoded.quote, [], container, decoded.escapes)
+        // `attr` is not cosmetic: `syntaxFor` reads it, and a JSX attribute
+        // escapes its value as entities rather than with backslashes.
+        const kind = container.attrName !== undefined ? 'attr' : 'string-literal'
+        push(node, kind, decoded.value, null, decoded.quote, [], container, decoded.escapes)
         return false
       }
 
@@ -190,43 +196,27 @@ export function extractTs(
         // the span, not a substitution within it.
         const { value, holes, escapes } = decodeTemplate(node, map)
         const container = classifyStringContainer(node)
-        push(node, 'template', value, null, '`', holes, container, escapes)
+        const kind = container.attrName !== undefined ? 'attr' : 'template'
+        push(node, kind, value, null, '`', holes, container, escapes)
         return false
       }
 
       case 'jsx_attribute': {
-        const nameNode = node.child(0)
-        const attrName = nameNode?.text ?? ''
-        identifiers.add(attrName)
-        const valueNode = node.childCount > 2 ? node.child(2) : null
-        if (!valueNode) return false
-        const container: Container = {
-          isKey: false,
-          attrName,
-          element: enclosingElement(node),
-          enclosingSymbol: enclosingSymbolName(node) ?? undefined,
-        }
-        if (valueNode.type === 'string') {
-          const decoded = decodeString(valueNode)
-          push(valueNode, 'attr', decoded.value, null, decoded.quote, [], container, decoded.escapes)
-          return false
-        }
-        // `title={...}` — descend so a template or string inside the expression
-        // is still found, but carry the attribute name down as context.
-        walkTree(valueNode, (inner) => {
-          if (inner.type === 'string') {
-            const decoded = decodeString(inner)
-            push(inner, 'attr', decoded.value, null, decoded.quote, [], container, decoded.escapes)
-            return false
-          }
-          if (inner.type === 'template_string') {
-            const { value, holes, escapes } = decodeTemplate(inner, map)
-            push(inner, 'attr', value, null, '`', holes, container, escapes)
-            return false
-          }
-          return true
-        })
-        return false
+        // Register the name and DESCEND. This used to run its own walk over the
+        // value looking for a string or a template, then prune the outer one —
+        // so everything else inside `onAdopt={…}` was unreachable by the main
+        // visitor. A three-line comment vanished, and, far worse, so did
+        // `empty={<p>Aucun projet pour le moment</p>}`: a rendered JSX label
+        // inside an attribute expression, in a file reporting a claimRatio of
+        // 1.0. `sites --audit` found the comment on a real repository; the JSX
+        // text was underneath it.
+        //
+        // The attribute's own context is recovered by ancestor lookup instead,
+        // exactly as `enclosingElement` already recovers the element — so one
+        // visitor handles every node type once, and a construct nobody thought
+        // of is handled by whichever case owns it rather than by this list.
+        identifiers.add(node.child(0)?.text ?? '')
+        return true
       }
 
       default:
@@ -432,6 +422,16 @@ function classifyStringContainer(node: Node): Container {
 
   const symbol = enclosingSymbolName(node)
   if (symbol) container.enclosingSymbol = symbol
+
+  // Inside a JSX attribute, whether directly (`title="…"`) or through an
+  // expression (`title={cond ? "…" : "…"}`). Recovered from the ancestors so
+  // the attribute branch does not have to walk the value itself and prune
+  // everything it does not recognise.
+  const attribute = ancestorOfType(node, JSX_ATTRIBUTE)
+  if (attribute) {
+    container.attrName = attribute.child(0)?.text ?? ''
+    container.element = enclosingElement(node)
+  }
 
   if (!parent) return container
 

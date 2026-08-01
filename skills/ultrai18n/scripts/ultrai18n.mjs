@@ -20285,6 +20285,14 @@ function walkTree(node, enter) {
     }
   }
 }
+function ancestorOfType(node, types) {
+  let cur = node.parent;
+  while (cur) {
+    if (types.has(cur.type)) return cur;
+    cur = cur.parent;
+  }
+  return null;
+}
 
 // src/extract/ts.ts
 var COMPARISON_OPERATORS = /* @__PURE__ */ new Set(["===", "!==", "==", "!="]);
@@ -20307,6 +20315,7 @@ var PERSIST_RECEIVERS = /* @__PURE__ */ new Set([
 ]);
 var MEMBERSHIP_CALLEES = /* @__PURE__ */ new Set(["includes", "startsWith", "endsWith", "hasOwn", "has", "indexOf"]);
 var TEST_FILE2 = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//;
+var JSX_ATTRIBUTE = /* @__PURE__ */ new Set(["jsx_attribute"]);
 function extractTs(file, text, tree, map) {
   const sites = [];
   const enums = /* @__PURE__ */ new Map();
@@ -20416,46 +20425,20 @@ function extractTs(file, text, tree, map) {
         const container = classifyStringContainer(node);
         const decoded = decodeString(node);
         recordTokens(node, decoded.value, container, { enums, compared, persisted }, file);
-        push(node, "string-literal", decoded.value, null, decoded.quote, [], container, decoded.escapes);
+        const kind = container.attrName !== void 0 ? "attr" : "string-literal";
+        push(node, kind, decoded.value, null, decoded.quote, [], container, decoded.escapes);
         return false;
       }
       case "template_string": {
         const { value, holes, escapes } = decodeTemplate(node, map);
         const container = classifyStringContainer(node);
-        push(node, "template", value, null, "`", holes, container, escapes);
+        const kind = container.attrName !== void 0 ? "attr" : "template";
+        push(node, kind, value, null, "`", holes, container, escapes);
         return false;
       }
       case "jsx_attribute": {
-        const nameNode = node.child(0);
-        const attrName = nameNode?.text ?? "";
-        identifiers.add(attrName);
-        const valueNode = node.childCount > 2 ? node.child(2) : null;
-        if (!valueNode) return false;
-        const container = {
-          isKey: false,
-          attrName,
-          element: enclosingElement(node),
-          enclosingSymbol: enclosingSymbolName(node) ?? void 0
-        };
-        if (valueNode.type === "string") {
-          const decoded = decodeString(valueNode);
-          push(valueNode, "attr", decoded.value, null, decoded.quote, [], container, decoded.escapes);
-          return false;
-        }
-        walkTree(valueNode, (inner) => {
-          if (inner.type === "string") {
-            const decoded = decodeString(inner);
-            push(inner, "attr", decoded.value, null, decoded.quote, [], container, decoded.escapes);
-            return false;
-          }
-          if (inner.type === "template_string") {
-            const { value, holes, escapes } = decodeTemplate(inner, map);
-            push(inner, "attr", value, null, "`", holes, container, escapes);
-            return false;
-          }
-          return true;
-        });
-        return false;
+        identifiers.add(node.child(0)?.text ?? "");
+        return true;
       }
       default:
         return true;
@@ -20609,6 +20592,11 @@ function classifyStringContainer(node) {
   const container = { isKey: false };
   const symbol = enclosingSymbolName(node);
   if (symbol) container.enclosingSymbol = symbol;
+  const attribute = ancestorOfType(node, JSX_ATTRIBUTE);
+  if (attribute) {
+    container.attrName = attribute.child(0)?.text ?? "";
+    container.element = enclosingElement(node);
+  }
   if (!parent) return container;
   if (parent.type === "import_statement" || parent.type === "export_statement") {
     container.moduleSpecifier = true;
@@ -21062,14 +21050,14 @@ function extractPython(file, text, tree, map) {
     const parent = node.parent;
     const value = node.text;
     if (parent?.type === "pair" && parent.child(0)?.id === node.id) container.isKey = true;
-    if (ancestorOfType(node, /* @__PURE__ */ new Set(["import_statement", "import_from_statement", "future_import_statement"]))) {
+    if (ancestorOfType2(node, /* @__PURE__ */ new Set(["import_statement", "import_from_statement", "future_import_statement"]))) {
       container.moduleSpecifier = true;
     }
     if (parent?.type === "comparison_operator") {
       container.compared = true;
       addToken(compared, value, `${file}#${anchorPath2(node)}`);
     }
-    const call = ancestorOfType(node, /* @__PURE__ */ new Set(["call"]));
+    const call = ancestorOfType2(node, /* @__PURE__ */ new Set(["call"]));
     const callee = call ? calleeName(call) : null;
     if (callee) {
       container.callee = callee;
@@ -21080,7 +21068,7 @@ function extractPython(file, text, tree, map) {
         addToken(persisted, value, `${file}#${anchorPath2(node)}`);
       }
     }
-    const cls = ancestorOfType(node, /* @__PURE__ */ new Set(["class_definition"]));
+    const cls = ancestorOfType2(node, /* @__PURE__ */ new Set(["class_definition"]));
     if (cls && /\b(Enum|StrEnum|IntEnum|TextChoices|Choices)\b/.test(superclasses(cls))) {
       container.enumMember = true;
       addToken(enums, value, `${file}#${anchorPath2(node)}`);
@@ -21163,7 +21151,7 @@ function enclosingSymbol2(node) {
   }
   return null;
 }
-function ancestorOfType(node, types) {
+function ancestorOfType2(node, types) {
   let cur = node.parent;
   while (cur) {
     if (types.has(cur.type)) return cur;
@@ -31888,6 +31876,9 @@ function clip4(s, n = 60) {
 // src/audit.ts
 import { join as join36 } from "path";
 var TWO_WORDS = new RegExp("\\p{L}{2,}[^\\p{L}\\n]{0,2}\\s\\p{L}{2,}", "u");
+var MD_CODE = /`[^`\n]*`/g;
+var MD_LINK_TARGET = /\]\([^)]*\)/g;
+var MD_AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g;
 var LOCATORS = [
   {
     id: "quoted-prose",
@@ -31922,6 +31913,7 @@ var LOCATORS = [
     extractors: ["markdown", "text"],
     re: /^(.*)$/,
     not: /^\s{4,}|^\s*[|>]|^\s*```|^\s*~~~|^\s*\[[^\]]+\]:\s|^\s*<|^\s*$/,
+    mask: [MD_CODE, MD_LINK_TARGET, MD_AUTOLINK],
     why: "A prose line in a document. Hard-wrapped paragraphs are the normal way markdown is written, and losing all but the last line of one was the largest recall hole this project has had."
   },
   {
@@ -31999,7 +31991,7 @@ function auditCoverage(inv, repo) {
       linesChecked++;
       for (const row of rows) {
         if (row.not?.test(line)) continue;
-        const hit = firstProse(row.re, line);
+        const hit = firstProse(row.re, maskFor(row, line));
         if (hit === null) continue;
         findings.push({
           file: entry.file,
@@ -32015,6 +32007,14 @@ function auditCoverage(inv, repo) {
   }
   findings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
   return { audited, excused, linesChecked, findings, ok: findings.length === 0 };
+}
+function maskFor(row, line) {
+  if (!row.mask) return line;
+  let out2 = line;
+  for (const re of row.mask) {
+    out2 = out2.replace(new RegExp(re.source, re.flags), (m) => " ".repeat(m.length));
+  }
+  return out2;
 }
 function firstProse(re, line) {
   if (re.global) {

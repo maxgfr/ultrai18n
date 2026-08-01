@@ -52,9 +52,25 @@ export interface TextLocator {
   re: RegExp
   /** Lines this row must not fire on, whatever `re` says. */
   not?: RegExp
+  /**
+   * Blanked, length-preserving, BEFORE the row is applied.
+   *
+   * An oracle has to be independent of the extractor's implementation, not of
+   * the format's rules. A markdown line that is entirely a code span is not
+   * prose, and the extractor is right to skip it — so a row that reads the
+   * backticks as text accuses the extractor of exactly the thing it correctly
+   * did. On the two reference repositories that was 113 of 119 findings, every
+   * one of them a line like `` - `npm test` ``.
+   */
+  mask?: RegExp[]
   /** Why a hit here is text. Required, and printed with every finding. */
   why: string
 }
+
+/** Markdown constructs whose text is not prose, or whose target is not. */
+const MD_CODE = /`[^`\n]*`/g
+const MD_LINK_TARGET = /\]\([^)]*\)/g
+const MD_AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g
 
 /**
  * What a person reading each format would point at and call text.
@@ -97,6 +113,7 @@ export const LOCATORS: TextLocator[] = [
     extractors: ['markdown', 'text'],
     re: /^(.*)$/,
     not: /^\s{4,}|^\s*[|>]|^\s*```|^\s*~~~|^\s*\[[^\]]+\]:\s|^\s*<|^\s*$/,
+    mask: [MD_CODE, MD_LINK_TARGET, MD_AUTOLINK],
     why: 'A prose line in a document. Hard-wrapped paragraphs are the normal way markdown is written, and losing all but the last line of one was the largest recall hole this project has had.',
   },
   {
@@ -236,7 +253,7 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
 
       for (const row of rows) {
         if (row.not?.test(line)) continue
-        const hit = firstProse(row.re, line)
+        const hit = firstProse(row.re, maskFor(row, line))
         if (hit === null) continue
         findings.push({
           file: entry.file,
@@ -253,6 +270,21 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
 
   findings.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line))
   return { audited, excused, linesChecked, findings, ok: findings.length === 0 }
+}
+
+/**
+ * Blank what this row is not entitled to read, preserving length.
+ *
+ * Length-preserving so the reported text still lines up with the source, and so
+ * a row's own regex sees the line at the offsets it actually has.
+ */
+function maskFor(row: TextLocator, line: string): string {
+  if (!row.mask) return line
+  let out = line
+  for (const re of row.mask) {
+    out = out.replace(new RegExp(re.source, re.flags), (m) => ' '.repeat(m.length))
+  }
+  return out
 }
 
 /** The first match of this row holding two or more words, or null. */

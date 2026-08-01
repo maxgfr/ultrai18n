@@ -150,6 +150,55 @@ describe('comments', () => {
   })
 })
 
+describe('a JSX attribute expression is descended into, not scanned', () => {
+  // It used to run its OWN walk over the value looking for a string or a
+  // template, then prune the outer one — so anything else inside `onAdopt={…}`
+  // never reached the main visitor. `sites --audit` found a three-line comment
+  // vanishing on a real repository; underneath it was the far worse one.
+  const attr = (src: string) => parse(src).sites
+
+  it('finds a rendered JSX label inside an attribute expression', () => {
+    // `claimRatio` was 1.0 for the file this came from. Real UI copy, silently
+    // absent, in a file asserting it had accounted for every byte.
+    const found = attr('const A = () => <Table empty={<p>Aucun projet pour le moment</p>} />')
+    expect(found.map((s) => s.value)).toContain('Aucun projet pour le moment')
+    expect(found.find((s) => s.value.startsWith('Aucun'))!.kind).toBe('jsx-text')
+  })
+
+  it('finds a comment inside an attribute expression', () => {
+    const found = attr('const A = () => <C onGo={\n  // Attend les données\n  ready ? go : undefined\n} />')
+    expect(found.some((s) => s.kind === 'comment' && s.value === 'Attend les données')).toBe(true)
+  })
+
+  it('still reads a plain attribute string as an attribute', () => {
+    // `attr` is not cosmetic: `syntaxFor` reads it, and a JSX attribute escapes
+    // its value as entities rather than with backslashes.
+    const site = attr('const A = () => <C label="Liste des projets" />').find((s) => s.value.startsWith('Liste'))!
+    expect(site.kind).toBe('attr')
+    expect(site.container.attrName).toBe('label')
+  })
+
+  it('still reads a string inside an expression as that attribute\'s', () => {
+    const site = attr('const A = () => <C title={cond ? "Ouvrir la fiche" : ""} />').find((s) => s.value.startsWith('Ouvrir'))!
+    expect(site.kind).toBe('attr')
+    expect(site.container.attrName).toBe('title')
+  })
+
+  it('still reads a template inside an expression as that attribute\'s', () => {
+    const site = attr('const A = () => <C hint={`Reste ${n}`} />').find((s) => s.value.startsWith('Reste'))!
+    expect(site.kind).toBe('attr')
+    expect(site.container.attrName).toBe('hint')
+    expect(site.holes).toHaveLength(1)
+  })
+
+  it('keeps a nested element\'s own attribute distinct from its parent\'s', () => {
+    const found = attr('const A = () => <C render={(x) => <span title="Ouvrir">{x}</span>} label="Liste" />')
+    const byValue = new Map(found.map((s) => [s.value, s.container.attrName]))
+    expect(byValue.get('Ouvrir')).toBe('title')
+    expect(byValue.get('Liste')).toBe('label')
+  })
+})
+
 describe('byte offsets', () => {
   it('reports BYTE spans even though tree-sitter indexes UTF-16 units', () => {
     // Measured, not assumed: tree-sitter gives endIndex 29 for this source
