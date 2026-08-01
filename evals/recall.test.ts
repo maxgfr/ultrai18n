@@ -62,11 +62,24 @@ describe('the misses', () => {
     expect(values).toContain('Onglet de navigateur')
   })
 
-  it('finds the release-notes body nested in workflow YAML', () => {
-    const body = allIn('.github/workflows/release.yml').find((s) => s.kind === 'block-scalar')
-    expect(body?.value).toContain('### Extension Chrome')
-    expect(body?.verdict).toBe('translate')
-    expect(body?.rule).toBe('github.release-notes-body')
+  it('reads the release-notes body nested in workflow YAML as the markdown it is', () => {
+    // It renders on a public Releases page, so it is markdown that happens to
+    // live in YAML. Read as one block scalar it was a single translation unit
+    // with its heading and its link unmasked; read as markdown, the heading and
+    // the sentence are separate patchable runs.
+    const sites = allIn('.github/workflows/release.yml')
+    expect(sites.some((s) => s.kind === 'block-scalar')).toBe(false)
+
+    const heading = sites.find((s) => s.value === 'Extension Chrome')
+    expect(heading?.verdict).toBe('translate')
+    // Anchored BELOW the host's pointer, so the catalog rule that decided the
+    // block reaches the runs it produced, and `h3[0]` cannot collide with the
+    // same heading in another block scalar in the same file.
+    expect(heading?.siteKey).toBe('.github/workflows/release.yml#/jobs/release/steps/1/with/body/h3[0]')
+    expect(heading?.rule).toBe('github.release-notes-body')
+
+    const prose = sites.find((s) => s.value.startsWith('Téléchargez'))
+    expect(prose?.verdict).toBe('translate')
   })
 
   it('finds French comments in a stylesheet', () => {

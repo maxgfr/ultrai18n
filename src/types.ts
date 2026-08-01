@@ -155,7 +155,15 @@ export type NeedsJudgmentReason =
 
 export type Reason = DoNotTranslateReason | NeedsJudgmentReason
 
-export type Tier = 'ast' | 'structural' | 'regex' | 'sweep'
+/**
+ * Which reader produced a site, in decreasing order of what it can say.
+ *
+ * `regex` used to sit between `structural` and `sweep` and nothing ever emitted
+ * it. It was not merely unused: `classify` computed `degraded` by comparing
+ * against it, so `Site.degraded` was false for every site in every repository —
+ * a field that looked like a measurement and was a constant.
+ */
+export type Tier = 'ast' | 'structural' | 'sweep'
 
 /** Byte offsets into the file buffer. Never character indices — see OffsetMap. */
 export interface Span {
@@ -246,6 +254,15 @@ export interface Site {
 
   extractor: string
   tier: Tier
+  /**
+   * The FILE this site came from was read without its full tier.
+   *
+   * A property of the read, not of the site: when a grammar is unavailable or
+   * broke down partway, every verdict in that file is weaker — no key-versus-
+   * value, no enum detection — and that is true of sites the reader did emit
+   * as much as of the ones it did not. `CensusEntry.degraded` says it per file;
+   * this says it where a verdict is read.
+   */
   degraded: boolean
 
   lang: LanguageGuess
@@ -282,6 +299,14 @@ export interface CensusEntry {
   bucket: CensusBucket
   sites?: number
   extractors?: string[]
+  /**
+   * The strongest tier that read this file.
+   *
+   * Populated by `scan`, which extracted it and therefore knows. Deliberately
+   * ABSENT from `runCensus`, which walks and decodes and never extracts —
+   * reporting `structural` there would be a guess dressed as a measurement, and
+   * this field exists for `sites --audit` to tell a parse from a lex.
+   */
   tier?: Tier
   degraded?: boolean
   bytesTotal?: number

@@ -13,8 +13,6 @@ import { extractHtml } from './html'
 export interface MarkdownExtractResult {
   sites: RawSite[]
   claimedBytes: number
-  /** Heading slugs, so a translated heading's dangling anchors can be detected. */
-  headings: { text: string; slug: string; line: number }[]
 }
 
 const FENCE = /^(\s*)(```+|~~~+)(.*)$/
@@ -49,27 +47,48 @@ const LINK = /\[([^\]]*)\]\(([^)]*)\)/g
 const IMAGE = /!\[([^\]]*)\]\(([^)]*)\)/g
 const AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g
 
+/**
+ * Read a document, or one region of a larger file.
+ *
+ * `range` exists for markdown nested inside another format — a release-notes
+ * body held in a workflow's block scalar. It reads the HOST text through the
+ * HOST map, so every offset is absolute by construction.
+ *
+ * That is the whole reason it is a range rather than the `baseOffset` this
+ * signature used to carry. A block scalar's body is DEDENTED before anything
+ * sees it, and an offset into a dedented string cannot be turned back into a
+ * file offset by adding a constant: every line past the first has lost its own
+ * indentation as well. The old parameter was never passed by anything, which is
+ * the only reason it never wrote into the wrong bytes.
+ *
+ * Leading indentation is harmless here — every block rule below already allows
+ * it, because markdown allows it.
+ */
 export function extractMarkdown(
   file: string,
   text: string,
   map: OffsetMap,
-  /** Offset of this text within its host file, for markdown nested in YAML. */
-  baseOffset = 0,
+  range?: { from: number; to: number },
 ): MarkdownExtractResult {
   const sites: RawSite[] = []
-  const headings: { text: string; slug: string; line: number }[] = []
   let claimed = 0
 
-  const lines: { text: string; start: number }[] = []
+  const all: { text: string; start: number }[] = []
   {
     let start = 0
     for (let i = 0; i <= text.length; i++) {
       if (i === text.length || text[i] === '\n') {
-        lines.push({ text: text.slice(start, i), start })
+        all.push({ text: text.slice(start, i), start })
         start = i + 1
       }
     }
   }
+  // Only the lines the range covers. Sliced rather than filtered inside the
+  // loop, so `lines[i + 1]` — which the HTML-block branch reads — cannot walk
+  // out of the region it was handed.
+  const lines = range
+    ? all.filter((l) => l.start >= range.from && l.start < range.to)
+    : all
 
   let inFence = false
   let fenceMarker = ''
@@ -110,7 +129,7 @@ export function extractMarkdown(
       const from = startChar + at
       const to = from + trimmed.length
       sites.push(
-        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, 'prose-run', from, to, raw.slice(at, at + trimmed.length), map, baseOffset),
+        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, 'prose-run', from, to, raw.slice(at, at + trimmed.length), map),
       )
     }
   }
@@ -171,7 +190,7 @@ export function extractMarkdown(
         claimed += lineBytes(map, text, lines[k]!.start, lines[k]!.text.length)
       }
       for (const site of extractHtml(file, text, map, { from, to }).sites) {
-        sites.push(baseOffset ? { ...site, span: shift(site.span, baseOffset), valueSpan: shift(site.valueSpan, baseOffset) } : site)
+        sites.push(site)
       }
       i = last
       continue
@@ -182,9 +201,8 @@ export function extractMarkdown(
       flush()
       const body = heading[3]!
       const at = start + heading[1]!.length + heading[2]!.length + 1
-      headings.push({ text: body, slug: slugify(body), line: i + 1 })
       if (/\p{L}{2,}/u.test(body)) {
-        sites.push(makeSite(file, `h${heading[2]!.length}[${blockIndex++}]`, 'prose-run', at, at + body.length, body, map, baseOffset))
+        sites.push(makeSite(file, `h${heading[2]!.length}[${blockIndex++}]`, 'prose-run', at, at + body.length, body, map))
       }
       continue
     }
@@ -199,7 +217,7 @@ export function extractMarkdown(
         const body = part.trim()
         if (/\p{L}{2,}/u.test(body)) {
           const from = cursor + trimmedStart
-          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, 'prose-run', from, from + body.length, body, map, baseOffset))
+          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, 'prose-run', from, from + body.length, body, map))
         }
         cursor += part.length + 1
         cell++
@@ -230,7 +248,7 @@ export function extractMarkdown(
   flush()
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  return { sites, claimedBytes: claimed, headings }
+  return { sites, claimedBytes: claimed }
 }
 
 function blank(s: string, re: RegExp, keep?: (m: RegExpExecArray) => string): string {
@@ -251,11 +269,6 @@ function keepGroup(m: RegExpExecArray, group: number): string {
   return ' '.repeat(at) + inner + ' '.repeat(whole.length - at - inner.length)
 }
 
-/** Shift a span for a markdown block that is itself nested inside another file. */
-function shift(span: Span, by: number): Span {
-  return { start: span.start + by, end: span.end + by }
-}
-
 export function slugify(heading: string): string {
   return heading
     .toLowerCase()
@@ -272,9 +285,8 @@ function makeSite(
   endChar: number,
   value: string,
   map: OffsetMap,
-  baseOffset: number,
 ): RawSite {
-  const span: Span = { start: baseOffset + map.byteOf(startChar), end: baseOffset + map.byteOf(endChar) }
+  const span: Span = { start: map.byteOf(startChar), end: map.byteOf(endChar) }
   const s = map.lineColOf(startChar)
   const e = map.lineColOf(endChar)
   return {

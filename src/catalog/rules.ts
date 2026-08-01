@@ -207,7 +207,12 @@ export const RULES: Rule[] = [
     when: {
       kind: 'pointer',
       file: ['.github/workflows/*.yml', '.github/workflows/*.yaml'],
-      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)$/,
+      // The pointer, AND anything under it. The body is markdown that renders
+      // on a public page, so it is read as markdown — and every prose run that
+      // comes back anchors below this pointer. Ending the pattern at `$` left
+      // the rule matching a block scalar nobody emits any more, and every run
+      // inside it falling through to the language detector.
+      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)(\/|$)/,
     },
     emit: { surface: 'ui.release-notes', verdict: 'translate', flags: ['public-facing'] },
     companions: [

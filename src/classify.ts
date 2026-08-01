@@ -24,6 +24,14 @@ export interface ClassifyOptions {
   rules?: Rule[]
   /** Locale a file's path declares, e.g. `locales/fr/common.json` — French there is correct. */
   fileLocale?: (file: string) => string | null
+  /**
+   * This file was read without its full tier.
+   *
+   * A property of the READ, so it arrives from the caller that did the reading.
+   * `Site.degraded` used to be derived from `tier === 'regex'`, a tier nothing
+   * has ever emitted, which made the field false everywhere.
+   */
+  degraded?: boolean
 }
 
 const STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/
@@ -130,7 +138,7 @@ export function classify(raw: RawSite, opts: ClassifyOptions): Site {
     hard: decided.hard ?? false,
     extractor: raw.extractor,
     tier: raw.tier,
-    degraded: raw.tier === 'regex',
+    degraded: opts.degraded ?? false,
     lang,
     flags: decided.flags ?? [],
     constraints: {

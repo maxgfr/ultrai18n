@@ -131,6 +131,20 @@ describe('a file with no parser is swept, not silently dropped', () => {
     const entry = inv.census.find((c) => c.file === 'src/app.ts')!
     expect(entry.degraded).toBe(true)
     expect(entry.extractors).toEqual(['none'])
+    expect(entry.tier).toBe('sweep')
+  })
+
+  it('carries that onto every site in it', async () => {
+    // `Site.degraded` was computed from `tier === 'regex'`, a tier nothing has
+    // ever emitted — so the field was false in every repository. It says what
+    // its name promises now: this site came out of a file read without its
+    // full tier, so its verdict is weaker than one from a parsed file.
+    const degraded = await scan({ repo, from: 'fr', to: 'en', noAst: true })
+    expect(degraded.sites.filter((s) => s.file === 'src/app.ts').every((s) => s.degraded)).toBe(true)
+
+    const parsed = await scan({ repo, from: 'fr', to: 'en' })
+    expect(parsed.sites.filter((s) => s.file === 'src/app.ts').some((s) => s.degraded)).toBe(false)
+    expect(parsed.census.find((c) => c.file === 'src/app.ts')!.tier).toBe('ast')
   })
 
   it('and G2 refuses to pass while that site is there', async () => {

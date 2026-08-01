@@ -43,8 +43,20 @@ export function extractYaml(
   file: string,
   text: string,
   map: OffsetMap,
-  /** Recurse into a block scalar's body, remapping every child offset. */
-  nested?: (body: string, absoluteStart: number, path: string) => RawSite[],
+  /**
+   * Read a block scalar's body with a reader of its own.
+   *
+   * Handed the body's CHAR RANGE in this file rather than the dedented string,
+   * so the reader works against the host text and the host map and every offset
+   * it returns is absolute by construction. The old signature passed the
+   * dedented body and a single base offset, which cannot be right past the
+   * first line: each line has lost its own indentation too.
+   *
+   * Returning sites CLAIMS the block. The parent block-scalar site is then not
+   * emitted, because two overlapping sites over the same bytes make `apply`
+   * write inside its own rewrite.
+   */
+  nested?: (region: { from: number; to: number }, path: string, body: string) => RawSite[],
 ): YamlExtractResult {
   const sites: RawSite[] = []
   const keys = new Set<string>()
@@ -166,22 +178,16 @@ export function extractYaml(
       if (blockMatch) {
         const block = readBlock(lines, li + 1, indent)
         if (block) {
-          const container: Container = { isKey: false }
-          push(
-            'block-scalar',
-            block.start,
-            block.end,
-            block.dedented,
-            null,
-            path,
-            container,
-          )
-          if (nested) {
-            // Children carry ABSOLUTE offsets. One coordinate system for the
-            // whole run, or the patcher writes into the wrong file position.
-            for (const child of nested(block.dedented, block.start + block.bodyIndent, path)) {
-              sites.push(child)
-            }
+          // A reader for the body, when the host knows of one. A forty-line
+          // release note is one translation unit otherwise — links, code spans
+          // and headings unmasked, handed to a model whole.
+          const children = nested
+            ? nested({ from: block.start, to: block.end }, path, block.dedented)
+            : []
+          if (children.length) {
+            for (const child of children) sites.push(child)
+          } else {
+            push('block-scalar', block.start, block.end, block.dedented, null, path, { isKey: false })
           }
           // The block's lines are consumed here, so the main loop never reaches
           // them and never counts them. They ARE read — the nested extraction

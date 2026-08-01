@@ -377,6 +377,15 @@ function gateCoherence(inv: Inventory, repo: string): Gate {
   }
 
   // A translated heading whose anchor other files still link to.
+  //
+  // Derived from the heading SITES, which is now the only derivation. The
+  // markdown extractor used to return a parallel `headings` array carrying the
+  // same slugs, read by nothing — two derivations of one fact, and one of them
+  // would drift. The site's anchor is the fact.
+  //
+  // One difference the removal makes, and it only ever loosens this check: a
+  // heading with no word in it produces no site and therefore no slug, so a
+  // link to `#2024` reports drift where the old array would have covered it.
   const slugs = new Set<string>()
   for (const site of inv.sites) {
     if (site.extractor === 'markdown' && /^h\d/.test(site.siteKey.split('#')[1] ?? '')) {

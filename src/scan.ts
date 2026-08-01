@@ -34,7 +34,7 @@ import { assembleFamilies, mergeDialects, pluralTier, type PluralDialect, type P
 import { evidenceFor, gatherEvidence } from './plural/dialect/evidence'
 import { compileDialect } from './plural/dialect/check'
 import { suspectPlurals, unclaimedSuspicions } from './plural/suspect'
-import type { Advisory, CensusEntry, Inventory, Site } from './types'
+import type { Advisory, CensusEntry, Inventory, Site, Tier } from './types'
 import { gitLsFiles } from './census'
 
 // `.xcstrings` is JSON with an Apple extension. Without it here the file sweeps,
@@ -112,7 +112,7 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   const pairs: { raw: RawSite; site: Site }[] = []
   for (const result of results) {
     for (const raw of result.sites) {
-      const site = classify(raw, { from, to, tokens, fileLocale })
+      const site = classify(raw, { from, to, tokens, fileLocale, degraded: result.degraded })
       sites.push(site)
       pairs.push({ raw, site })
     }
@@ -423,6 +423,46 @@ function markupResult(
   }
 }
 
+/**
+ * A block scalar whose body is markdown, read as the markdown it is.
+ *
+ * `.github/workflows/release.yml` holds a release-notes body as `body: |` —
+ * markdown that renders on a public page. Read as one block scalar it is a
+ * forty-line translation unit with its links, headings and code spans unmasked;
+ * read as markdown it is individually patchable prose.
+ *
+ * Which blocks qualify is decided by the CATALOG rather than by a list of key
+ * names here. A rule already says where a release-notes body lives and cites
+ * GitHub's own documentation for it, so a new host format is a new row and not
+ * a new branch — and the surface is the question being asked, which is exactly
+ * what `Emit.surface` records.
+ */
+const MARKDOWN_SURFACES = new Set(['ui.release-notes', 'doc.markdown-prose', 'doc.changelog'])
+
+function markdownInYaml(
+  file: string,
+  text: string,
+  map: OffsetMap,
+  region: { from: number; to: number },
+  path: string,
+  body: string,
+): RawSite[] {
+  const key = path.split('/').pop() ?? ''
+  const matched = matchRules(RULES, { file, path, value: body, key }).some((m) =>
+    MARKDOWN_SURFACES.has(m.emit.surface),
+  )
+  if (!matched) return []
+  // Each child keeps the HOST's pointer as its prefix, so `h3[0]` inside a
+  // release-notes body anchors at `/jobs/release/steps/1/with/body/h3[0]`. Two
+  // things depend on it: the catalog rule that decided the block in the first
+  // place has to reach the runs it produced, and a bare `h3[0]` would collide
+  // with the same heading in any other block scalar in the file.
+  return extractMarkdown(file, text, map, region).sites.map((site) => ({
+    ...site,
+    path: `${path}/${site.path}`,
+  }))
+}
+
 async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptions): Promise<FileResult> {
   const read = readTextEx(file.abs)
   const base = {
@@ -550,7 +590,12 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   }
 
   if (YAML_EXT.has(ext)) {
-    const { sites, keys, claimedBytes, complete, skippedSpans } = extractYaml(file.rel, read.text, map)
+    const { sites, keys, claimedBytes, complete, skippedSpans } = extractYaml(
+      file.rel,
+      read.text,
+      map,
+      (region, path, body) => markdownInYaml(file.rel, read.text, map, region, path, body),
+    )
     for (const k of keys) tokens.identifiers.add(k)
     // A flow collection or an alias is a construct the scanner does not enter.
     // It used to record the skip in prose and claim the bytes anyway, so a file
@@ -722,6 +767,22 @@ function claimRatioOf(result: FileResult): number {
   return body > 0 ? round(result.bytesClaimed / body) : 1
 }
 
+/**
+ * The strongest tier that read this file.
+ *
+ * Declared on `CensusEntry` since the type was written and populated by
+ * nobody, which made `tier` on the census a field a reader could believe in and
+ * never find. Null for an empty file and for one nothing read: absent says "not
+ * measured", and `structural` there would be a guess dressed as a measurement.
+ */
+function tierOf(result: FileResult): Tier | null {
+  const extractor = result.extractor
+  if (!extractor || extractor === 'empty') return null
+  if (extractor.endsWith('-ast')) return 'ast'
+  if (extractor === 'residual-sweep' || extractor === 'none') return 'sweep'
+  return 'structural'
+}
+
 function buildCensus(
   repo: string,
   walked: ReturnType<typeof walk>,
@@ -750,6 +811,7 @@ function buildCensus(
       bucket: result.sites.length > 0 ? 'scanned' : 'scanned-zero',
       sites: result.sites.length,
       extractors: result.extractor ? [result.extractor] : [],
+      ...(tierOf(result) ? { tier: tierOf(result)! } : {}),
       degraded: result.degraded,
       byteAddressable: result.byteAddressable,
       bytesTotal: result.bytesTotal,

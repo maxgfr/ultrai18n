@@ -37,9 +37,13 @@ describe('markdown', () => {
     expect(out).toContain('Autre valeur')
   })
 
-  it('records heading slugs, so a translated heading can be checked for dangling anchors', () => {
-    const { headings } = md('## Démarrer le projet\n')
-    expect(headings[0]).toMatchObject({ text: 'Démarrer le projet', slug: 'démarrer-le-projet' })
+  it('anchors a heading by its level, which is what a slug is derived FROM', () => {
+    // The extractor used to return a parallel `headings` array carrying the
+    // same slugs `check` derives from the sites themselves. Nothing read it,
+    // and two derivations of one fact drift. The site's anchor is the fact.
+    const site = md('## Démarrer le projet\n').sites[0]!
+    expect(site.path).toMatch(/^h2\[/)
+    expect(slugify(site.value)).toBe('démarrer-le-projet')
     expect(slugify('Getting Started!')).toBe('getting-started')
   })
 
@@ -50,12 +54,29 @@ describe('markdown', () => {
     expect(buf.subarray(site.span.start, site.span.end).toString('utf8')).toBe('Réglages avancés')
   })
 
-  it('remaps offsets when embedded in another file', () => {
+  it('reads one region of a host file with absolute offsets', () => {
     // Markdown nested inside a YAML block scalar shares one coordinate system
     // with its host, or the patcher writes at the wrong place in the right file.
-    const src = '# Titre\n'
-    const site = extractMarkdown('w.yml', src, new OffsetMap(src), 100).sites[0]!
-    expect(site.span.start).toBe(102)
+    //
+    // Read as a RANGE over the host text rather than as a dedented string plus
+    // a base offset. That distinction is the whole point: the body is indented,
+    // so every line past the first has lost its own indentation as well, and no
+    // single constant can put those offsets back.
+    const src = 'jobs:\n  release:\n    body: |\n      # Titre\n      Deuxième ligne ici.\n'
+    const from = src.indexOf('      # Titre')
+    const { sites } = extractMarkdown('w.yml', src, new OffsetMap(src), { from, to: src.length })
+    const buf = Buffer.from(src, 'utf8')
+    expect(sites.map((s) => s.value)).toEqual(['Titre', 'Deuxième ligne ici.'])
+    for (const site of sites) {
+      expect(buf.subarray(site.span.start, site.span.end).toString('utf8')).toBe(site.value)
+    }
+  })
+
+  it('reads nothing outside the region it was given', () => {
+    const src = 'Avant la région.\n\nDans la région.\n'
+    const from = src.indexOf('Dans')
+    const { sites } = extractMarkdown('a.md', src, new OffsetMap(src), { from, to: src.length })
+    expect(sites.map((s) => s.value)).toEqual(['Dans la région.'])
   })
 })
 

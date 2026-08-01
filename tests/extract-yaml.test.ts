@@ -69,19 +69,44 @@ describe('block scalars', () => {
     expect(block.value).toBe('# Titre\nDu texte.')
   })
 
-  it('hands the body to a nested extractor with ABSOLUTE offsets', () => {
+  it('hands a nested reader the body\'s RANGE in the host file', () => {
     // One coordinate system for the whole run, or the patcher writes into the
-    // wrong position of the right file.
-    const src = `a:\n  body: |\n    Bonjour\n`
-    const seen: { body: string; start: number; path: string }[] = []
-    extractYaml('w.yml', src, new OffsetMap(src), (body, absoluteStart, path) => {
-      seen.push({ body, start: absoluteStart, path })
+    // wrong position of the right file. A range rather than the dedented string
+    // plus a base offset: the body is indented, so every line past the first
+    // has lost its own indentation too and no constant puts them back.
+    const src = `a:\n  body: |\n    Bonjour\n    Deuxième ligne.\n`
+    const seen: { region: { from: number; to: number }; path: string; body: string }[] = []
+    extractYaml('w.yml', src, new OffsetMap(src), (region, path, body) => {
+      seen.push({ region, path, body })
       return []
     })
     expect(seen).toHaveLength(1)
-    expect(seen[0]!.body).toBe('Bonjour')
     expect(seen[0]!.path).toBe('/a/body')
-    expect(Buffer.from(src, 'utf8').subarray(seen[0]!.start).toString('utf8')).toMatch(/^Bonjour/)
+    expect(seen[0]!.body).toBe('Bonjour\nDeuxième ligne.')
+    expect(src.slice(seen[0]!.region.from, seen[0]!.region.to)).toBe('    Bonjour\n    Deuxième ligne.')
+  })
+
+  it('does not also emit the block scalar when a nested reader claimed it', () => {
+    // Two sites over the same bytes make `apply` write inside its own rewrite.
+    const src = `a:\n  body: |\n    Bonjour\n`
+    const claimed = extractYaml('w.yml', src, new OffsetMap(src), () => [
+      { file: 'w.yml', path: '/a/body/p[0]', kind: 'prose-run' } as never,
+    ])
+    expect(claimed.sites.filter((s) => s.kind === 'block-scalar')).toEqual([])
+
+    const unclaimed = extractYaml('w.yml', src, new OffsetMap(src), () => [])
+    expect(unclaimed.sites.filter((s) => s.kind === 'block-scalar')).toHaveLength(1)
+  })
+
+  it('records a flow collection as unread rather than claiming its bytes', () => {
+    // Recording the skip in prose and claiming the bytes anyway is a false
+    // claim of full coverage — `sites --audit` found one on its first run.
+    const src = `name: Rapport\nlabels: [bogue, tri]\n`
+    const out = extractYaml('bug.yml', src, new OffsetMap(src))
+    expect(out.skipped.some((s) => s.includes('flow collection'))).toBe(true)
+    expect(out.skippedSpans).toHaveLength(1)
+    expect(src.slice(out.skippedSpans[0]!.start, out.skippedSpans[0]!.end)).toBe('[bogue, tri]')
+    expect(out.claimedBytes).toBeLessThan(Buffer.byteLength(src, 'utf8'))
   })
 
   it('does not treat a following sibling key as part of the block', () => {
