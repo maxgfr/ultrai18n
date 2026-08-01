@@ -4,13 +4,15 @@
 // wrong, or a trap it nearly fell into. Unit tests prove the extractors do what
 // they were written to do; this proves the whole pipeline finds what two human
 // passes over a real repository did not.
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { join } from 'node:path'
+import { isolatedRepo, removeRepo } from './isolate'
 import { scan } from '../src/scan'
 import type { Inventory, Site } from '../src/types'
 
 const FIXTURE = join(import.meta.dirname, 'fixture')
 
+let repo: string
 let inv: Inventory
 const at = (file: string, match: string | RegExp): Site | undefined =>
   inv.sites.find(
@@ -21,8 +23,11 @@ const at = (file: string, match: string | RegExp): Site | undefined =>
 const allIn = (file: string): Site[] => inv.sites.filter((s) => s.file === file)
 
 beforeAll(async () => {
-  inv = await scan({ repo: FIXTURE, from: 'fr', to: 'en' })
+  repo = isolatedRepo(FIXTURE, 'recall')
+  inv = await scan({ repo, from: 'fr', to: 'en' })
 }, 60_000)
+
+afterAll(() => removeRepo(repo))
 
 describe('the misses', () => {
   it('finds package.json description — the miss that motivated the tool', () => {

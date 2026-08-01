@@ -1,5 +1,8 @@
 node_modules/
 .ultrai18n/
+# Benchmark scratch: isolated repos, raw inventories, timings. The REPORT.md and
+# report.json beside it ARE committed — that diff is the point.
+bench/.out/
 *.log
 .DS_Store
 coverage/

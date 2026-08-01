@@ -5,26 +5,30 @@
 // "12 families" fails on every fixture edit and tells you nothing about whether
 // the thing works.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { execFileSync } from 'node:child_process'
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isolatedRepo, removeRepo } from './isolate'
 import { scan } from '../src/scan'
 import { plan } from '../src/plan'
 import { check } from '../src/check'
 import { sync } from '../src/sync'
+import { cmdApply, cmdPlan, cmdTranslate, cmdTranslateApply } from '../src/commands'
 import type { Inventory } from '../src/types'
 import type { PluralFamily } from '../src/plural'
 
 const FIXTURE = join(import.meta.dirname, 'fixture-i18n')
 
+let readRepo: string
 let inv: Inventory
 let families: PluralFamily[]
 
 beforeAll(async () => {
-  inv = await scan({ repo: FIXTURE, from: 'auto', to: 'ru' })
+  readRepo = isolatedRepo(FIXTURE, 'plurals-read')
+  inv = await scan({ repo: readRepo, from: 'auto', to: 'ru' })
   families = inv.plurals as PluralFamily[]
 }, 60_000)
+
+afterAll(() => removeRepo(readRepo))
 
 const at = (anchor: string): PluralFamily | undefined => families.find((f) => f.anchor.endsWith(anchor))
 
@@ -182,34 +186,39 @@ describe('sync', () => {
 describe('end to end, en → ru', () => {
   // The case the pipeline could not express at all before: a two-form source
   // becoming a four-form target, written back to disk.
+  //
+  // Driven IN PROCESS rather than through the CLI. The subprocess version
+  // shelled out to `npx tsx`, which is not a dependency of this project — so an
+  // eval reached the npm registry from inside a `--frozen-lockfile` CI job, and
+  // a failure surfaced as an opaque non-zero exit with no stack. These are the
+  // same five functions `src/cli.ts` calls, in the same order; only the argument
+  // parsing and the exit codes are missing, and neither is what this asserts.
   let repo: string
+  let out: string
 
-  beforeAll(() => {
-    repo = mkdtempSync(join(tmpdir(), 'ultrai18n-plural-'))
-    cpSync(FIXTURE, repo, { recursive: true })
-    const engine = join(import.meta.dirname, '..', 'src', 'cli.ts')
-    const run = (...args: string[]): void => {
-      execFileSync('npx', ['tsx', engine, ...args, '--repo', repo], {
-        cwd: join(import.meta.dirname, '..'),
-        stdio: 'pipe',
-      })
-    }
-    const soft = (...args: string[]): void => {
-      // `plan` exits 1 on an open hazard, which this fixture has by design.
-      try {
-        run(...args)
-      } catch {
-        /* the artifacts are still written */
-      }
-    }
-    soft('scan', '--to', 'ru')
-    soft('plan')
-    soft('translate', '--translator', `node ${join(import.meta.dirname, 'fake-translator.mjs')}`)
-    soft('translate', '--apply', 'results')
-    soft('apply', '--write')
-  }, 180_000)
+  beforeAll(async () => {
+    repo = isolatedRepo(FIXTURE, 'plurals-e2e')
+    out = join(repo, '.ultrai18n')
+    mkdirSync(out, { recursive: true })
 
-  afterAll(() => rmSync(repo, { recursive: true, force: true }))
+    const written = await scan({ repo, from: 'auto', to: 'ru' })
+    writeFileSync(join(out, 'inventory.json'), JSON.stringify(written, null, 2) + '\n')
+
+    // `plan` sets a non-zero exit code on an open hazard — which this fixture
+    // has by design — but it still writes every artifact. In process there is
+    // nothing to catch: the exit code lives in the CLI, not in cmdPlan.
+    cmdPlan(out, 'swap')
+    cmdTranslate({
+      out,
+      repo,
+      backend: 'cli',
+      translator: `node ${join(import.meta.dirname, 'fake-translator.mjs')}`,
+    })
+    cmdTranslateApply(out)
+    cmdApply(repo, out, true, true)
+  }, 120_000)
+
+  afterAll(() => removeRepo(repo))
 
   it('writes the two keys Russian needs and the file never had', () => {
     const bundle = JSON.parse(readFileSync(join(repo, 'src/locales/ru/common.json'), 'utf8'))

@@ -1,8 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, cpSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { commitAll, emptyRepo, isolatedRepo, removeRepo } from './isolate'
 import { scan } from '../src/scan'
 import { check, type CheckReport } from '../src/check'
 import { plan } from '../src/plan'
@@ -17,16 +16,12 @@ let inv: Inventory
 let report: CheckReport
 
 beforeAll(async () => {
-  // A git repo, because the census denominator is `git ls-files` on purpose:
-  // the walker's own exclusions are the thing being audited.
-  repo = mkdtempSync(join(tmpdir(), 'ultrai18n-gates-'))
-  cpSync(FIXTURE, repo, { recursive: true })
-  spawnSync('git', ['init', '-q'], { cwd: repo })
-  spawnSync('git', ['add', '-A'], { cwd: repo })
-  spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'i'], { cwd: repo })
+  repo = isolatedRepo(FIXTURE, 'gates')
   inv = await scan({ repo, from: 'fr', to: 'en' })
   report = check({ repo, inventory: inv })
 }, 60_000)
+
+afterAll(() => removeRepo(repo))
 
 const gate = (id: string) => report.gates.find((g) => g.id === id)!
 
@@ -51,6 +46,7 @@ describe('the gates', () => {
 
   it('holds every gate open rather than stopping at the first failure', () => {
     // Fixing one failure should not mean discovering the next one run later.
+    //
     expect(report.gates).toHaveLength(6)
     expect(report.gates.every((g) => typeof g.count === 'number')).toBe(true)
   })
@@ -116,14 +112,12 @@ describe('the gates', () => {
 
 describe('the residual sweep', () => {
   it('forces human-looking text from an unhandled format into the inventory', async () => {
-    const scratch = mkdtempSync(join(tmpdir(), 'ultrai18n-sweep-'))
+    const scratch = emptyRepo('sweep')
     try {
-      spawnSync('git', ['init', '-q'], { cwd: scratch })
       // An extension no extractor handles. Silently skipping it is the exact
       // failure this tool exists to prevent.
       writeFileSync(join(scratch, 'notes.rando'), 'Ceci est une phrase en français.\n')
-      spawnSync('git', ['add', '-A'], { cwd: scratch })
-      spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'i'], { cwd: scratch })
+      commitAll(scratch)
       const swept = await scan({ repo: scratch, from: 'fr', to: 'en' })
       const site = swept.sites.find((s) => s.file === 'notes.rando')
       expect(site?.verdict).toBe('unclassified')
@@ -133,7 +127,7 @@ describe('the residual sweep', () => {
       const r = check({ repo: scratch, inventory: swept })
       expect(r.gates.find((g) => g.id === 'G2')!.ok).toBe(false)
     } finally {
-      rmSync(scratch, { recursive: true, force: true })
+      removeRepo(scratch)
     }
   }, 60_000)
 

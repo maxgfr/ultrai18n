@@ -11,7 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         # The gitignore parity test shells out to `git check-ignore`, and the
-        # eval fixture needs real history.
+        # standalone smoke test runs the census, whose denominator is
+        # `git ls-files`. Both need a real checkout; neither needs history, but
+        # a shallow one buys nothing here.
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@v4
@@ -21,14 +23,30 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
-      - run: pnpm test
       - run: pnpm build
 
       # The shipped engine is a committed artifact. If a build from this commit
       # differs from what was committed, the skill someone installs is not the
       # code that was reviewed here.
+      #
+      # This runs BEFORE the tests on purpose: everything downstream that drives
+      # the bundle rather than `src/` — the standalone smoke test, and the
+      # corpus benchmark — is only measuring the reviewed code once this passes.
       - name: The committed bundle matches its source
         run: git diff --exit-code -- skills/ultrai18n/scripts/ultrai18n.mjs
+
+      - run: pnpm test
+
+      # The corpus benchmark, kept out of the vitest glob on purpose: an eval
+      # regression and a coverage regression should never share an exit code.
+      - name: The corpus benchmark holds its floors
+        run: pnpm bench --ci
+
+      # The highest-leverage line in this file. Every change in WHAT THE TOOL
+      # FINDS shows up as a reviewable prose diff, whether or not it crossed a
+      # threshold — which is the artifact you actually want in review.
+      - name: The committed benchmark report matches a fresh run
+        run: git diff --exit-code -- bench/REPORT.md bench/report.json
 
       # The skill has to run with no install step, from the bundle alone.
       - name: The engine runs standalone
