@@ -21451,176 +21451,6 @@ function unquote(s) {
   return s;
 }
 
-// src/extract/markdown.ts
-var FENCE = /^(\s*)(```+|~~~+)(.*)$/;
-var HEADING = /^(\s*)(#{1,6})\s+(.*?)\s*#*\s*$/;
-var LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/;
-var BLOCKQUOTE = /^(\s*>+\s?)/;
-var TABLE_ROW = /^\s*\|(.+)\|\s*$/;
-var TABLE_SEP = /^[\s|:-]+$/;
-var HTML_BLOCK = /^\s*<\/?[a-zA-Z][^>]*>/;
-var REF_DEF = /^\s*\[[^\]]+\]:\s+\S+/;
-var INLINE_CODE = /`[^`]*`/g;
-var LINK = /\[([^\]]*)\]\(([^)]*)\)/g;
-var IMAGE = /!\[([^\]]*)\]\(([^)]*)\)/g;
-var AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g;
-function extractMarkdown2(file, text, map, baseOffset = 0) {
-  const sites = [];
-  const headings = [];
-  let claimed = 0;
-  const lines = [];
-  {
-    let start2 = 0;
-    for (let i2 = 0; i2 <= text.length; i2++) {
-      if (i2 === text.length || text[i2] === "\n") {
-        lines.push({ text: text.slice(start2, i2), start: start2 });
-        start2 = i2 + 1;
-      }
-    }
-  }
-  let inFence = false;
-  let fenceMarker = "";
-  let paragraph = null;
-  let blockIndex = 0;
-  const flush = () => {
-    if (!paragraph) return;
-    emitRuns(paragraph.text, paragraph.start, `p[${blockIndex++}]`);
-    paragraph = null;
-  };
-  const emitRuns = (raw, startChar, pathPrefix) => {
-    let masked = raw;
-    masked = blank(masked, INLINE_CODE);
-    masked = blank(masked, IMAGE, (m) => keepGroup(m, 1));
-    masked = blank(masked, LINK, (m) => keepGroup(m, 1));
-    masked = blank(masked, AUTOLINK);
-    let runIndex = 0;
-    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/gm)) {
-      const at = match.index ?? 0;
-      const slice = match[0];
-      const trimmed = slice.trimEnd();
-      if (!new RegExp("\\p{L}{2,}", "u").test(trimmed)) continue;
-      const from = startChar + at;
-      const to = from + trimmed.length;
-      sites.push(
-        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, "prose-run", from, to, raw.slice(at, at + trimmed.length), map, baseOffset)
-      );
-    }
-  };
-  for (let i2 = 0; i2 < lines.length; i2++) {
-    const { text: line, start: start2 } = lines[i2];
-    claimed += lineBytes(map, text, start2, line.length);
-    const fence = FENCE.exec(line);
-    if (fence) {
-      if (!inFence) {
-        inFence = true;
-        fenceMarker = fence[2];
-      } else if (fence[2].startsWith(fenceMarker[0])) {
-        inFence = false;
-      }
-      flush();
-      continue;
-    }
-    if (inFence) continue;
-    if (line.trim() === "") {
-      flush();
-      continue;
-    }
-    if (REF_DEF.test(line) || HTML_BLOCK.test(line)) {
-      flush();
-      continue;
-    }
-    const heading = HEADING.exec(line);
-    if (heading) {
-      flush();
-      const body3 = heading[3];
-      const at = start2 + heading[1].length + heading[2].length + 1;
-      headings.push({ text: body3, slug: slugify2(body3), line: i2 + 1 });
-      if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
-        sites.push(makeSite(file, `h${heading[2].length}[${blockIndex++}]`, "prose-run", at, at + body3.length, body3, map, baseOffset));
-      }
-      continue;
-    }
-    const table = TABLE_ROW.exec(line);
-    if (table && !TABLE_SEP.test(table[1])) {
-      flush();
-      let cursor = start2 + line.indexOf("|") + 1;
-      let cell = 0;
-      for (const part of table[1].split("|")) {
-        const trimmedStart = part.length - part.trimStart().length;
-        const body3 = part.trim();
-        if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
-          const from = cursor + trimmedStart;
-          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, "prose-run", from, from + body3.length, body3, map, baseOffset));
-        }
-        cursor += part.length + 1;
-        cell++;
-      }
-      blockIndex++;
-      continue;
-    }
-    const list = LIST_ITEM.exec(line);
-    const quote = BLOCKQUOTE.exec(line);
-    const offset = list ? list[0].length : quote ? quote[1].length : 0;
-    const body2 = line.slice(offset);
-    if (list || quote) {
-      flush();
-      emitRuns(body2, start2 + offset, `li[${blockIndex++}]`);
-      continue;
-    }
-    if (paragraph) {
-      paragraph.text += "\n" + body2;
-      paragraph.end = start2 + line.length;
-    } else {
-      paragraph = { start: start2 + offset, end: start2 + line.length, text: body2 };
-    }
-  }
-  flush();
-  sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: claimed, headings };
-}
-function blank(s, re, keep) {
-  return s.replace(new RegExp(re.source, re.flags), (...args2) => {
-    const match = args2.slice(0, -2);
-    const whole = args2[0];
-    if (!keep) return " ".repeat(whole.length);
-    return keep(match);
-  });
-}
-function keepGroup(m, group) {
-  const whole = m[0];
-  const inner = m[group] ?? "";
-  const at = whole.indexOf(inner);
-  if (at === -1 || inner === "") return " ".repeat(whole.length);
-  return " ".repeat(at) + inner + " ".repeat(whole.length - at - inner.length);
-}
-function slugify2(heading) {
-  return heading.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
-}
-function makeSite(file, path, kind, startChar, endChar, value, map, baseOffset) {
-  const span = { start: baseOffset + map.byteOf(startChar), end: baseOffset + map.byteOf(endChar) };
-  const s = map.lineColOf(startChar);
-  const e = map.lineColOf(endChar);
-  return {
-    file,
-    path,
-    kind,
-    span,
-    valueSpan: span,
-    raw: value,
-    value: value.trim(),
-    quote: null,
-    escapes: false,
-    holes: [],
-    line: s.line,
-    col: s.col,
-    endLine: e.line,
-    endCol: e.col,
-    extractor: "markdown",
-    tier: "structural",
-    container: { isKey: false }
-  };
-}
-
 // src/extract/css.ts
 function extractCss(file, text, map, range) {
   const sites = [];
@@ -21690,12 +21520,12 @@ var TEXT_ATTRS = /^(alt|title|placeholder|label|summary|abbr|download|aria-label
 var BOUND_PREFIX = /^(:|v-bind:|bind:|\[)/;
 var OPAQUE_ELEMENTS = /* @__PURE__ */ new Set(["script", "style", "template", "code", "pre", "svg:path"]);
 var SVG_TEXT_ELEMENTS = /* @__PURE__ */ new Set(["title", "desc", "text", "tspan", "textpath"]);
-function extractHtml(file, text, map) {
+function extractHtml(file, text, map, range) {
   const sites = [];
   const identifiers = /* @__PURE__ */ new Set();
   let index2 = 0;
-  let i2 = 0;
-  const n = text.length;
+  let i2 = range?.from ?? 0;
+  const n = range?.to ?? text.length;
   const openStack = [];
   const unclaimed = [];
   let docKind = "markup";
@@ -21905,8 +21735,9 @@ function extractHtml(file, text, map) {
     }
   }
   sites.sort((a, b) => a.span.start - b.span.start);
-  const skipped = unclaimed.reduce((n2, span) => n2 + (span.end - span.start), 0);
-  return { sites, claimedBytes: map.byteOf(text.length) - skipped, identifiers, unclaimed };
+  const skipped = unclaimed.reduce((acc, span) => acc + (span.end - span.start), 0);
+  const scanned = map.byteOf(n) - map.byteOf(range?.from ?? 0);
+  return { sites, claimedBytes: scanned - skipped, identifiers, unclaimed };
 }
 function allAttributes(tagBody) {
   const out2 = {};
@@ -21931,6 +21762,196 @@ function findTagEnd(text, from) {
     else if (c2 === ">") return i2;
   }
   return -1;
+}
+
+// src/extract/markdown.ts
+var FENCE = /^(\s*)(```+|~~~+)(.*)$/;
+var HEADING = /^(\s*)(#{1,6})\s+(.*?)\s*#*\s*$/;
+var LIST_ITEM = /^(\s*)([-*+]|\d+[.)])\s+/;
+var BLOCKQUOTE = /^(\s*>+\s?)/;
+var TABLE_ROW = /^\s*\|(.+)\|\s*$/;
+var TABLE_SEP = /^[\s|:-]+$/;
+var HTML_BLOCK = /^\s*<\/?[a-zA-Z][^>]*>/;
+var REF_DEF = /^\s*\[[^\]]+\]:\s+\S+/;
+var INLINE_CODE = /`[^`]*`/g;
+var LINK = /\[([^\]]*)\]\(([^)]*)\)/g;
+var IMAGE = /!\[([^\]]*)\]\(([^)]*)\)/g;
+var AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g;
+function extractMarkdown2(file, text, map, baseOffset = 0) {
+  const sites = [];
+  const headings = [];
+  let claimed = 0;
+  const lines = [];
+  {
+    let start2 = 0;
+    for (let i2 = 0; i2 <= text.length; i2++) {
+      if (i2 === text.length || text[i2] === "\n") {
+        lines.push({ text: text.slice(start2, i2), start: start2 });
+        start2 = i2 + 1;
+      }
+    }
+  }
+  let inFence = false;
+  let fenceMarker = "";
+  let paragraph = null;
+  let blockIndex = 0;
+  const flush = () => {
+    if (!paragraph) return;
+    emitRuns(paragraph.text, paragraph.start, `p[${blockIndex++}]`);
+    paragraph = null;
+  };
+  const emitRuns = (raw, startChar, pathPrefix) => {
+    let masked = raw;
+    masked = blank(masked, INLINE_CODE);
+    masked = blank(masked, IMAGE, (m) => keepGroup(m, 1));
+    masked = blank(masked, LINK, (m) => keepGroup(m, 1));
+    masked = blank(masked, AUTOLINK);
+    let runIndex = 0;
+    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/gm)) {
+      const at = match.index ?? 0;
+      const slice = match[0];
+      const trimmed = slice.trimEnd();
+      if (!new RegExp("\\p{L}{2,}", "u").test(trimmed)) continue;
+      const from = startChar + at;
+      const to = from + trimmed.length;
+      sites.push(
+        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, "prose-run", from, to, raw.slice(at, at + trimmed.length), map, baseOffset)
+      );
+    }
+  };
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const { text: line, start: start2 } = lines[i2];
+    claimed += lineBytes(map, text, start2, line.length);
+    const fence = FENCE.exec(line);
+    if (fence) {
+      if (!inFence) {
+        inFence = true;
+        fenceMarker = fence[2];
+      } else if (fence[2].startsWith(fenceMarker[0])) {
+        inFence = false;
+      }
+      flush();
+      continue;
+    }
+    if (inFence) continue;
+    if (line.trim() === "") {
+      flush();
+      continue;
+    }
+    if (REF_DEF.test(line)) {
+      flush();
+      continue;
+    }
+    if (HTML_BLOCK.test(line)) {
+      flush();
+      const from = start2;
+      let last = i2;
+      while (last + 1 < lines.length && lines[last + 1].text.trim() !== "" && lines[last + 1].text.includes("<")) {
+        last++;
+      }
+      const to = lines[last].start + lines[last].text.length;
+      for (let k = i2 + 1; k <= last; k++) {
+        claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
+      }
+      for (const site3 of extractHtml(file, text, map, { from, to }).sites) {
+        sites.push(baseOffset ? { ...site3, span: shift(site3.span, baseOffset), valueSpan: shift(site3.valueSpan, baseOffset) } : site3);
+      }
+      i2 = last;
+      continue;
+    }
+    const heading = HEADING.exec(line);
+    if (heading) {
+      flush();
+      const body3 = heading[3];
+      const at = start2 + heading[1].length + heading[2].length + 1;
+      headings.push({ text: body3, slug: slugify2(body3), line: i2 + 1 });
+      if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
+        sites.push(makeSite(file, `h${heading[2].length}[${blockIndex++}]`, "prose-run", at, at + body3.length, body3, map, baseOffset));
+      }
+      continue;
+    }
+    const table = TABLE_ROW.exec(line);
+    if (table && !TABLE_SEP.test(table[1])) {
+      flush();
+      let cursor = start2 + line.indexOf("|") + 1;
+      let cell = 0;
+      for (const part of table[1].split("|")) {
+        const trimmedStart = part.length - part.trimStart().length;
+        const body3 = part.trim();
+        if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
+          const from = cursor + trimmedStart;
+          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, "prose-run", from, from + body3.length, body3, map, baseOffset));
+        }
+        cursor += part.length + 1;
+        cell++;
+      }
+      blockIndex++;
+      continue;
+    }
+    const list = LIST_ITEM.exec(line);
+    const quote = BLOCKQUOTE.exec(line);
+    const offset = list ? list[0].length : quote ? quote[1].length : 0;
+    const body2 = line.slice(offset);
+    if (list || quote) {
+      flush();
+      emitRuns(body2, start2 + offset, `li[${blockIndex++}]`);
+      continue;
+    }
+    if (paragraph) {
+      paragraph.text += "\n" + body2;
+      paragraph.end = start2 + line.length;
+    } else {
+      paragraph = { start: start2 + offset, end: start2 + line.length, text: body2 };
+    }
+  }
+  flush();
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, claimedBytes: claimed, headings };
+}
+function blank(s, re, keep) {
+  return s.replace(new RegExp(re.source, re.flags), (...args2) => {
+    const match = args2.slice(0, -2);
+    const whole = args2[0];
+    if (!keep) return " ".repeat(whole.length);
+    return keep(match);
+  });
+}
+function keepGroup(m, group) {
+  const whole = m[0];
+  const inner = m[group] ?? "";
+  const at = whole.indexOf(inner);
+  if (at === -1 || inner === "") return " ".repeat(whole.length);
+  return " ".repeat(at) + inner + " ".repeat(whole.length - at - inner.length);
+}
+function shift(span, by) {
+  return { start: span.start + by, end: span.end + by };
+}
+function slugify2(heading) {
+  return heading.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
+}
+function makeSite(file, path, kind, startChar, endChar, value, map, baseOffset) {
+  const span = { start: baseOffset + map.byteOf(startChar), end: baseOffset + map.byteOf(endChar) };
+  const s = map.lineColOf(startChar);
+  const e = map.lineColOf(endChar);
+  return {
+    file,
+    path,
+    kind,
+    span,
+    valueSpan: span,
+    raw: value,
+    value: value.trim(),
+    quote: null,
+    escapes: false,
+    holes: [],
+    line: s.line,
+    col: s.col,
+    endLine: e.line,
+    endCol: e.col,
+    extractor: "markdown",
+    tier: "structural",
+    container: { isKey: false }
+  };
 }
 
 // src/extract/text.ts

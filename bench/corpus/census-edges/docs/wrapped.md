@@ -6,3 +6,11 @@ La troisième ligne aussi, et c'est la seule que le lecteur voyait.
 
 - Un élément de liste enveloppé sur deux lignes,
   dont la seconde ligne compte tout autant.
+
+<p align="center">
+  <img alt="Le logo animé du projet" src="https://example.test/logo.gif">
+</p>
+
+<details>
+<summary>Ouvrir les détails de la version</summary>
+</details>

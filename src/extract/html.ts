@@ -59,12 +59,25 @@ export interface HtmlExtractResult {
   unclaimed: Span[]
 }
 
-export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExtractResult {
+/**
+ * Read markup, or one region of a larger document.
+ *
+ * `range` exists for a raw HTML block inside a markdown file — a `<summary>`,
+ * an `<img alt>`, the `<p align="center">` banner at the top of half the
+ * READMEs in existence. Offsets stay absolute against the original text and
+ * map, so the sites it returns are indistinguishable from any other.
+ */
+export function extractHtml(
+  file: string,
+  text: string,
+  map: OffsetMap,
+  range?: { from: number; to: number },
+): HtmlExtractResult {
   const sites: RawSite[] = []
   const identifiers = new Set<string>()
   let index = 0
-  let i = 0
-  const n = text.length
+  let i = range?.from ?? 0
+  const n = range?.to ?? text.length
   // The stack carries each open element's attributes, not just its name. A
   // resource `<item>` means nothing without the `quantity` that labels it and
   // the `<plurals name>` that owns it, and a bare document-order index cannot
@@ -380,8 +393,9 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   }
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  const skipped = unclaimed.reduce((n, span) => n + (span.end - span.start), 0)
-  return { sites, claimedBytes: map.byteOf(text.length) - skipped, identifiers, unclaimed }
+  const skipped = unclaimed.reduce((acc, span) => acc + (span.end - span.start), 0)
+  const scanned = map.byteOf(n) - map.byteOf(range?.from ?? 0)
+  return { sites, claimedBytes: scanned - skipped, identifiers, unclaimed }
 }
 
 /** Every quoted attribute on a tag, lowercased by name. */

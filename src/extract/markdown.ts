@@ -8,6 +8,7 @@
 import type { Span } from '../types'
 import { lineBytes, type RawSite } from './raw'
 import { OffsetMap } from '../vendor/text'
+import { extractHtml } from './html'
 
 export interface MarkdownExtractResult {
   sites: RawSite[]
@@ -119,8 +120,43 @@ export function extractMarkdown(
       flush()
       continue
     }
-    if (REF_DEF.test(line) || HTML_BLOCK.test(line)) {
+    if (REF_DEF.test(line)) {
       flush()
+      continue
+    }
+    // A raw HTML block. Markdown allows one anywhere, and half the READMEs in
+    // existence open with a `<p align="center">` banner whose `<img alt>` is
+    // the only description of the image. Skipping the line dropped that alt
+    // text, every `<summary>`, and every `<kbd>` — silently, in a file
+    // reporting a claimRatio of 1.
+    //
+    // Handed to the markup extractor a block at a time rather than a line at a
+    // time, because an attribute may wrap and a `<summary>` is text between two
+    // tags on different lines.
+    if (HTML_BLOCK.test(line)) {
+      flush()
+      const from = start
+      let last = i
+      // Consume only while the block keeps LOOKING like markup. Running to the
+      // next blank line was too greedy: an HTML-ish line followed by ordinary
+      // prose swallowed the prose, handed it to a markup scanner that found no
+      // tags in it, and lost it. Requiring a `<` stops at the first plain
+      // sentence, which markdown then reads as the paragraph it is.
+      while (
+        last + 1 < lines.length &&
+        lines[last + 1]!.text.trim() !== '' &&
+        lines[last + 1]!.text.includes('<')
+      ) {
+        last++
+      }
+      const to = lines[last]!.start + lines[last]!.text.length
+      for (let k = i + 1; k <= last; k++) {
+        claimed += lineBytes(map, text, lines[k]!.start, lines[k]!.text.length)
+      }
+      for (const site of extractHtml(file, text, map, { from, to }).sites) {
+        sites.push(baseOffset ? { ...site, span: shift(site.span, baseOffset), valueSpan: shift(site.valueSpan, baseOffset) } : site)
+      }
+      i = last
       continue
     }
 
@@ -196,6 +232,11 @@ function keepGroup(m: RegExpExecArray, group: number): string {
   const at = whole.indexOf(inner)
   if (at === -1 || inner === '') return ' '.repeat(whole.length)
   return ' '.repeat(at) + inner + ' '.repeat(whole.length - at - inner.length)
+}
+
+/** Shift a span for a markdown block that is itself nested inside another file. */
+function shift(span: Span, by: number): Span {
+  return { start: span.start + by, end: span.end + by }
 }
 
 export function slugify(heading: string): string {

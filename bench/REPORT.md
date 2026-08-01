@@ -1,7 +1,7 @@
-# ultrai18n bench — 8 case(s), 90 expectation(s)
+# ultrai18n bench — 8 case(s), 92 expectation(s)
 
 ```
-  accounting coverage     90/90       1.000   ok
+  accounting coverage     92/92       1.000   ok
   expectation mismatches  0                   ok
   trap violations         0                   ok
   census mismatches       0                   ok
@@ -16,9 +16,12 @@
 ### census-edges — Every path git tracks lands in one bucket with a reason
 
 ```
-  10/10 accounted   22 site(s)   17 tracked path(s)
+  12/12 accounted   24 site(s)   17 tracked path(s)
   G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
+
+  Known gaps, gated by nothing:
+  - A markdown HTML block is consumed only while its lines keep containing a `<`. Running to the next blank line instead was measurably worse: an HTML-ish line followed by ordinary prose swallowed the prose and handed it to a scanner that found no tags in it. The cost of the narrower rule is that a multi-line `<div>` with a blank line inside it is read as two blocks, which affects the anchor and not the recall.
 
 ### plural-android-xml — Android <plurals>, and a Russian catalog rendering the wrong string today
 

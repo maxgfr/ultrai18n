@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "totals": {
     "cases": 8,
-    "expectations": 90,
-    "accounted": 90,
+    "expectations": 92,
+    "accounted": 92,
     "expectationMismatches": 0,
     "trapViolations": 0,
     "censusMismatches": 0,
@@ -55,9 +55,9 @@
     {
       "case": "census-edges",
       "title": "Every path git tracks lands in one bucket with a reason",
-      "expectations": 10,
-      "accounted": 10,
-      "sites": 22,
+      "expectations": 12,
+      "accounted": 12,
+      "sites": 24,
       "tracked": 17,
       "gates": {
         "G1": "pass",
@@ -68,7 +68,9 @@
         "G6": "pass",
         "G7": "pass"
       },
-      "knownGaps": [],
+      "knownGaps": [
+        "A markdown HTML block is consumed only while its lines keep containing a `<`. Running to the next blank line instead was measurably worse: an HTML-ish line followed by ordinary prose swallowed the prose and handed it to a scanner that found no tags in it. The cost of the narrower rule is that a multi-line `<div>` with a blank line inside it is read as two blocks, which affects the anchor and not the recall."
+      ],
       "findings": []
     },
     {

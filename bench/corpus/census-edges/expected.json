@@ -155,7 +155,7 @@
       "extractor": "markdown",
       "byteAddressable": true,
       "claimRatio": 1,
-      "why": "Hard-wrapped prose, which is how most markdown is written. Only the LAST line of each block used to reach the inventory: the run pattern cannot cross a newline and its `$` meant end-of-block rather than end-of-line, so every line above the last failed the lookahead and was dropped — while claimRatio still reported 1.0. Measured on two real repositories, that lost roughly one prose line in five across every markdown file they had."
+      "why": "Hard-wrapped prose, which is how most markdown is written. Only the LAST line of each block used to reach the inventory: the run pattern cannot cross a newline and its `$` meant end-of-block rather than end-of-line, so every line above the last failed the lookahead and was dropped — while claimRatio still reported 1.0. Measured on two real repositories, that lost roughly one prose line in five across every markdown file they had. It also carries a raw HTML block, which markdown allows anywhere: the whole line used to be skipped, so an `<img alt>` — often the only description an image has — and every `<summary>` vanished from a file still reporting a claimRatio of 1."
     }
   ],
   "expectations": [
@@ -248,6 +248,24 @@
         "verdict": "translate"
       },
       "why": "A wrapped list item. Lists take a different branch from paragraphs, so it is pinned rather than assumed to follow."
+    },
+    {
+      "id": "md.embedded-img-alt",
+      "file": "docs/wrapped.md",
+      "find": "Le logo animé du projet",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "An `<img alt>` inside a markdown HTML block. Half the READMEs in existence open with a `<p align=\"center\">` banner, and the alt text is frequently the only description of the image; the markdown reader hands the block to the markup extractor rather than skipping the line."
+    },
+    {
+      "id": "md.embedded-summary",
+      "file": "docs/wrapped.md",
+      "find": "Ouvrir les détails de la version",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A `<summary>`, which is a clickable label a reader sees. Pinned separately from the alt text because it is TEXT between tags rather than an attribute, and the two take different paths through the markup extractor."
     }
   ],
   "pathSites": [
@@ -258,5 +276,7 @@
       "why": "The filename is in the source language while the file itself is an unreadable binary. A tool treating every path as an untouchable slug reports this repository as clean; one that renames it breaks every referrer it failed to find. Refusing, and saying so, is the only correct answer."
     }
   ],
-  "knownGaps": []
+  "knownGaps": [
+    "A markdown HTML block is consumed only while its lines keep containing a `<`. Running to the next blank line instead was measurably worse: an HTML-ish line followed by ordinary prose swallowed the prose and handed it to a scanner that found no tags in it. The cost of the narrower rule is that a multi-line `<div>` with a blank line inside it is read as two blocks, which affects the anchor and not the recall."
+  ]
 }
