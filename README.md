@@ -110,15 +110,28 @@ persisted enum is caught by nothing, and G4 will actively demand it be translate
 
 `pnpm sweep` is the other half: it clones real repositories, has `codeindex` locate plural and
 surface sites from patterns alone, and reports what ultrai18n did not claim. A grep oracle has its
-own false positives, so a hit only becomes a **confirmed miss** when the file's `claimRatio` is 1.0
-under a real extractor — meaning that extractor asserted it accounted for every byte, and a
-human-looking line it never emitted contradicts a recorded claim. Everything else is a candidate for
-a person. Network-dependent, so it is nightly and never a merge gate.
+own false positives, so a hit only becomes a **confirmed miss** when the file is byte-addressable and
+its `claimRatio` is 1.0 under a real extractor — meaning that extractor asserted it accounted for
+every byte, and a human-looking line it never emitted contradicts a recorded claim. Everything else
+is a candidate for a person. Network-dependent, so it is nightly and never a merge gate.
+
+Accepting a changed expectation means typing its id: `bench --accept <case>:<id>` rewrites exactly
+that value and records what it replaced. There is no `--update-all`. A miss found in the wild is
+promoted with its provenance and a `why` starting `TODO:`, which keeps CI red until somebody writes
+down what it proves — and a copyleft source gets clone-and-look instructions instead of an excerpt.
 
 ## Status
 
 The pipeline works end to end: `scan` → `plan` → `translate` → `apply` → `verify` → `check`, plus
-`plurals`, `sync`, `orchestrate` and `init --ci --baseline`.
+`plurals`, `sync`, `sites`, `lang`, `adjudicate`, `glossary`, `orchestrate` and
+`init --ci --baseline`. Nothing is declared and unbuilt, and no flag is parsed and ignored.
+
+Recall is measured rather than asserted. Against a per-format oracle on two real repositories —
+1,128 files — every quoted literal, JSX text node and JSON string value in a file claiming full
+coverage was covered by a site, and markdown prose ran at 99.9%. Two holes that measurement found
+are closed: hard-wrapped markdown paragraphs, where only the last line of each block reached the
+inventory, and inline `<style>`/`<script>`, whose bytes were counted as read while their text
+reached nothing.
 
 Translation backends: a generic CLI (`--translator '<command>'`), direct HTTP (`--backend api`), and
 manual. The API backend is fully configurable — `--provider anthropic|openai|openai-compatible`,

@@ -1,6 +1,6 @@
 ---
 name: ultrai18n
-description: "Use when a repository's LANGUAGE must change and the result has to be provable, not hoped for — a full source-language swap, an i18n extraction, a locale-catalog sync, or a read-only audit. Asking an AI to 'translate this repo' silently misses package.json descriptions, web manifests inlined in a bundler config, GitHub issue templates, release-notes bodies nested in workflow YAML, and screenshots with rendered UI text; it also translates persisted enum values and breaks every existing user's stored data. ultrai18n is a deterministic zero-dep engine (node scripts/ultrai18n.mjs, no keys, no install) that inventories every text site with byte offsets, classifies it against a documented surface catalog, and gates the result: census accounts for EVERY tracked path in exactly one bucket, and check REFUSES to pass while any site is unclassified, unadjudicated, or still in the source language. The engine decides the token/identifier surfaces; YOU adjudicate the judgment calls it deliberately refuses — a text that is both a rendered label and a persisted enum is reported, never guessed. Models only ever receive {id: text} and return {id: translation}; the engine writes the files by byte offset, so a translation costs the text and not the codebase. Triggers: 'translate this repo', 'change the language of the project', 'switch from French to English', 'find all hardcoded strings', 'extract strings to i18n', 'which locale keys are missing', 'did we miss any text', 'audit this repo for untranslated strings'. Not a translation API and not a linter: for prose you already have, translate it yourself."
+description: "Use when a repository's LANGUAGE must change and the result has to be provable, not hoped for — a full source-language swap, an i18n extraction, a locale-catalog sync, or a read-only audit. Asking an AI to 'translate this repo' silently misses package.json descriptions, web manifests inlined in a bundler config, GitHub issue templates, release-notes bodies nested in workflow YAML, and screenshots with rendered UI text; it also translates persisted enum values and breaks every existing user's stored data. ultrai18n is a deterministic zero-dep engine (node scripts/ultrai18n.mjs, no keys, no install) that inventories every text site with byte offsets, classifies it against a documented surface catalog, and gates the result: census accounts for EVERY tracked path in exactly one bucket, and check REFUSES to pass while any site is unclassified, unadjudicated, or still in the source language. The engine decides the token/identifier surfaces; YOU adjudicate the judgment calls it deliberately refuses — a text that is both a rendered label and a persisted enum is reported, never guessed. Models only ever receive {id: text} and return {id: translation}; the engine writes the files by byte offset, so a translation costs the text and not the codebase. It reads gettext .po/.pot, Fluent .ftl, Apple .stringsdict and .xcstrings, Qt .ts, Android strings.xml, TOML manifests, Dockerfiles, and JSX/TSX/Vue/Svelte/Astro markup, and its plural handling is a cited catalog of arrangements rather than a list of supported libraries. Triggers: 'translate this repo', 'change the language of the project', 'switch from French to English', 'find all hardcoded strings', 'extract strings to i18n', 'which locale keys are missing', 'did we miss any text', 'audit this repo for untranslated strings', 'translate my .po files', 'is my Russian catalog missing plural forms'. Not a translation API and not a linter: for prose you already have, translate it yourself."
 license: MIT
 metadata:
   version: 0.0.0
@@ -29,15 +29,15 @@ to fake; and a model does nothing but translate strings it is handed.
 >    string, a plural baked into a ternary — it reports and blocks rather than guessing. A tool that
 >    guesses here corrupts data silently. A refusal can be *answered*: an `ultrai18n:plural`
 >    annotation declares in place what the engine will not infer.
-> 6. **A plural is a family, not a string.** English has two forms and Russian needs four, Japanese
+> 4. **A plural is a family, not a string.** English has two forms and Russian needs four, Japanese
 >    one. So the unit of work is the family, the translator is asked for exactly the categories the
 >    TARGET locale selects, and the engine writes the new keys. A catalog short of a form its own
 >    locale selects is a bug rendering the wrong string *today*, with nothing translated — `plurals`
 >    and gate G6 both report it.
-> 4. **Never translate an identifier.** Enum members, storage keys, module specifiers, API contract
+> 5. **Never translate an identifier.** Enum members, storage keys, module specifiers, API contract
 >    strings, CSS tokens, URL slugs and vendored legal text are decided by the engine and are not
 >    negotiable by an agent.
-> 5. **Every rule cites its evidence.** A catalog rule that says "translate this" without a `docs`
+> 6. **Every rule cites its evidence.** A catalog rule that says "translate this" without a `docs`
 >    URL is rejected by `catalog check`. A rule is documentation, not a hunch.
 
 ## Route by situation
@@ -48,8 +48,12 @@ to fake; and a model does nothing but translate strings it is handed.
    bug, not a user error; the reason field names which.
 3. **You are swapping the repository's language** — `scan` → `plan` → `translate` → `apply --write`
    → `verify` → `check --semantic`.
-4. **The engine reported a hazard** — a text that is both copy and a persisted value. Adjudicate it
-   per *site*, not per string. Both roles are legitimate; one of them has to be renamed.
+4. **The engine reported a hazard** — a text that is both copy and a persisted value. Run
+   `adjudicate` for the worklist and the contract, dispatch an agent on it, then `adjudicate --apply
+   <rulings.json>` and `plan` again. Rule per *site*, not per string: both roles are legitimate, and
+   naming which site is which is the whole job. Unblocking a hazard needs a ruling for EVERY site in
+   the group and every `contentHash` still matching — a stale ruling reopens it rather than
+   re-anchoring silently.
 5. **You want the language surface explained for one file** — `catalog --explain <file>` prints
    every rule that applies and why.
 6. **The engine does not understand an arrangement** — G7 names what is plural-shaped and unclaimed.
@@ -71,14 +75,35 @@ to fake; and a model does nothing but translate strings it is handed.
 - `translate [--backend subagent|cli|api|manual]` — hand batches out; fold results back.
 - `apply [--write]` — patch by byte offset. Dry-run by default.
 - `verify [--apply <verdicts.json>]` — adversarial review of what actually shipped.
-- `check [--semantic] [--new-only]` — the six gates. Exit 1 on any failure.
+- `check [--semantic] [--new-only] [--strict]` — the gates. Exit 1 on any failure.
+  G1 census-complete · G2 no-residual · G3 no-unadjudicated · G4 source-language-clear ·
+  G5 exceptions-valid · G6 coherence · G7 plurals-claimed · G8 semantic (only with `--semantic`).
 - `plurals` — every plural family, what its locale selects, what it has. Exit 1 when one is short.
 - `dialects [--explain <file>] [--check] [--propose]` — how this repository spells its plurals, with
   the manifest line supporting each. `--propose` writes the unclaimed sites for an agent; `--check`
   validates what it wrote. Exit 1 on any problem.
 - `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
 - `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
+- `sites [--verdict <v>] [--surface <glob>] [--file <glob>] [--rule <id>] [--ecosystem <id>]
+  [--value <text>] [--dup] [--limit <n>] [--drift <inventory.json>]` — filtered views of the
+  inventory. Exit 0 even with no matches — it is a view, `check` is the gate — and exit 2 on a token
+  outside a closed vocabulary, because "your repo has none of these" and "you typed something that
+  does not exist" must not look alike. `--drift` reconciles against a previous inventory and names
+  every anchor that moved, which is what stops a pinned exception silently ceasing to apply.
+- `lang [--value "<text>"] [--test]` — the detector on its own. Bare, it explains the source-language
+  vote `scan` took silently, weighted by letters. `--test` runs one sample per supported language and
+  exits 1 on a misdetection — the only mode here that makes a claim which can be wrong.
+- `adjudicate [--batch <n>] [--apply <rulings.json>]` — the hazard worklist, and the parser for what
+  an adjudicator returns. Exit 1 when a ruling is refused or a group came back unseparable.
+- `glossary [--seed] [--list]` — the term store. `--seed` rewrites only the generated region.
 - `init --ci --baseline` — freeze today, so only new regressions block a pull request.
+
+Global: `--quiet` prints only each command's `VERDICT` line, and never changes `--json` output, an
+error, or an exit code. `apply --write` also takes `--backup` (originals under `<out>/backup/`, never
+beside the source, where the next scan would read them as new sites), `--allow-dirty` and `--no-git`
+— it refuses to rewrite files in place where a bad run could not be undone. There is deliberately no
+`--no-sweep`: the residual sweep is what makes G2 checkable, so a run with it disabled looks clean
+and proves nothing.
 
 ## Coverage
 
@@ -93,12 +118,25 @@ most string extractors miss entirely), Vue, Svelte and Astro single-file compone
 and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework interpolation
 (`{{ msg }}`, `{msg}`, `${x}`) becomes a placeholder the translator may reorder but may not drop.
 
+Text nests, and so do the readers. An inline `<style>` goes to the stylesheet reader, so a
+`content:` value is found; a raw HTML block inside markdown goes to the markup reader, so the
+`<img alt>` in the banner at the top of a README and every `<summary>` are found; a release-notes
+body inside a workflow YAML is read as the markdown it is. Where no reader exists — an inline
+`<script>` — the bytes are declared UNREAD rather than counted as claimed, and the residual sweep
+covers them. That distinction is the whole product: an extractor that reads past text while
+reporting full coverage is worse than one that admits it stopped.
+
 **Plurals are read by arrangement, and the arrangements are DATA.** Three mechanical primitives
 live in the engine — one form per site with the category on its anchor path, every form in one value
 split by a delimiter, and every form in one value read by a real parser. Everything else is a row in
 a catalog: `dialects` lists them, each citing the runtime's own documentation, exactly as a surface
-rule does. Categories come from `Intl.PluralRules`, so any BCP-47 tag works and no language list is
-baked in.
+rule does. i18next, Rails, ICU, Fluent, Android, vue-i18n, Polyglot, Symfony intervals, gettext, Qt,
+Apple String Catalogs and `.stringsdict` are twelve rows and two grammars, not twelve detectors.
+Categories come from `Intl.PluralRules`, so any BCP-47 tag works and no language list is baked in.
+
+Exactly two grammars ship, and that is the boundary the design is honest about: ICU and Fluent both
+select with a syntax that no table of separators can read. Everything else is a row, and most new
+runtimes cost nothing at all.
 
 **A dialect a repository needs and the catalog does not have is DECLARED, not coded.** `dialects
 --propose` writes what no dialect claimed, plus the repository's own evidence — its declared
@@ -132,15 +170,23 @@ on a JSON or YAML scalar is inserted like any detected family rather than deferr
   ambiguous across languages; and the gate catches "still in the source language", never
   "translated badly".
 - **Plural limits.** New forms are written only into JSON and YAML locale bundles, as a sibling of a
-  key that is already there. Android XML, `.stringsdict` and any rule living in an expression are
-  reported with their translated forms and left to a code edit — a plural is a call-site decision,
-  and a tool that rewrites call sites is no longer patching bytes.
-- **A dialect cannot invent a reader.** `.po`, `.stringsdict`, `.ftl` and Qt's `.ts` have no
-  extractor, so their sites do not exist and no row can claim what was never parsed. They are
-  surfaced as `unclassified` and G2 refuses to pass — listed, not claimed. gettext additionally needs
-  its `Plural-Forms:` header, a C expression this engine does not evaluate: an index there is a
-  POSITION, never `few`, which is why such a family would be `cldr: false` and never measured for
-  completeness.
+  key that is already there. Android XML, `.stringsdict`, `.xcstrings` and any rule living in an
+  expression are reported with their translated forms and left to a code edit — a plural is a
+  call-site decision, and a tool that rewrites call sites is no longer patching bytes. Fluent is the
+  exception and earns it: a select expression is rewritten in place, because en→ru turns two variants
+  into four inside a single value and no delimiter join can do that. gettext and Qt keep the source's
+  arity (they are `cldr: false`), so every form already exists and is replaced at its own byte
+  offset.
+- **A dialect cannot invent a reader, so the readers were written.** gettext `.po`/`.pot`, Fluent
+  `.ftl`, Apple `.stringsdict` and Qt's `.ts` are read, and each is claimed by a cited row. The
+  principle stands and is why they had to be built: a row cannot claim what was never parsed, so a
+  format with no extractor is not a missing row, it is a missing reader. gettext's honest limit
+  survives: `Plural-Forms:` is a C expression this engine does not evaluate, so an index there is a
+  POSITION — index 1 of a three-form Polish catalog is "the second form", never `few` — and such a
+  family is `cldr: false` and never measured for completeness. That is a smaller claim than the one
+  made for i18next, and it is the true one. Qt's `.ts` is reached by sniffing `<!DOCTYPE TS>` before
+  the extension routes it to the TypeScript grammar: the one extension collision worth a content
+  check.
 - **Evidence is presence, never usage.** `i18next` in `package.json` proves the dependency is
   installed, not that the file in front of you is one of its bundles. Two dialects claiming one site
   resolve by declared precedence, then by id — determinism, not correctness.
@@ -154,18 +200,31 @@ on a JSON or YAML scalar is inserted like any detected family rather than deferr
   an arrangement is not recognisable from a path alone. It still never opens a file and the sample is
   bounded and deterministic, but "the model only ever sees `{id, text}`" is now true of the
   translator rather than of every agent in the pipeline.
-- **`claimRatio` is a measurement, in bytes, on both sides.** A ratio below 1 means the extractor
-  genuinely did not account for part of the file, never that the file contained an accented
-  character. Anything it did not claim is swept, so the shortfall shows up as `unclassified` rather
-  than as silence.
+- **`claimRatio` is a measurement, and an absent one is not a zero.** A ratio below 1 means the
+  extractor genuinely did not account for part of the file — never that the file held an accented
+  character, and never that a BOM or a `<script>` body was counted against it. Anything unclaimed is
+  swept, so the shortfall shows up as `unclassified` rather than as silence. For a file whose
+  decoded offsets are not file-byte offsets (UTF-16, latin1) the ratio is **not reported at all**,
+  because the repair that looks obvious — dividing decoded by decoded — mints a 1.0, and a 1.0 is
+  read downstream as the extractor ASSERTING it accounted for every byte. That is the single claim
+  such a file cannot make.
 
 ## Status
 
-Every command in the cheat-sheet works, plus `plurals`, `sync`, `orchestrate` and `init`.
+Every command in the cheat-sheet works. There are no declared-but-unbuilt commands and no flags that
+are parsed and ignored.
 
-Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS
-and plain text through hand-written byte-indexed lexers, with a residual sweep behind them so a
-format with no extractor surfaces as `unclassified` rather than as nothing.
+Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS,
+TOML, gettext `.po`, Fluent `.ftl`, Dockerfiles and plain text through hand-written byte-indexed
+lexers, with a residual sweep behind them so a format with no extractor surfaces as `unclassified`
+rather than as nothing.
+
+Recall is measured, not asserted. Against a per-format oracle on two real repositories — 1,128 files
+between them — every quoted literal, every JSX text node and every JSON string value in a file
+claiming full coverage was covered by a site, and markdown prose ran at 99.9%; the lines still
+uncovered are lines that are entirely inline code. Two holes that measurement found have been
+closed: hard-wrapped markdown paragraphs, where only the last line of each block reached the
+inventory, and inline `<style>`/`<script>`, whose bytes were counted as read.
 
 **The model, the endpoint and the key are all configurable, and the default tier is SMALL.** Eight
 short strings and a one-page contract per batch is not work a frontier model does better, and paying
