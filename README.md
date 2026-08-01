@@ -30,6 +30,14 @@ It does **not** claim to classify every string correctly. It claims:
 that fails loudly. Anything unclaimed and human-looking is forced into the inventory as
 `unclassified`, and `check` refuses to pass while one remains.
 
+And the claim is checkable by you, not only by whoever last ran the benchmark. `sites --audit`
+takes every file whose extractor recorded a `claimRatio` of 1.0 — asserting it accounted for every
+byte — and asks whether any line holding text is covered by no site. The oracle is a table of
+locators the extractors do not share, because asking an extractor whether it found everything is a
+tautology. It is the one mode of `sites` that gates, and on its first run against this repository it
+found two real holes: an inline code span that wraps a line desynchronised the markdown mask and ate
+a line of prose, and a YAML flow collection was recorded as skipped and had its bytes claimed anyway.
+
 ## How it works
 
 A deterministic zero-dependency engine finds and classifies the text; a model only ever translates
@@ -126,12 +134,19 @@ The pipeline works end to end: `scan` → `plan` → `translate` → `apply` →
 `plurals`, `sync`, `sites`, `lang`, `adjudicate`, `glossary`, `orchestrate` and
 `init --ci --baseline`. Nothing is declared and unbuilt, and no flag is parsed and ignored.
 
-Recall is measured rather than asserted. Against a per-format oracle on two real repositories —
-1,128 files — every quoted literal, JSX text node and JSON string value in a file claiming full
-coverage was covered by a site, and markdown prose ran at 99.9%. Two holes that measurement found
-are closed: hard-wrapped markdown paragraphs, where only the last line of each block reached the
-inventory, and inline `<style>`/`<script>`, whose bytes were counted as read while their text
-reached nothing.
+Recall is measured rather than asserted, and the instrument ships rather than living in a benchmark:
+`sites --audit` comes back clean on this repository across 201 files that claim to have read all of
+themselves. Every hole that measurement has found is closed — hard-wrapped markdown paragraphs, an
+inline `<style>` and `<script>` whose bytes were counted as read while their text reached nothing, a
+wrapped code span that ate the line below it, and a YAML flow collection claimed and never entered.
+
+Readers: TypeScript, JavaScript, JSX and TSX; **Python and shell on the same AST tier**, so a
+docstring is the first statement of a body rather than a string that happens to come first; JSON,
+JSONC, JSON5 and **JSON Lines**; YAML, including markdown nested in a block scalar; markdown; HTML,
+SVG and single-file components, **whose inline `<script>` is now parsed rather than swept**; CSS;
+TOML; gettext `.po`; Fluent `.ftl`; Apple `.stringsdict`, `.xcstrings` and `.plist`; Qt `.ts`;
+Android `strings.xml`; Dockerfiles; **`.sql`, which earns its place by silencing rather than
+finding**; and the `#`-comment ignore formats.
 
 Translation backends: a generic CLI (`--translator '<command>'`), direct HTTP (`--backend api`), and
 manual. The API backend is fully configurable — `--provider anthropic|openai|openai-compatible`,

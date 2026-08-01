@@ -1,6 +1,6 @@
 ---
 name: ultrai18n
-description: "Use when a repository's LANGUAGE must change and the result has to be provable, not hoped for — a full source-language swap, an i18n extraction, a locale-catalog sync, or a read-only audit. Asking an AI to 'translate this repo' silently misses package.json descriptions, web manifests inlined in a bundler config, GitHub issue templates, release-notes bodies nested in workflow YAML, and screenshots with rendered UI text; it also translates persisted enum values and breaks every existing user's stored data. ultrai18n is a deterministic zero-dep engine (node scripts/ultrai18n.mjs, no keys, no install) that inventories every text site with byte offsets, classifies it against a documented surface catalog, and gates the result: census accounts for EVERY tracked path in exactly one bucket, and check REFUSES to pass while any site is unclassified, unadjudicated, or still in the source language. The engine decides the token/identifier surfaces; YOU adjudicate the judgment calls it deliberately refuses — a text that is both a rendered label and a persisted enum is reported, never guessed. Models only ever receive {id: text} and return {id: translation}; the engine writes the files by byte offset, so a translation costs the text and not the codebase. It reads gettext .po/.pot, Fluent .ftl, Apple .stringsdict and .xcstrings, Qt .ts, Android strings.xml, TOML manifests, Dockerfiles, and JSX/TSX/Vue/Svelte/Astro markup, and its plural handling is a cited catalog of arrangements rather than a list of supported libraries. Triggers: 'translate this repo', 'change the language of the project', 'switch from French to English', 'find all hardcoded strings', 'extract strings to i18n', 'which locale keys are missing', 'did we miss any text', 'audit this repo for untranslated strings', 'translate my .po files', 'is my Russian catalog missing plural forms'. Not a translation API and not a linter: for prose you already have, translate it yourself."
+description: "Use when a repository's LANGUAGE must change and the result has to be provable, not hoped for — a full source-language swap, an i18n extraction, a locale-catalog sync, or a read-only audit. Asking an AI to 'translate this repo' silently misses package.json descriptions, web manifests inlined in a bundler config, GitHub issue templates, release-notes bodies nested in workflow YAML, and screenshots with rendered UI text; it also translates persisted enum values and breaks every existing user's stored data. ultrai18n is a deterministic zero-dep engine (node scripts/ultrai18n.mjs, no keys, no install) that inventories every text site with byte offsets, classifies it against a documented surface catalog, and gates the result: census accounts for EVERY tracked path in exactly one bucket, and check REFUSES to pass while any site is unclassified, unadjudicated, or still in the source language. The engine decides the token/identifier surfaces; YOU adjudicate the judgment calls it deliberately refuses — a text that is both a rendered label and a persisted enum is reported, never guessed. Models only ever receive {id: text} and return {id: translation}; the engine writes the files by byte offset, so a translation costs the text and not the codebase. It reads TypeScript/JSX/TSX, Python and shell on a tree-sitter AST tier, plus gettext .po/.pot, Fluent .ftl, Apple .stringsdict/.xcstrings/.plist, Qt .ts, Android strings.xml, TOML manifests, JSON Lines, .sql, Dockerfiles, ignore files and JSX/TSX/Vue/Svelte/Astro markup down to the inline <script>; sites --audit re-checks the recall claim offline so it is verifiable rather than merely asserted; and its plural handling is a cited catalog of arrangements rather than a list of supported libraries. Triggers: 'translate this repo', 'change the language of the project', 'switch from French to English', 'find all hardcoded strings', 'extract strings to i18n', 'which locale keys are missing', 'did we miss any text', 'audit this repo for untranslated strings', 'translate my .po files', 'is my Russian catalog missing plural forms'. Not a translation API and not a linter: for prose you already have, translate it yourself."
 license: MIT
 metadata:
   version: 0.0.0
@@ -85,11 +85,16 @@ to fake; and a model does nothing but translate strings it is handed.
 - `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
 - `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
 - `sites [--verdict <v>] [--surface <glob>] [--file <glob>] [--rule <id>] [--ecosystem <id>]
-  [--value <text>] [--dup] [--limit <n>] [--drift <inventory.json>]` — filtered views of the
-  inventory. Exit 0 even with no matches — it is a view, `check` is the gate — and exit 2 on a token
-  outside a closed vocabulary, because "your repo has none of these" and "you typed something that
-  does not exist" must not look alike. `--drift` reconciles against a previous inventory and names
-  every anchor that moved, which is what stops a pinned exception silently ceasing to apply.
+  [--value <text>] [--dup] [--limit <n>] [--drift <inventory.json>] [--audit]` — filtered views of
+  the inventory. Exit 0 even with no matches — it is a view, `check` is the gate — and exit 2 on a
+  token outside a closed vocabulary, because "your repo has none of these" and "you typed something
+  that does not exist" must not look alike. `--drift` reconciles against a previous inventory and
+  names every anchor that moved, which is what stops a pinned exception silently ceasing to apply.
+  `--audit` is the odd one out and the only mode that GATES: for every file whose extractor recorded
+  a `claimRatio` of 1.0 — asserting it accounted for every byte — it asks whether any line holding
+  text is covered by no site. The oracle is a table of locators the extractors do not share, because
+  asking an extractor whether it found everything is a tautology. Run it when you want the recall
+  claim checked rather than believed.
 - `lang [--value "<text>"] [--test]` — the detector on its own. Bare, it explains the source-language
   vote `scan` took silently, weighted by letters. `--test` runs one sample per supported language and
   exits 1 on a misdetection — the only mode here that makes a claim which can be wrong.
@@ -121,10 +126,12 @@ and templating languages (ERB, Handlebars, Jinja, Blade, Liquid). Framework inte
 Text nests, and so do the readers. An inline `<style>` goes to the stylesheet reader, so a
 `content:` value is found; a raw HTML block inside markdown goes to the markup reader, so the
 `<img alt>` in the banner at the top of a README and every `<summary>` are found; a release-notes
-body inside a workflow YAML is read as the markdown it is. Where no reader exists — an inline
-`<script>` — the bytes are declared UNREAD rather than counted as claimed, and the residual sweep
-covers them. That distinction is the whole product: an extractor that reads past text while
-reporting full coverage is worse than one that admits it stopped.
+body inside a workflow YAML is read as the markdown it is; an inline `<script>` goes to the AST
+tier, and a `type="application/ld+json"` body to the JSON reader. Where no reader can take it —
+a grammar that is unavailable, a parse that broke down — the bytes are declared UNREAD rather than
+counted as claimed, and the residual sweep covers them. That distinction is the whole product: an
+extractor that reads past text while reporting full coverage is worse than one that admits it
+stopped.
 
 **Plurals are read by arrangement, and the arrangements are DATA.** Three mechanical primitives
 live in the engine — one form per site with the category on its anchor path, every form in one value
@@ -214,17 +221,26 @@ on a JSON or YAML scalar is inserted like any detected family rather than deferr
 Every command in the cheat-sheet works. There are no declared-but-unbuilt commands and no flags that
 are parsed and ignored.
 
-Extraction covers TypeScript/JSX/TSX through tree-sitter, and JSON, YAML, Markdown, HTML, SVG, CSS,
-TOML, gettext `.po`, Fluent `.ftl`, Dockerfiles and plain text through hand-written byte-indexed
-lexers, with a residual sweep behind them so a format with no extractor surfaces as `unclassified`
-rather than as nothing.
+Extraction covers TypeScript, JSX/TSX, **Python and shell** through tree-sitter — so a Python
+docstring is the first statement of a body rather than a string that happens to come first — and
+JSON, JSON Lines, YAML, Markdown, HTML, SVG, CSS, TOML, gettext `.po`, Fluent `.ftl`, Apple
+property lists, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
+hand-written byte-indexed lexers. A residual sweep sits behind all of them, so a format with no
+extractor surfaces as `unclassified` rather than as nothing.
 
-Recall is measured, not asserted. Against a per-format oracle on two real repositories — 1,128 files
-between them — every quoted literal, every JSX text node and every JSON string value in a file
-claiming full coverage was covered by a site, and markdown prose ran at 99.9%; the lines still
-uncovered are lines that are entirely inline code. Two holes that measurement found have been
-closed: hard-wrapped markdown paragraphs, where only the last line of each block reached the
-inventory, and inline `<style>`/`<script>`, whose bytes were counted as read.
+`.sql` is the one reader that earns its place by SILENCING rather than finding: it reads the
+comments and claims the DDL as looked-at and non-textual, which turns hundreds of refusals into
+none.
+
+Recall is measured, not asserted — and the instrument SHIPS, so you can re-measure rather than
+trust a number. `sites --audit` runs the same check offline against your own repository and comes
+back clean on this project across 201 files that claim to have read all of themselves.
+
+Every hole that measurement has found is closed: hard-wrapped markdown paragraphs, where only the
+last line of each block reached the inventory; inline `<style>` and `<script>`, whose bytes were
+counted as read while their text reached nothing; an inline code span that WRAPS a line, which
+desynchronised the markdown mask and ate the line below it; and a YAML flow collection, recorded as
+skipped and claimed anyway.
 
 **The model, the endpoint and the key are all configurable, and the default tier is SMALL.** Eight
 short strings and a one-page contract per batch is not work a frontier model does better, and paying

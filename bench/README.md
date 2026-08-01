@@ -190,3 +190,24 @@ with clone-and-look instructions and zero copied bytes.
 `duckduckgo/iOS` are pinned and untested. The sweep is network-dependent,
 nightly, and never a merge gate, so this is a gap in evidence rather than in the
 product — but it is a gap, and it is written down here so it stays visible.
+
+Two of the seven now matter more than they did. `django` is a Python codebase
+and `duckduckgo/iOS` is a Swift one full of property lists; the first has a real
+reader for the first time and the second has one for its `Info.plist`. Whatever
+the sweep says about those two is new information rather than a re-run.
+
+## The offline half of the same check
+
+`sites --audit` asks the sweep's question without the network, without
+`codeindex`, and against your own repository: for every file whose extractor
+recorded a `claimRatio` of 1.0, is any line holding text covered by no site?
+
+The predicate is the same one `join_` applies here — a ratio that was MEASURED
+rather than set, a file whose offsets address its bytes, and line-interval
+containment rather than byte overlap. What differs is the oracle. `sweep.mjs`
+has `codeindex grep` and 25 locator patterns; `src/audit.ts` has a small table of
+per-format locators, because a generic "does this line look human" predicate
+reads most of a TypeScript module as prose.
+
+Neither replaces the other. This one has a real oracle and nine real
+repositories; that one runs everywhere, every time, for free.
