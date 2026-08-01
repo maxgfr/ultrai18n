@@ -22270,12 +22270,15 @@ function extractMarkdown2(file, text, map, range) {
     emitRuns(paragraph.text, paragraph.start, `p[${blockIndex++}]`);
     paragraph = null;
   };
-  const emitRuns = (raw, startChar, pathPrefix) => {
-    let masked = raw;
-    masked = blank(masked, INLINE_CODE);
+  const mask = (raw) => {
+    let masked = blank(raw, INLINE_CODE);
     masked = blank(masked, IMAGE, (m) => keepGroup(m, 1));
     masked = blank(masked, LINK, (m) => keepGroup(m, 1));
-    masked = blank(masked, AUTOLINK);
+    return blank(masked, AUTOLINK);
+  };
+  const hasProse2 = (raw) => new RegExp("\\p{L}{2,}", "u").test(mask(raw));
+  const emitRuns = (raw, startChar, pathPrefix) => {
+    const masked = mask(raw);
     let runIndex = 0;
     for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/gm)) {
       const at = match.index ?? 0;
@@ -22334,7 +22337,7 @@ function extractMarkdown2(file, text, map, range) {
       flush();
       const body3 = heading[3];
       const at = start2 + heading[1].length + heading[2].length + 1;
-      if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
+      if (hasProse2(body3)) {
         sites.push(makeSite(file, `h${heading[2].length}[${blockIndex++}]`, "prose-run", at, at + body3.length, body3, map));
       }
       continue;
@@ -22347,7 +22350,7 @@ function extractMarkdown2(file, text, map, range) {
       for (const part of table[1].split("|")) {
         const trimmedStart = part.length - part.trimStart().length;
         const body3 = part.trim();
-        if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
+        if (hasProse2(body3)) {
           const from = cursor + trimmedStart;
           sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, "prose-run", from, from + body3.length, body3, map));
         }
@@ -25210,6 +25213,30 @@ var STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/;
 var STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/;
 var CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/;
 var URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i;
+var DESIGN_TOKEN = /^(?:#[0-9a-f]{3,8}|--[a-z][\w-]*|-?\d*\.?\d+(?:px|rem|em|vh|vw|vmin|vmax|ch|ex|%|deg|rad|turn|s|ms|fr|pt|cm|mm|in)|(?:oklch|oklab|rgba?|hsla?|hwb|lab|lch|color|color-mix|var|calc|clamp|min|max|minmax|env|url|translate|rotate|scale|cubic-bezier|linear-gradient|radial-gradient)\([^()]*(?:\([^()]*\)[^()]*)*\))$/i;
+function isDesignToken(value) {
+  const parts2 = topLevelParts(value.trim());
+  if (parts2.length === 0 || parts2.length > 8) return false;
+  if (!parts2.some((p) => DESIGN_TOKEN.test(p))) return false;
+  return parts2.every((p) => DESIGN_TOKEN.test(p) || /^-?\d*\.?\d+$/.test(p));
+}
+function topLevelParts(value) {
+  const out2 = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of value) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (depth === 0 && /[\s,/]/.test(ch)) {
+      if (current) out2.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  if (current) out2.push(current);
+  return out2;
+}
 var SLUG_SHAPE = /^[a-z0-9]+([:._+\-/][a-z0-9]+)+$/;
 var MEDIA_TYPE = /^(application|audio|font|example|image|message|model|multipart|text|video)\/[a-z0-9][a-z0-9!#$&^_.+-]*(\s*;.*)?$/i;
 var LOCALE_TAG = /^([a-z]{2,3})(?=-)(?:-([A-Z][a-z]{3}))?(?:-([A-Z]{2}|\d{3}))?$/;
@@ -25388,6 +25415,9 @@ function decide(raw, opts, rules, fileLocale2) {
   }
   if (c2.tag && CONTRACT_TAGS.test(c2.tag)) {
     return { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract", confidence: "high", skipDetection: true };
+  }
+  if (isDesignToken(value)) {
+    return { surface: "token.style", verdict: "do-not-translate", reason: "style-token", confidence: "high", skipDetection: true };
   }
   if (c2.attrName && ARIA_VOCAB.test(c2.attrName)) {
     return { surface: "token.api-contract", verdict: "do-not-translate", reason: "aria-vocabulary", confidence: "high", skipDetection: true };

@@ -42,6 +42,58 @@ const STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.(
 const CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/
 const URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i
 /**
+ * One design token: a colour, a length, a custom property, a function of them.
+ *
+ * `#1a2b3c`, `oklch(0.15 0.02 255)`, `1.5rem`, `var(--fg)`, `--color-ink-950`.
+ */
+const DESIGN_TOKEN =
+  /^(?:#[0-9a-f]{3,8}|--[a-z][\w-]*|-?\d*\.?\d+(?:px|rem|em|vh|vw|vmin|vmax|ch|ex|%|deg|rad|turn|s|ms|fr|pt|cm|mm|in)|(?:oklch|oklab|rgba?|hsla?|hwb|lab|lch|color|color-mix|var|calc|clamp|min|max|minmax|env|url|translate|rotate|scale|cubic-bezier|linear-gradient|radial-gradient)\([^()]*(?:\([^()]*\)[^()]*)*\))$/i
+/**
+ * Is this value nothing BUT design tokens?
+ *
+ * Every part has to match, which is the whole safety of it: a sentence that
+ * happens to mention `1.5rem` is still a sentence, and documentation about a
+ * design system is exactly where these values turn up as prose. A shorthand
+ * like `0 1px 2px var(--shadow)` is several tokens and one value, so the split
+ * is on the characters CSS separates them with.
+ *
+ * By the same argument that already protects a `css` tagged template: what a
+ * string IS decides the verdict, and a colour is not copy in any language.
+ */
+export function isDesignToken(value: string): boolean {
+  const parts = topLevelParts(value.trim())
+  if (parts.length === 0 || parts.length > 8) return false
+  // A bare number is a number, not a token, and a value made only of them is
+  // already caught by the no-words branch further down.
+  if (!parts.some((p) => DESIGN_TOKEN.test(p))) return false
+  return parts.every((p) => DESIGN_TOKEN.test(p) || /^-?\d*\.?\d+$/.test(p))
+}
+
+/**
+ * Split on the separators CSS uses, but never INSIDE a function's arguments.
+ *
+ * `oklch(0.15 0.02 255)` is one token with spaces in it. Splitting naively made
+ * it three — `oklch(0.15`, `0.02`, `255)` — none of which is a token, so the
+ * matcher rejected the single most common value it exists for.
+ */
+function topLevelParts(value: string): string[] {
+  const out: string[] = []
+  let depth = 0
+  let current = ''
+  for (const ch of value) {
+    if (ch === '(') depth++
+    else if (ch === ')') depth = Math.max(0, depth - 1)
+    if (depth === 0 && /[\s,/]/.test(ch)) {
+      if (current) out.push(current)
+      current = ''
+      continue
+    }
+    current += ch
+  }
+  if (current) out.push(current)
+  return out
+}
+/**
  * A dotted, dashed or slashed lowercase token.
  *
  * `+` belongs in the separator class because a structured media-type suffix is
@@ -323,6 +375,18 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   }
   if (c.tag && CONTRACT_TAGS.test(c.tag)) {
     return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'api-contract', confidence: 'high', skipDetection: true }
+  }
+  // A design token, wherever it sits. `oklch(0.15 0.02 255)`, `#1a2b3c`,
+  // `1.5rem`, `var(--fg)` — by the same argument as the `css` tag above: what
+  // the string IS decides, and a colour is not copy in any language.
+  //
+  // Reached mostly from documentation rather than from stylesheets, which is
+  // the point. On the reference repositories the `ambiguous-role` pile was
+  // dominated by `.md`, and the sample was colour tokens and CSS keywords
+  // inside technical prose — each one an adjudication somebody had to make by
+  // hand to say "this is a colour".
+  if (isDesignToken(value)) {
+    return { surface: 'token.style', verdict: 'do-not-translate', reason: 'style-token', confidence: 'high', skipDetection: true }
   }
   if (c.attrName && ARIA_VOCAB.test(c.attrName)) {
     return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'aria-vocabulary', confidence: 'high', skipDetection: true }

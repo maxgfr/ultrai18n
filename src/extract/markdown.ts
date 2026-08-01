@@ -101,15 +101,36 @@ export function extractMarkdown(
     paragraph = null
   }
 
-  const emitRuns = (raw: string, startChar: number, pathPrefix: string): void => {
-    // Blank out what is not prose, preserving length so offsets stay valid.
-    // Rebuilding the string would desynchronise every span after the first
-    // replacement, which is the classic way these extractors corrupt files.
-    let masked = raw
-    masked = blank(masked, INLINE_CODE)
+  /**
+   * Blank out what is not prose, preserving length so offsets stay valid.
+   *
+   * Rebuilding the string would desynchronise every span after the first
+   * replacement, which is the classic way these extractors corrupt files.
+   */
+  const mask = (raw: string): string => {
+    let masked = blank(raw, INLINE_CODE)
     masked = blank(masked, IMAGE, (m) => keepGroup(m, 1))
     masked = blank(masked, LINK, (m) => keepGroup(m, 1))
-    masked = blank(masked, AUTOLINK)
+    return blank(masked, AUTOLINK)
+  }
+
+  /**
+   * Is there prose here once the code spans and link targets are gone?
+   *
+   * A heading or a table cell that is ENTIRELY a code span is a code span, and
+   * emitting it sends `` `oklch(0.15 0.02 255)` `` and `` `--fg` `` to the
+   * detector, which correctly refuses them one at a time. On the reference
+   * repositories that is a large share of the `.md` refusals: 4,141 of 6,136
+   * `ambiguous-role` sites were in markdown, and the sample is colour tokens and
+   * CSS keywords inside technical documentation.
+   *
+   * The paragraph and list paths have masked since they were written. These two
+   * did not, which is exactly where the evidence came from.
+   */
+  const hasProse = (raw: string): boolean => /\p{L}{2,}/u.test(mask(raw))
+
+  const emitRuns = (raw: string, startChar: number, pathPrefix: string): void => {
+    const masked = mask(raw)
 
     let runIndex = 0
     // `m` is load-bearing. Without it `$` means end of the whole BLOCK, and a
@@ -201,7 +222,9 @@ export function extractMarkdown(
       flush()
       const body = heading[3]!
       const at = start + heading[1]!.length + heading[2]!.length + 1
-      if (/\p{L}{2,}/u.test(body)) {
+      // Masked, so `### \`oklch(0.15 0.02 255)\`` is a code span rather than a
+      // heading the detector has to talk itself out of.
+      if (hasProse(body)) {
         sites.push(makeSite(file, `h${heading[2]!.length}[${blockIndex++}]`, 'prose-run', at, at + body.length, body, map))
       }
       continue
@@ -215,7 +238,9 @@ export function extractMarkdown(
       for (const part of table[1]!.split('|')) {
         const trimmedStart = part.length - part.trimStart().length
         const body = part.trim()
-        if (/\p{L}{2,}/u.test(body)) {
+        // Same masking as a paragraph run. A cell holding nothing but
+        // `\`.gitignore\`` is a code span, and it reached the detector as prose.
+        if (hasProse(body)) {
           const from = cursor + trimmedStart
           sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, 'prose-run', from, from + body.length, body, map))
         }
