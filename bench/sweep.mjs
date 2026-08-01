@@ -26,6 +26,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promote } from './promote.mjs'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const ENGINE = join(ROOT, 'skills', 'ultrai18n', 'scripts', 'ultrai18n.mjs')
@@ -41,8 +42,43 @@ function main() {
     process.exit(2)
   }
 
-  const locators = readJson(join(ROOT, 'bench', 'locators.json'))
   const manifest = readJson(join(ROOT, 'bench', 'repos.json'))
+
+  // Promotion is curation over a report a human has just read. It never clones
+  // and never re-sweeps, which keeps the network out of it — and therefore out
+  // of its failure modes.
+  if (args.promote) {
+    const findingsPath = join(OUT, 'findings.json')
+    if (!existsSync(findingsPath)) {
+      process.stderr.write(
+        `ultrai18n sweep: no findings at ${findingsPath} — run \`pnpm sweep --only <slug>\` first\n`,
+      )
+      process.exit(1)
+    }
+    try {
+      const result = promote({
+        findings: readJson(findingsPath),
+        repos: manifest,
+        selector: args.promote,
+        root: ROOT,
+        cloneDir: CLONES,
+      })
+      process.stdout.write(
+        result.kind === 'excerpt'
+          ? `promoted to ${result.dir}\n` +
+              `  ${result.files.join(', ')}\n` +
+              `  its \`why\` starts TODO:, so \`pnpm bench --ci\` stays red until somebody says what it proves\n`
+          : `refused to excerpt — wrote ${result.dir}/REPRODUCE.md instead\n` +
+              `  the licence is not on the permissive allowlist, and an unknown one fails closed\n`,
+      )
+      process.exit(0)
+    } catch (err) {
+      process.stderr.write(`ultrai18n sweep: ${err.message}\n`)
+      process.exit(err.code ?? 1)
+    }
+  }
+
+  const locators = readJson(join(ROOT, 'bench', 'locators.json'))
   const repos = manifest.repos.filter(
     (r) => (!args.only || r.slug === args.only) && (args.tier === 'all' || r.tier === args.tier),
   )
@@ -74,13 +110,16 @@ function main() {
 }
 
 function parseArgs(argv) {
-  const args = { only: null, tier: 'core', keep: false }
+  const args = { only: null, tier: 'core', keep: false, promote: null }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--only') args.only = argv[++i]
     else if (a === '--tier') args.tier = argv[++i]
     else if (a === '--keep') args.keep = true
-    else return { error: `unknown flag ${a}` }
+    else if (a === '--promote') {
+      args.promote = argv[++i]
+      if (!args.promote) return { error: '--promote needs <slug>:<n> or <slug>:<file>:<line>' }
+    } else return { error: `unknown flag ${a}` }
   }
   if (!args.tier) return { error: '--tier needs a value' }
   return args
@@ -198,7 +237,10 @@ function join_(hits, inventory) {
     pluralResidual: (inventory.pluralResidual ?? []).length,
     counts: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.length])),
     // Only the two that need a human are carried in full; the rest are counts.
-    confirmedMisses: buckets['confirmed-miss'].slice(0, 50),
+    // Numbered before the cap, so the number a human reads is the number they
+    // type. `--promote <slug>:<file>:<line>` is the durable form and survives a
+    // re-sweep; an index does not.
+    confirmedMisses: buckets['confirmed-miss'].map((m, n) => ({ id: n, ...m })).slice(0, 50),
     candidates: buckets.candidate.slice(0, 50),
   }
 }

@@ -1,4 +1,6 @@
 {
+  "$anchorDrift": "Gated at 0 from the day it shipped, because `--accept` IS the escape hatch: a legitimate anchor change is accepted by typing its id, which is exactly the intended cost. An exception is pinned to a siteKey, so an anchor that moved silently stops excusing anything — this is the check that says so out loud.",
+
   "$comment": "Every number here is a floor somebody raised deliberately. Lowering one needs a commit message that says why. The `hard` entries are not per-case negotiable: they are the claims the product makes.",
 
   "hard": {
@@ -7,6 +9,7 @@
     "trapViolations": 0,
     "censusMismatches": 0,
     "gateMismatches": 0,
+    "anchorDrift": 0,
     "determinismFailures": 0
   },
 

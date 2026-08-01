@@ -8,6 +8,7 @@
     "trapViolations": 0,
     "censusMismatches": 0,
     "gateMismatches": 0,
+    "anchorDrift": 0,
     "determinismFailures": 0,
     "malformed": 0,
     "crashed": 0,
@@ -20,6 +21,7 @@
     "trapViolations": 0,
     "censusMismatches": 0,
     "gateMismatches": 0,
+    "anchorDrift": 0,
     "determinismFailures": 0
   },
   "catalog": {

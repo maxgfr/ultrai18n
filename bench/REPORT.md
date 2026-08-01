@@ -6,6 +6,7 @@
   trap violations         0                   ok
   census mismatches       0                   ok
   gate mismatches         0                   ok
+  anchor drift            0                   ok
   determinism             8/8                 ok
 ```
 

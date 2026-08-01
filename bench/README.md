@@ -129,3 +129,64 @@ Same discipline G5 puts on an exception's justification: an expectation without 
 reason is a place to hide. It is also what makes a miss promoted from the wild
 ship red — the draft carries `TODO:` and `--ci` rejects it — so a finding stays
 loud until somebody writes down what it proves.
+
+## Accepting a change
+
+When the tool starts answering differently and the new answer is right, splice
+it into ground truth one typed id at a time:
+
+```sh
+node bench/run.mjs --accept traps-interop:http.header-name
+```
+
+It rewrites exactly the value that produced a finding, records what it replaced
+under `acceptedFrom`, and leaves every other byte of the file alone — a
+reflowed `expected.json` would bury the one accepted id in a four-hundred-line
+diff, which destroys the review signal the flag exists to produce. The rewritten
+text is parsed back and deep-compared before anything is written; a splice that
+does not round-trip writes nothing.
+
+**There is no `--update-all`, and there will not be one.** Accepting forty
+changes should mean typing forty ids, and the reviewer seeing forty ids in the
+diff. `--accept` also refuses to run with `--ci` — one verifies, the other
+rewrites ground truth, and doing both in a single run is how an unreviewed
+change lands in a green build — and it never writes `REPORT.md` or
+`report.json`, because CI diff-gates both and a partial run's report must not
+land in that diff.
+
+`observed.siteKey` is written the same way and only that way. It is the anchor a
+site is addressed by, and an exception is PINNED to one — so an anchor that
+moves silently stops excusing anything. `anchorDrift` is gated at 0 from the day
+it shipped, because `--accept` *is* its escape hatch.
+
+## Promoting a miss found in the wild
+
+A confirmed miss is the strongest thing the sweep says: the extractor asserted
+it accounted for every byte, and a human-looking line no site covered
+contradicts that. Losing one to a nightly log is how a real finding becomes
+folklore.
+
+```sh
+node bench/sweep.mjs --promote python-babel/babel:src/x.py:41
+```
+
+It never clones and never re-sweeps — it curates a report somebody has just
+read. The case it writes has **no `expect` block**: the observed verdict is the
+behaviour under suspicion, and writing it in would pin the bug rather than the
+finding. It fails on `accountingCoverage`, which is the correct red, and its
+`why` starts `TODO:` so `pnpm bench --ci` stays red until somebody writes down
+what it proves.
+
+The `license` field in `repos.json` is what makes the copyleft policy
+enforceable rather than aspirational. A permissive source gets a thirty-line
+excerpt and a `PROVENANCE.md`; anything else — **including a licence the script
+does not recognise, which fails closed** — gets a `bench/reproduce/` directory
+with clone-and-look instructions and zero copied bytes.
+
+## Repositories that have never been swept
+
+`sindresorhus/ky` (the control) and `python-babel/babel` have run.
+`excalidraw`, `nowinandroid`, `pdf.js`, `formatjs`, `django`, `astro` and
+`duckduckgo/iOS` are pinned and untested. The sweep is network-dependent,
+nightly, and never a merge gate, so this is a gap in evidence rather than in the
+product — but it is a gap, and it is written down here so it stays visible.

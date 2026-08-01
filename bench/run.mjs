@@ -66,6 +66,10 @@ function main() {
 
   mkdirSync(OUT, { recursive: true })
   const results = cases.map((c) => runCase(c, args))
+
+  if (args.accept.length) {
+    process.exit(acceptChanges(args, cases, results))
+  }
   // The catalog ratchet is a claim about the WHOLE corpus. On a filtered run it
   // would report every rule the other cases exercise as newly dead, which is
   // noise dressed as a finding.
@@ -84,7 +88,12 @@ function main() {
 // Arguments
 
 function parseArgs(argv) {
-  const args = { only: null, json: false, ci: false }
+  // `accept` is an ARRAY, and repeating the flag forty times is exactly the
+  // intended cost. There is no `--update-all`, and there will not be one:
+  // accepting forty changes should mean typing forty ids, and the reviewer
+  // seeing forty ids in the diff. That is the whole anti-rubber-stamp mechanism,
+  // and a bulk flag would dissolve it in one keystroke.
+  const args = { only: null, json: false, ci: false, accept: [] }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--json') args.json = true
@@ -92,9 +101,146 @@ function parseArgs(argv) {
     else if (a === '--only') {
       args.only = argv[++i]
       if (!args.only) return { error: '--only needs a case name' }
+    } else if (a === '--accept') {
+      const spec = argv[++i]
+      if (!spec) return { error: '--accept needs <case>:<id>' }
+      const cut = spec.lastIndexOf(':')
+      if (cut <= 0) return { error: `--accept ${spec} is not <case>:<id>` }
+      args.accept.push({ case: spec.slice(0, cut), id: spec.slice(cut + 1) })
     } else return { error: `unknown flag ${a}` }
   }
+  if (args.accept.length && args.ci) {
+    return {
+      error:
+        '--ci verifies and --accept rewrites ground truth; doing both in one run is how an unreviewed change ' +
+        'lands in a green build',
+    }
+  }
+  if (args.accept.length && !args.only) {
+    args.only = args.accept[0].case
+    if (args.accept.some((a) => a.case !== args.only)) {
+      return { error: 'every --accept in one run must name the same case' }
+    }
+  }
   return args
+}
+
+/**
+ * Replace one JSON value in place, leaving every other byte alone.
+ *
+ * `JSON.parse` → mutate → `JSON.stringify` reflows the whole file and buries
+ * the one accepted id in a four-hundred-line diff, which destroys the exact
+ * review signal this flag exists to produce. So: a position-tracking scan for
+ * the value at `path`, then a slice.
+ */
+function spliceJsonValue(source, path, value) {
+  let i = 0
+  const at = () => source[i]
+  const ws = () => { while (i < source.length && /\s/.test(source[i])) i++ }
+
+  const skipString = () => {
+    i++
+    while (i < source.length) {
+      if (source[i] === '\\') { i += 2; continue }
+      if (source[i] === '"') { i++; return }
+      i++
+    }
+  }
+  const skipValue = () => {
+    ws()
+    const c = at()
+    if (c === '"') return skipString()
+    if (c === '{' || c === '[') {
+      const close = c === '{' ? '}' : ']'
+      i++
+      while (i < source.length) {
+        ws()
+        if (at() === close) { i++; return }
+        if (at() === '"') skipString()
+        else if (at() === ',' || at() === ':') i++
+        else skipValue()
+      }
+      return
+    }
+    while (i < source.length && !/[,}\]\s]/.test(source[i])) i++
+  }
+
+  // Walk to the container holding the final segment, then find that member.
+  const descend = (segments) => {
+    for (const seg of segments) {
+      ws()
+      if (typeof seg === 'number') {
+        if (at() !== '[') return false
+        i++
+        for (let k = 0; k < seg; k++) { skipValue(); ws(); if (at() === ',') i++ }
+        ws()
+      } else {
+        if (at() !== '{') return false
+        i++
+        for (;;) {
+          ws()
+          if (at() === '}') return false
+          const keyAt = i
+          skipString()
+          const key = JSON.parse(source.slice(keyAt, i))
+          ws()
+          if (at() !== ':') return false
+          i++
+          if (key === seg) break
+          skipValue()
+          ws()
+          if (at() === ',') i++
+        }
+      }
+    }
+    return true
+  }
+
+  i = 0
+  if (!descend(path.slice(0, -1))) return null
+  const leaf = path[path.length - 1]
+
+  // The leaf's container is at `i`. Find the member, or insert it.
+  ws()
+  if (at() !== '{') return null
+  const objectAt = i
+  i++
+  let lastMemberEnd = -1
+  for (;;) {
+    ws()
+    if (at() === '}') break
+    const keyAt = i
+    skipString()
+    const key = JSON.parse(source.slice(keyAt, i))
+    ws()
+    if (at() !== ':') return null
+    i++
+    ws()
+    const valueAt = i
+    skipValue()
+    if (key === leaf) {
+      return source.slice(0, valueAt) + JSON.stringify(value) + source.slice(i)
+    }
+    lastMemberEnd = i
+    ws()
+    if (at() === ',') i++
+  }
+
+  // Absent: insert after the last member, borrowing its indentation.
+  if (lastMemberEnd === -1) return null
+  const lineStart = source.lastIndexOf('\n', objectAt) + 1
+  const indent = /^\s*/.exec(source.slice(lineStart))[0] + '  '
+  return (
+    source.slice(0, lastMemberEnd) +
+    `,\n${indent}${JSON.stringify(leaf)}: ${JSON.stringify(value)}` +
+    source.slice(lastMemberEnd)
+  )
+}
+
+/** The one value every element agrees on, or null when they disagree. */
+function only(values) {
+  const set = new Set(values)
+  return set.size === 1 ? [...set][0] : null
 }
 
 function discoverCases(only) {
@@ -105,6 +251,138 @@ function discoverCases(only) {
     .filter((name) => !only || name === only)
     .sort()
     .map((name) => ({ name, dir: join(CORPUS, name) }))
+}
+
+/**
+ * Splice reviewed observations into ground truth, one typed id at a time.
+ *
+ * Deliberately does NOT write `bench/REPORT.md` or `bench/report.json`: CI
+ * diff-gates both, and a partial run's report must never land in that diff.
+ * `why` is never touched either — the `TODO:` mechanism belongs to
+ * `sweep --promote`, and this flag's anti-rubber-stamp mechanism is the typed
+ * id plus the `acceptedFrom` record left behind for the reviewer.
+ */
+function acceptChanges(args, cases, results) {
+  const byName = new Map(results.map((r) => [r.name, r]))
+  const changes = []
+  const problems = []
+
+  for (const want of args.accept) {
+    const result = byName.get(want.case)
+    if (!result) {
+      problems.push(`${want.case}: no such case`)
+      continue
+    }
+    const matching = (result.findings ?? []).filter((f) => f.id === want.id)
+    if (matching.length === 0) {
+      const ids = [...new Set((result.findings ?? []).map((f) => f.id))].sort()
+      problems.push(
+        `${want.case}:${want.id}: nothing to accept — ` +
+          (ids.length ? `ids with a finding: ${ids.slice(0, 6).join(', ')}` : 'this case is clean'),
+      )
+      continue
+    }
+    for (const f of matching) {
+      if (f.observed === undefined) {
+        problems.push(`${want.case}:${want.id}: this finding carries no observed value to accept`)
+        continue
+      }
+      if (f.observed === null) {
+        problems.push(
+          `${want.case}:${want.id}: the covering sites disagree, so there is no single observed value — ` +
+            'narrow the `find` first',
+        )
+        continue
+      }
+      changes.push({ case: want.case, id: want.id, kind: f.kind, ...f.observed })
+    }
+  }
+
+  if (problems.length) {
+    for (const p of problems) process.stderr.write(`ultrai18n bench: ${p}\n`)
+    return EXIT_USAGE
+  }
+
+  const dir = join(CORPUS, args.accept[0].case)
+  const file = join(dir, 'expected.json')
+  let source = readFileSync(file, 'utf8')
+  const applied = []
+
+  for (const change of changes) {
+    const parsed = JSON.parse(source)
+    const where = locateEntry(parsed, change)
+    if (!where) {
+      process.stderr.write(`ultrai18n bench: ${change.case}:${change.id}: cannot locate its entry\n`)
+      return EXIT_USAGE
+    }
+    const path = [...where.path, ...change.path]
+    const before = where.entry
+    const old = change.path.reduce((o, k) => (o == null ? undefined : o[k]), before)
+
+    let next = spliceJsonValue(source, path, change.value)
+    if (next === null) {
+      process.stderr.write(`ultrai18n bench: ${change.case}:${change.id}: could not splice ${path.join('.')}\n`)
+      return EXIT_USAGE
+    }
+    // Record what it used to be, in the file, where a reviewer reads the diff.
+    next = spliceJsonValue(next, [...where.path, 'acceptedFrom'], {
+      ...(before.acceptedFrom ?? {}),
+      [change.path.join('.')]: old === undefined ? null : old,
+    })
+    if (next === null) {
+      process.stderr.write(`ultrai18n bench: ${change.case}:${change.id}: could not record acceptedFrom\n`)
+      return EXIT_USAGE
+    }
+
+    // Parse the rewritten text and deep-compare against the intended object.
+    // A hand-rolled splicer is only safe because this runs after every edit.
+    const want = JSON.parse(source)
+    const target = locateEntry(want, change)
+    setIn(target.entry, change.path, change.value)
+    target.entry.acceptedFrom = { ...(before.acceptedFrom ?? {}), [change.path.join('.')]: old === undefined ? null : old }
+    if (JSON.stringify(JSON.parse(next)) !== JSON.stringify(want)) {
+      process.stderr.write(`ultrai18n bench: ${change.case}:${change.id}: the splice did not round-trip — nothing written\n`)
+      return EXIT_FAILED
+    }
+
+    source = next
+    applied.push({ ...change, old })
+  }
+
+  writeFileSync(file, source)
+  process.stdout.write(`accepted ${applied.length} change(s):\n`)
+  for (const a of applied) {
+    process.stdout.write(
+      `  ${a.case}:${a.id}  ${a.path.join('.')}  ${JSON.stringify(a.old ?? null)} → ${JSON.stringify(a.value)}\n`,
+    )
+  }
+  process.stdout.write(`  ${file} rewritten (${applied.length} value(s), no reformat)\n`)
+  process.stdout.write('  → git diff bench/corpus, then run `pnpm bench` to regenerate the report\n')
+  return EXIT_OK
+}
+
+/** Where a finding's id lives in `expected.json`, and the entry itself. */
+function locateEntry(expected, change) {
+  const spaces = change.kind === 'census'
+    ? [['census', (e) => e.file]]
+    : change.kind === 'plural'
+      ? [['plurals', (e) => e.anchor]]
+      : [['expectations', (e) => e.id]]
+  for (const [key, idOf] of spaces) {
+    const list = expected[key] ?? []
+    const index = list.findIndex((e) => idOf(e) === change.id)
+    if (index !== -1) return { path: [key, index], entry: list[index] }
+  }
+  return null
+}
+
+function setIn(object, path, value) {
+  let cursor = object
+  for (const seg of path.slice(0, -1)) {
+    if (cursor[seg] === undefined) cursor[seg] = {}
+    cursor = cursor[seg]
+  }
+  cursor[path[path.length - 1]] = value
 }
 
 // ---------------------------------------------------------------------------
@@ -205,6 +483,8 @@ function evaluate(dir, expected, inventory, report, deterministic) {
 
   // --- regions ------------------------------------------------------------
   let accounted = 0
+  let anchorDrift = 0
+  const observedKeys = []
   let trapViolations = 0
   const expectations = expected.expectations ?? []
   for (const e of expectations) {
@@ -235,18 +515,45 @@ function evaluate(dir, expected, inventory, report, deterministic) {
         detail: `${e.file} — declared must-not-claim, came back translate`,
       })
     }
+    // The anchor a site is addressed by. An exception is PINNED to a siteKey,
+    // so a site whose anchor moved silently stops being excused — and the only
+    // report anybody got was "the site this excuses no longer exists", which
+    // reads like "delete this line" when the truth is "it moved".
+    //
+    // `observed.siteKey` is written only by `--accept`, never by hand: copying
+    // the tool's own answer into ground truth is the rubber stamp `locate()`
+    // exists to prevent.
+    const anchor = only(covering.map((s) => s.siteKey))
+    if (anchor !== null) {
+      observedKeys.push({ id: e.id, siteKey: anchor })
+      if (e.observed?.siteKey && e.observed.siteKey !== anchor) {
+        anchorDrift++
+        findings.push({
+          kind: 'anchor-drift',
+          id: e.id,
+          detail: `${e.observed.siteKey} → ${anchor}`,
+          observed: { path: ['observed', 'siteKey'], value: anchor },
+        })
+      }
+    }
     if (e.expect?.verdict && !verdicts.includes(e.expect.verdict)) {
       findings.push({
         kind: 'verdict',
         id: e.id,
         detail: `${e.file} — expected ${e.expect.verdict}, got ${[...new Set(verdicts)].join('/')}`,
+        // What `--accept` would write. Null when the covering sites DISAGREE:
+        // there is no single observed value, and accepting an ambiguous region
+        // is how ground truth gets quietly widened.
+        observed: only(verdicts) === null ? null : { path: ['expect', 'verdict'], value: only(verdicts) },
       })
     }
     if (e.expect?.reason && !covering.some((s) => s.reason === e.expect.reason)) {
+      const reasons = covering.map((s) => s.reason ?? 'none')
       findings.push({
         kind: 'verdict',
         id: e.id,
-        detail: `${e.file} — expected reason ${e.expect.reason}, got ${[...new Set(covering.map((s) => s.reason ?? 'none'))].join('/')}`,
+        detail: `${e.file} — expected reason ${e.expect.reason}, got ${[...new Set(reasons)].join('/')}`,
+        observed: only(reasons) === null ? null : { path: ['expect', 'reason'], value: only(reasons) },
       })
     }
     if (e.expect?.hard !== undefined && !covering.some((s) => s.hard === e.expect.hard)) {
@@ -258,6 +565,9 @@ function evaluate(dir, expected, inventory, report, deterministic) {
     }
     if (e.expect?.rule && !covering.some((s) => s.rule === e.expect.rule)) {
       findings.push({
+        observed: only(covering.map((s) => s.rule ?? null)) === null
+          ? null
+          : { path: ['expect', 'rule'], value: only(covering.map((s) => s.rule ?? null)) },
         kind: 'rule',
         id: e.id,
         detail: `${e.file} — expected rule ${e.expect.rule}, got ${[...new Set(covering.map((s) => s.rule))].join('/')}`,
@@ -362,6 +672,7 @@ function evaluate(dir, expected, inventory, report, deterministic) {
           kind: 'census',
           id: want.file,
           detail: `${key}: expected ${JSON.stringify(want[key])}, got ${JSON.stringify(actual)}`,
+          observed: { path: [key], value: actual === undefined ? null : actual },
         })
       }
     }
@@ -399,6 +710,7 @@ function evaluate(dir, expected, inventory, report, deterministic) {
     trapViolations,
     censusMismatches,
     gateMismatches,
+    anchorDrift,
     determinismFailures: deterministic ? 0 : 1,
     gates: gateOutcomes,
     // Which catalog rules actually DECIDED something here. `checkCatalog`
@@ -557,6 +869,7 @@ function summarise(results, thresholds, opts = {}) {
     trapViolations: sum(results, 'trapViolations'),
     censusMismatches: sum(results, 'censusMismatches'),
     gateMismatches: sum(results, 'gateMismatches'),
+    anchorDrift: sum(results, 'anchorDrift'),
     determinismFailures: sum(results, 'determinismFailures'),
     malformed: results.filter((r) => r.malformed).length,
     crashed: results.filter((r) => r.crashed).length,
@@ -579,7 +892,7 @@ function summarise(results, thresholds, opts = {}) {
   }
   for (const key of [
     'expectationMismatches', 'trapViolations', 'censusMismatches',
-    'gateMismatches', 'determinismFailures',
+    'gateMismatches', 'anchorDrift', 'determinismFailures',
   ]) {
     if (hard[key] !== undefined && totals[key] > hard[key]) {
       breaches.push(`${key} ${totals[key]} > ${hard[key]}`)
@@ -646,6 +959,7 @@ function formatReport(report) {
   lines.push(row('trap violations', String(t.trapViolations), '', t.trapViolations === 0))
   lines.push(row('census mismatches', String(t.censusMismatches), '', t.censusMismatches === 0))
   lines.push(row('gate mismatches', String(t.gateMismatches), '', t.gateMismatches === 0))
+  lines.push(row('anchor drift', String(t.anchorDrift), '', t.anchorDrift === 0))
   lines.push(row('determinism', `${t.cases - t.determinismFailures}/${t.cases}`, '', t.determinismFailures === 0))
   lines.push('```')
   lines.push('')
