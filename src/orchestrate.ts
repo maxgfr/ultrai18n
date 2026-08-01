@@ -185,6 +185,11 @@ export function orchestrate(opts: OrchestrateOptions): Emitted {
   }
 }
 
+/** The contract text for one phase, so a command can write it without re-stating it. */
+export function contractFor(phase: PhaseName): string {
+  return CONTRACTS[phase].body
+}
+
 const CONTRACTS: Record<PhaseName, { role: string; body: string }> = {
   dialect: { role: 'dialectician', body: DIALECTICIAN_CONTRACT },
   translate: { role: 'translator', body: TRANSLATOR_CONTRACT },
@@ -199,13 +204,38 @@ not per string. Both readings are usually correct — the label should be
 translated and the identifier must not be — and the point is to say which site
 is which.
 
-Return \`{groupId, sites: [{siteId, verdict, reason}]}\` where verdict is
-\`translate\` or \`exclude\` and reason is one line grounded in the code you read.
+Return, for each hazard:
 
-If the two roles cannot be separated without renaming something, say so: that
-is a real finding about the code, not a failure to decide.
+\`\`\`json
+{ "groupId": "g_…",
+  "sites": [
+    { "siteId": "ul_…",
+      "verdict": "translate" | "exclude",
+      "reason": "<one token from the closed vocabulary below, for exclude>",
+      "justification": "<one line grounded in the code you read>" }
+  ] }
+\`\`\`
 
-**Return your ruling. Do not edit any file.**
+\`reason\` and \`justification\` are two different fields on purpose. The reason is
+a token \`check\` can gate on; the justification is where your prose goes. Prose
+in \`reason\` is refused, and a ruling with no justification is refused — an
+exception without one is a place to hide.
+
+Rule on EVERY site in the group. A half-answered hazard is refused whole,
+because the point of this phase is that the label and the identifier get
+different answers; an unruled site is not a default.
+
+Reasons for \`exclude\`: identifier · module-specifier · enum-member ·
+persisted-value · api-contract · interop-format · url-or-slug · style-token ·
+aria-vocabulary · test-fixture · vendored-legal · code-token ·
+numeric-or-symbolic · proper-noun · escaping-fixture
+
+If the two roles cannot be separated without renaming something, say so as data
+— \`{ "groupId": "g_…", "unseparable": true, "justification": "…" }\`. That is a
+real finding about the code, not a failure to decide.
+
+**Return your ruling. Do not edit any file.** The engine stamps the
+\`contentHash\`, so your ruling voids itself if the text is later rewritten.
 `,
   },
   review: {

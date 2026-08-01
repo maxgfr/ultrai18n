@@ -12,13 +12,21 @@ import { formatApply } from './apply'
 import { cmdPlan, cmdTranslate, cmdTranslateApi, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
 import { check, formatCheck, readExceptions } from './check'
 import { buildVerify, applyVerdicts, checkSemantic, formatVerifyTodo, type VerifyTodo, type VerifyResult } from './verify'
-import { orchestrate, phaseStatuses, type PhaseName } from './orchestrate'
+import { contractFor, orchestrate, phaseStatuses, type PhaseName } from './orchestrate'
 import { sync, formatSync } from './sync'
 import { init, loadBaseline, type Baseline } from './init'
 import { writeJson } from './commands'
 import type { Plan } from './plan'
 import type { Inventory } from './types'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
+import { readGlossary, writeGlossary } from './commands'
+import { selectSites, formatSites, driftAgainst, formatDrift, UnknownTokenError } from './sites'
+import { profile, selfTest, formatGuess, formatProfile, formatSelfTest } from './langcmd'
+import { detect } from './lang/detect'
+import {
+  buildHazardTodo, formatAdjudicate, mergeExceptions, parseRulings,
+} from './adjudicate'
+import { EXCEPTION_REASONS, type Exceptions } from './check'
 import { formatProviders, resolveProvider, type ProviderOverrides } from './provider'
 import { buildTodo, explainFile, formatDialects, formatProblems, formatTodo, runCheck, viewDialects, writeTodo } from './dialects'
 
@@ -111,7 +119,7 @@ const VALUE_FLAGS = new Set([
   'repo', 'out', 'from', 'to', 'verdict', 'surface', 'file', 'explain', 'ecosystem',
   'rule', 'value', 'batch', 'mode', 'backend', 'translator', 'apply', 'max-verify',
   'catalog', 'source-locale', 'phase', 'sample-rate', 'translator-timeout', 'config',
-  'provider', 'model', 'endpoint', 'key-env', 'max-tokens',
+  'provider', 'model', 'endpoint', 'key-env', 'max-tokens', 'limit', 'drift', 'kind',
 ])
 
 const BOOL_FLAGS = new Set([
@@ -178,13 +186,6 @@ export function parseArgs(argv: string[]): Parsed {
   return { command, positional, flags }
 }
 
-/** Commands the design specifies but this build does not yet implement. */
-const PENDING: Record<string, string> = {
-  sites: 'requires `scan`',
-  lang: 'wired into `scan`; a standalone command is not built yet',
-  adjudicate: 'requires `scan`',
-  glossary: 'requires `plan`',
-}
 
 async function main(): Promise<void> {
   const p = parseArgs(process.argv.slice(2))
@@ -560,6 +561,178 @@ async function main(): Promise<void> {
       return
     }
 
+    case 'sites': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+
+      if (p.flags.drift !== undefined) {
+        const previous = readJson<Inventory>(String(p.flags.drift), 'the previous inventory')
+        const drift = driftAgainst(previous, inventory)
+        if (json) process.stdout.write(JSON.stringify(drift, null, 2) + '\n')
+        else say(formatDrift(drift))
+        return
+      }
+
+      try {
+        const view = selectSites(inventory, {
+          ...(p.flags.verdict !== undefined ? { verdict: String(p.flags.verdict) } : {}),
+          ...(p.flags.surface !== undefined ? { surface: String(p.flags.surface) } : {}),
+          ...(p.flags.file !== undefined ? { file: String(p.flags.file) } : {}),
+          ...(p.flags.rule !== undefined ? { rule: String(p.flags.rule) } : {}),
+          ...(p.flags.ecosystem !== undefined ? { ecosystem: String(p.flags.ecosystem) } : {}),
+          ...(p.flags.value !== undefined ? { value: String(p.flags.value) } : {}),
+          dup: p.flags.dup === true,
+          ...(p.flags.limit !== undefined ? { limit: Number(p.flags.limit) } : {}),
+        })
+        if (json) process.stdout.write(JSON.stringify(view, null, 2) + '\n')
+        else say(formatSites(view))
+      } catch (err) {
+        // A token outside a closed vocabulary is a USAGE error. Zero matches is
+        // a result; a verdict that does not exist is a typo, and the two must
+        // not look alike.
+        if (err instanceof UnknownTokenError) usage(err.detail)
+        throw err as Error
+      }
+      return
+    }
+
+    case 'lang': {
+      if (p.flags.test === true) {
+        if (p.flags.value !== undefined) usage('--test runs the bundled samples; it takes no --value')
+        const results = selfTest()
+        if (json) process.stdout.write(JSON.stringify(results, null, 2) + '\n')
+        else say(formatSelfTest(results))
+        // The only mode here that makes a claim which can be WRONG, so the only
+        // one that gates.
+        if (results.some((r) => !r.ok)) process.exitCode = 1
+        return
+      }
+      if (p.flags.value !== undefined) {
+        const text = String(p.flags.value)
+        const guess = detect(text)
+        if (json) process.stdout.write(JSON.stringify(guess, null, 2) + '\n')
+        else say(formatGuess(text, guess))
+        return
+      }
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const prof = profile(inventory)
+      if (json) process.stdout.write(JSON.stringify(prof, null, 2) + '\n')
+      else say(formatProfile(prof))
+      return
+    }
+
+    case 'adjudicate': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const dirs = runDir(out)
+      const inventory = readJson<Inventory>(dirs.inventory, 'inventory.json')
+      const planned = readJson<Plan>(dirs.plan, 'PLAN.json')
+
+      if (p.flags.apply !== undefined) {
+        const raw = readJson<unknown>(String(p.flags.apply), 'the rulings file')
+        const result = parseRulings(raw, {
+          inventory,
+          plan: planned,
+          validReasons: EXCEPTION_REASONS,
+          ...(p.flags.verdict !== undefined ? { decidedBy: String(p.flags.verdict) } : {}),
+        })
+
+        let wrote = { exceptions: 0, unchanged: 0 }
+        if (result.ok) {
+          // All-or-nothing. A partially applied ruling is the worst of both:
+          // some sites decided, some not, and no record of which.
+          const existing = existsSync(dirs.exceptions)
+            ? readJson<Exceptions>(dirs.exceptions, 'exceptions.json')
+            : { entries: [] }
+          const merged = mergeExceptions(existing, result.accepted)
+          writeJson(dirs.exceptions, merged.merged)
+          writeJson(join(out, 'adjudications.json'), {
+            schemaVersion: 1,
+            entries: result.accepted,
+          })
+          wrote = { exceptions: merged.wrote, unchanged: merged.unchanged }
+        }
+        writeJson(join(out, 'ADJUDICATE.json'), { ...result, wrote })
+
+        if (json) process.stdout.write(JSON.stringify({ ...result, wrote }, null, 2) + '\n')
+        else say(formatAdjudicate(result, wrote))
+        // Real work left, so the pipeline must not sail past it.
+        if (!result.ok || result.blocked.length) process.exitCode = 1
+        return
+      }
+
+      const todo = buildHazardTodo(inventory, planned)
+      const todoPath = join(out, 'ADJUDICATE.todo.json')
+      writeJson(todoPath, todo)
+      mkdirSync(join(out, 'agents'), { recursive: true })
+      writeFileSync(join(out, 'agents', 'adjudicator.md'), contractFor('adjudicate'))
+      if (json) process.stdout.write(JSON.stringify(todo, null, 2) + '\n')
+      else {
+        note(`  wrote ${todoPath} and agents/adjudicator.md\n`)
+        say(
+          `ultrai18n adjudicate\n\n  ${todo.hazards.length} hazard(s) for a person or an agent to rule on\n\n` +
+            `VERDICT  ${todo.hazards.length ? `${todo.hazards.length} hazard(s) awaiting a ruling` : 'ok — no open hazard'}`,
+        )
+      }
+      // Reporting work to be done is not failing at it — the same reasoning as
+      // `dialects --propose`.
+      return
+    }
+
+    case 'glossary': {
+      const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
+      const dirs = runDir(out)
+      if (p.flags.seed === true && p.flags.list === true) {
+        usage('--seed rewrites the generated region; --list reads it. Pick one.')
+      }
+      if (p.flags.seed === true) {
+        const planned = readJson<Plan>(dirs.plan, 'PLAN.json')
+        const existing = existsSync(dirs.glossary) ? readFileSync(dirs.glossary, 'utf8') : null
+        const next = writeGlossary(
+          dirs.glossary,
+          existing,
+          planned.groups.filter((g) => g.status === 'pending'),
+        )
+        writeFileSync(dirs.glossary, next)
+        say(
+          `ultrai18n glossary\n\n  rewrote the proposals region of ${dirs.glossary}\n` +
+            `  the human region was not touched\n\nVERDICT  ok — proposals refreshed`,
+        )
+        return
+      }
+      const entries = [...readGlossary(dirs.glossary)].map(([source, e]) => ({
+        source,
+        target: e.text,
+        pin: e.pin,
+      }))
+      if (json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              path: dirs.glossary,
+              entries,
+              counts: {
+                total: entries.length,
+                pinned: entries.filter((e) => e.pin).length,
+                unfilled: entries.filter((e) => !e.target).length,
+              },
+            },
+            null,
+            2,
+          ) + '\n',
+        )
+      } else {
+        const lines = [`ultrai18n glossary  ${dirs.glossary}`, '']
+        for (const e of entries) {
+          lines.push(`  ${e.source}  →  ${e.target || '(unfilled)'}${e.pin ? '   [pinned]' : ''}`)
+        }
+        if (!entries.length) lines.push('  no terms yet — run `plan`, then fill a target and pin it')
+        lines.push('', `VERDICT  ok — ${entries.length} term(s), ${entries.filter((e) => e.pin).length} pinned`)
+        say(lines.join('\n'))
+      }
+      return
+    }
+
     case 'check': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
@@ -604,13 +777,8 @@ async function main(): Promise<void> {
       return
     }
 
-    default: {
-      const why = PENDING[p.command]
-      // Say what is missing rather than printing an empty result. A command that
-      // silently succeeds with no findings is indistinguishable from a clean
-      // repo, which is the exact confusion this tool exists to remove.
-      fail(`\`${p.command}\` is not implemented in this build — ${why}`)
-    }
+    default:
+      usage(`unknown command: ${p.command}`)
   }
 }
 

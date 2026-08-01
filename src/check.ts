@@ -32,7 +32,7 @@ export interface Exceptions {
   entries: Exception[]
 }
 
-const EXCEPTION_REASONS = new Set([
+export const EXCEPTION_REASONS = new Set([
   'identifier', 'module-specifier', 'enum-member', 'persisted-value', 'api-contract',
   'interop-format', 'url-or-slug', 'style-token', 'aria-vocabulary', 'test-fixture',
   'vendored-legal', 'code-token', 'numeric-or-symbolic', 'already-target-language',

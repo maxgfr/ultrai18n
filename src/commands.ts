@@ -18,6 +18,7 @@ import {
 } from './translate'
 import { apply, type ApplyReport, type Insertion, type Translation } from './apply'
 import { guardWorkingTree } from './git'
+import { readAdjudications } from './adjudicate'
 import { resolveProvider, type ProviderOverrides, type ResolvedProvider } from './provider'
 
 export interface RunDir {
@@ -145,7 +146,13 @@ export function cmdPlan(out: string, mode: Plan['mode']): { plan: Plan; batches:
   const inventory = readJson<Inventory>(dirs.inventory, 'inventory.json')
   const glossary = readGlossary(dirs.glossary)
 
-  const p = buildPlan(inventory, { mode, glossary: new Map([...glossary].map(([k, v]) => [k, v.text])) })
+  const p = buildPlan(inventory, {
+    mode,
+    glossary: new Map([...glossary].map(([k, v]) => [k, v.text])),
+    // Rulings an adjudicator folded in. Absent on a first run, which is why a
+    // hazard is a hazard until somebody answers it.
+    adjudications: readAdjudications(join(out, 'adjudications.json')),
+  })
   writeJson(dirs.plan, p)
 
   const batches = buildBatches(p.groups, {

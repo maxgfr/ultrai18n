@@ -13,6 +13,7 @@
 import type { Inventory, Site, Surface } from './types'
 import { sha256, normalizeForGrouping } from './identity'
 import type { Category, PluralFamily, WriteMode } from './plural'
+import type { Adjudication } from './adjudicate'
 
 /** Register vocabulary handed to a translator. One token replaces a paragraph of instructions. */
 export type Role =
@@ -80,6 +81,8 @@ export interface Group {
   memo?: { text: string; origin: 'glossary' | 'tm' }
   /** Set when this group is a plural family rather than a single string. */
   plural?: PluralPlan
+  /** `agent` when a human ruling unblocked what the engine refused to plan. */
+  decidedBy?: 'engine' | 'agent'
 }
 
 export interface Plan {
@@ -92,6 +95,13 @@ export interface Plan {
   structural: Group[]
   /** Test literals in an assertion position that match no group — these block a run. */
   unlinked: { file: string; line: number; value: string }[]
+  /**
+   * Rulings whose text has since changed, reported rather than re-anchored.
+   *
+   * A silent re-anchor is how a stale ruling launders a site nobody looked at,
+   * so the group goes back to being a hazard and this says why.
+   */
+  staleAdjudications: { siteKey: string; why: string }[]
   counts: {
     sites: number
     groups: number
@@ -112,6 +122,56 @@ export interface PlanOptions {
   glossary?: Map<string, string>
   /** Machine translation memory from previous runs. */
   tm?: Map<string, string>
+  /**
+   * Rulings that resolve a hazard, keyed by siteKey.
+   *
+   * A hazard is BLOCKED, not merely unready, so unblocking one demands all
+   * three of: a ruling for every site in the group, every `contentHash` still
+   * matching, and the excluded sites dropped. Anything less and the group stays
+   * a hazard — the failure mode this rule exists to prevent is a hazard that
+   * silently becomes plannable.
+   */
+  adjudications?: Map<string, Adjudication>
+}
+
+/**
+ * Has this hazard been fully and currently ruled on?
+ *
+ * All three conditions, and each one closes a different hole: one ruling per
+ * site (a half-decided group is not decided), every hash still matching (a
+ * ruling is about bytes, not about a location), and the excluded sites actually
+ * removed (otherwise the group would be planned WITH the identifier in it).
+ */
+function rulingFor(
+  group: Group,
+  adjudications: Map<string, Adjudication>,
+  byId: Map<string, Site>,
+  stale: { siteKey: string; why: string }[],
+): 'resolved' | 'all-excluded' | 'open' {
+  const members = [...group.sites, ...group.mirrors]
+  if (members.length === 0) return 'open'
+
+  const rulings: Adjudication[] = []
+  for (const id of members) {
+    const site = byId.get(id)
+    if (!site) return 'open'
+    const ruling = adjudications.get(site.siteKey)
+    if (!ruling) return 'open'
+    if (ruling.contentHash !== site.contentHash) {
+      stale.push({
+        siteKey: site.siteKey,
+        why: 'the text changed since this was ruled on, so the ruling is void and the hazard is open again',
+      })
+      return 'open'
+    }
+    rulings.push(ruling)
+  }
+
+  const excluded = new Set(rulings.filter((r) => r.verdict === 'exclude').map((r) => r.siteId))
+  if (excluded.size === members.length) return 'all-excluded'
+  group.sites = group.sites.filter((id) => !excluded.has(id))
+  group.mirrors = group.mirrors.filter((id) => !excluded.has(id))
+  return 'resolved'
 }
 
 const TEST_FILE = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//
@@ -119,6 +179,8 @@ const TEST_FILE = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//
 export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
   const mode = opts.mode ?? 'swap'
   const glossary = opts.glossary ?? new Map()
+  const adjudications = opts.adjudications ?? new Map<string, Adjudication>()
+  const staleAdjudications: { siteKey: string; why: string }[] = []
   const tm = opts.tm ?? new Map()
 
   // A site that is one form of a plural family is never grouped on its own.
@@ -147,6 +209,7 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
   const conflicting = excluded.filter((s) => s.reason !== null && CONFLICTING.has(s.reason))
   const excludedText = new Set(conflicting.map((s) => normalizeForGrouping(s.value)))
 
+  const byId = new Map(inv.sites.map((s) => [s.id, s]))
   const byKey = new Map<string, Site[]>()
   for (const site of translatable) {
     const key = groupKey(site)
@@ -178,12 +241,22 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
       group.blocked =
         'a plural or agreement rule is baked into the interpolation; the target language may need a different number of agreement sites, so this needs a code edit rather than a translated string'
     } else if (excludedText.has(normalized)) {
-      group.status = 'hazard'
-      group.blocked = `the same text is an identifier elsewhere (${conflicting
-        .filter((s) => normalizeForGrouping(s.value) === normalized)
-        .slice(0, 3)
-        .map((s) => `${s.file}:${s.line}`)
-        .join(', ')}); translating both would break the identifier, translating neither leaves the label untranslated`
+      const ruling = rulingFor(group, adjudications, byId, staleAdjudications)
+      if (ruling !== 'open') {
+        // `skip` when every site was excluded: a human ruled that this text is
+        // an identifier everywhere it appears, which is a DECISION. Leaving it
+        // a hazard would make `plan` exit 1 forever after the question was
+        // answered, which is how a gate stops being believed.
+        group.status = ruling === 'resolved' ? 'pending' : 'skip'
+        group.decidedBy = 'agent'
+      } else {
+        group.status = 'hazard'
+        group.blocked = `the same text is an identifier elsewhere (${conflicting
+          .filter((s) => normalizeForGrouping(s.value) === normalized)
+          .slice(0, 3)
+          .map((s) => `${s.file}:${s.line}`)
+          .join(', ')}); translating both would break the identifier, translating neither leaves the label untranslated`
+      }
     } else {
       const hit = glossary.get(first.value) ?? tm.get(memoKey(first.value, group.roleClass))
       if (hit !== undefined) {
@@ -219,6 +292,7 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
     hazards: groups.filter((g) => g.status === 'hazard'),
     structural: groups.filter((g) => g.status === 'structural'),
     unlinked,
+    staleAdjudications,
     counts: {
       sites: inv.sites.length,
       groups: groups.length,
