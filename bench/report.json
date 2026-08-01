@@ -63,7 +63,7 @@
       "expectations": 7,
       "accounted": 7,
       "sites": 15,
-      "tracked": 15,
+      "tracked": 16,
       "gates": {
         "G1": "pass",
         "G2": "pass",
@@ -73,10 +73,7 @@
         "G6": "pass",
         "G7": "pass"
       },
-      "knownGaps": [
-        "assets/utf16.md reports claimRatio 0.506 because bytesClaimed counts decoded UTF-8 while bytesTotal counts the UTF-16 file. It reads as 'the extractor skipped half this file' when it skipped nothing. Not asserted here, because writing 0.506 into ground truth would turn a measurement artefact into a decision.",
-        "A BROKEN symlink is dropped by the walker before it reaches any skip list, so a tracked one would surface as G1 `unaccounted` with no reason. Not exercised here — the case would fail, and it deserves a fix rather than a pinned expectation."
-      ],
+      "knownGaps": [],
       "findings": []
     },
     {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -30,6 +30,7 @@ beforeAll(() => {
   writeFileSync(join(root, 'keep.tmp'), 'kept')
   writeFileSync(join(root, 'empty.ts'), '')
   writeFileSync(join(root, 'binary.dat'), Buffer.from([1, 2, 0, 3]))
+  symlinkSync('./nowhere.md', join(root, 'dangling-link'))
 })
 
 afterAll(() => rmSync(root, { recursive: true, force: true }))
@@ -40,6 +41,18 @@ describe('walk', () => {
   it('finds SVG, because SVG is text that carries copy (delta #1)', () => {
     expect(BINARY_EXT.has('.svg')).toBe(false)
     expect(relsOf(walk(root))).toContain('src/icon.svg')
+  })
+
+  it('names a broken symlink rather than dropping it', () => {
+    // `statSync` follows a link, so a dangling one throws — and the catch used
+    // to `continue`, which put the path in no bucket at all. Git tracks a
+    // broken symlink, so the census then reported `unaccounted` and G1 failed
+    // with nothing a reader could act on. The point of the fix is the REASON,
+    // not the skip: `unaccounted` blames this walker, `broken-symlink` names
+    // something in the repository somebody can go and fix.
+    const { skipped, files } = walk(root)
+    expect(skipped.find((s) => s.rel === 'dangling-link')?.reason).toBe('broken-symlink')
+    expect(files.map((f) => f.rel)).not.toContain('dangling-link')
   })
 
   it('reports skipped paths by name and reason, not as a count (delta #2)', () => {

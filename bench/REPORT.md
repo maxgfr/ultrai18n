@@ -23,13 +23,9 @@
 ### census-edges — Every path git tracks lands in one bucket with a reason
 
 ```
-  7/7 accounted   15 site(s)   15 tracked path(s)
+  7/7 accounted   15 site(s)   16 tracked path(s)
   G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
-
-  Known gaps, gated by nothing:
-  - assets/utf16.md reports claimRatio 0.506 because bytesClaimed counts decoded UTF-8 while bytesTotal counts the UTF-16 file. It reads as 'the extractor skipped half this file' when it skipped nothing. Not asserted here, because writing 0.506 into ground truth would turn a measurement artefact into a decision.
-  - A BROKEN symlink is dropped by the walker before it reaches any skip list, so a tracked one would surface as G1 `unaccounted` with no reason. Not exercised here — the case would fail, and it deserves a fix rather than a pinned expectation.
 
 ### plural-android-xml — Android <plurals>, and a Russian catalog rendering the wrong string today
 

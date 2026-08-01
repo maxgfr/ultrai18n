@@ -300,6 +300,7 @@ function walk(root, opts = {}) {
       try {
         st = isLink ? statSync(abs) : lstatSync(abs);
       } catch {
+        if (isLink) skipped.push({ rel: rel2, reason: "broken-symlink" });
         continue;
       }
       if (st.isDirectory()) {
@@ -353,6 +354,7 @@ function walk(root, opts = {}) {
             continue;
           }
         } catch {
+          skipped.push({ rel: rel2, reason: "broken-symlink" });
           continue;
         }
       }
@@ -537,6 +539,7 @@ function runCensus(root) {
         bucket: read2.text.trim() === "" ? "scanned-zero" : "scanned",
         bytesTotal: read2.bytes,
         degraded: !read2.byteAddressable,
+        byteAddressable: read2.byteAddressable,
         ...read2.byteAddressable ? {} : { reason: `encoding:${read2.encoding}` }
       });
       continue;
@@ -25798,6 +25801,9 @@ async function extractFile(file, tokens, opts) {
     degraded: false,
     bytesTotal: read2.bytes,
     bytesClaimed: 0,
+    byteAddressable: read2.byteAddressable,
+    encoding: read2.encoding,
+    bodyStart: read2.bodyStart,
     complete: true
   };
   if (!read2.ok) return { ...base, reason: "unreadable", complete: false };
@@ -25943,6 +25949,10 @@ function linkDuplicates(sites) {
     }
   }
 }
+function claimRatioOf(result) {
+  const body2 = result.bytesTotal - result.bodyStart;
+  return body2 > 0 ? round2(result.bytesClaimed / body2) : 1;
+}
 function buildCensus(repo, walked, results) {
   const tracked = gitLsFiles(repo);
   const byFile = new Map(results.map((r) => [r.file.rel, r]));
@@ -25967,10 +25977,27 @@ function buildCensus(repo, walked, results) {
       sites: result.sites.length,
       extractors: result.extractor ? [result.extractor] : [],
       degraded: result.degraded,
+      byteAddressable: result.byteAddressable,
       bytesTotal: result.bytesTotal,
       bytesClaimed: result.bytesClaimed,
-      claimRatio: result.bytesTotal ? round2(result.bytesClaimed / result.bytesTotal) : 1,
-      ...result.reason ? { reason: result.reason } : {}
+      // Reported only when a decoded offset IS a file-byte offset, and
+      // measured against the BODY the extractor was handed.
+      //
+      // Two ways this used to lie, both from dividing decoded bytes by raw
+      // ones. A fully-read UTF-16 file reported 0.506 — "the extractor skipped
+      // half of this" about a file it skipped none of — and a UTF-8 file with
+      // a BOM reported 0.962, because the three preamble bytes are counted by
+      // `bytesTotal` and stripped before the extractor ever sees them. A BOM is
+      // not text an extractor can claim, so it does not belong in the
+      // denominator.
+      //
+      // For the non-addressable case the answer is absence, not a repaired
+      // number. Dividing decoded by decoded there would mint a 1.0, and `sweep`
+      // reads a 1.0 as the extractor ASSERTING it accounted for every byte —
+      // the one claim a file whose offsets do not address its bytes cannot
+      // make. Not measured is not zero, and `runCensus` has always said so.
+      ...result.byteAddressable ? { claimRatio: claimRatioOf(result) } : {},
+      ...result.reason ? { reason: result.reason } : result.byteAddressable ? {} : { reason: `encoding:${result.encoding}` }
     });
   }
   entries.sort((a, b) => a.file < b.file ? -1 : 1);

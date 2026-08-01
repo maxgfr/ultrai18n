@@ -88,6 +88,7 @@ export function runCensus(root: string): CensusResult {
         bucket: read.text.trim() === '' ? 'scanned-zero' : 'scanned',
         bytesTotal: read.bytes,
         degraded: !read.byteAddressable,
+        byteAddressable: read.byteAddressable,
         ...(read.byteAddressable ? {} : { reason: `encoding:${read.encoding}` }),
       })
       continue

@@ -278,9 +278,23 @@ export interface CensusEntry {
   bytesTotal?: number
   bytesClaimed?: number
   /**
+   * Whether an offset into the decoded text is an offset into the file.
+   *
+   * False for UTF-16 and latin1. Such a file is still inventoried, but `apply`
+   * refuses to patch it and `claimRatio` is not reported for it.
+   */
+  byteAddressable?: boolean
+  /**
    * Fraction of the file's bytes an extractor accounted for. This is what makes
    * "zero sites" a provable claim ("looked at all of it, found no text") rather
    * than an unfalsifiable one ("the lexer bailed at byte 12 and said nothing").
+   *
+   * ABSENT when `byteAddressable` is false, and the absence is deliberate. A
+   * ratio there would divide decoded UTF-8 by raw UTF-16 and read as a
+   * shortfall on a file nothing was skipped in — and the obvious repair, using
+   * the decoded length on both sides, is worse: it mints a 1.0, and `sweep`
+   * treats a 1.0 as the extractor asserting it accounted for every byte, which
+   * is the single claim such a file cannot support. Not measured is not zero.
    */
   claimRatio?: number
   reason?: string

@@ -25,13 +25,18 @@
     {
       "file": "hosts-link",
       "symlinkTo": "/etc/hosts",
-      "why": "A symlink whose target is outside the repository. Generated rather than committed so the corpus stays checkout-portable, and pointed at a path that exists on every Linux and macOS — a BROKEN symlink is a different case, and one the walker currently drops silently."
+      "why": "A symlink whose target is outside the repository. Generated rather than committed so the corpus stays checkout-portable, and pointed at a path that exists on every Linux and macOS. The BROKEN case is `dangling-link` beside it, and the two reasons are deliberately distinct: one resolves somewhere this tool must not read, the other resolves nowhere at all."
     },
     {
       "file": ".gitignore",
       "repeat": "secrets/\n",
       "bytes": 9,
       "why": "Declared rather than committed, because a `.gitignore` stored inside the corpus applies to THIS repository too: `secrets/token.txt` would be silently dropped from the commit and the case would fail on a fresh clone. Keeping the whole ignored-but-tracked scenario in one place is also how it stays readable."
+    },
+    {
+      "file": "dangling-link",
+      "symlinkTo": "./assets/gone.md",
+      "why": "A symlink whose target does not exist. `statSync` follows a link, so this one throws, and the walker used to drop the path in the catch before it reached any skip list. Git tracks a broken symlink like any other path — it stores the target as a blob — so the census reported it `unaccounted` and G1 failed with nothing anybody could act on. Generated rather than committed because a repository holding a dangling link is awkward to check out."
     }
   ],
   "forceAdd": [
@@ -67,19 +72,25 @@
       "file": "assets/bom.md",
       "bucket": "scanned",
       "extractor": "markdown",
-      "why": "A UTF-8 BOM is stripped before extraction, so every span in this file sits three bytes below its raw-file offset. The expectations below resolve against the decoded text for exactly that reason."
+      "why": "A UTF-8 BOM is stripped before extraction, so every span in this file sits three bytes below its raw-file offset. The expectations below resolve against the decoded text for exactly that reason. Pinned byte-addressable with a claimRatio of 1, as the like-for-like control against utf16.md: the boolean is what a reader can check against the fixture, which is why it is pinned and a float would not be.",
+      "byteAddressable": true,
+      "claimRatio": 1
     },
     {
       "file": "assets/crlf.md",
       "bucket": "scanned",
       "extractor": "markdown",
-      "why": "Two-byte line endings. Line and column arithmetic has to survive them without drifting."
+      "why": "Two-byte line endings. Line and column arithmetic has to survive them without drifting. Pinned byte-addressable with a claimRatio of 1, as the like-for-like control against utf16.md: the boolean is what a reader can check against the fixture, which is why it is pinned and a float would not be.",
+      "byteAddressable": true,
+      "claimRatio": 1
     },
     {
       "file": "assets/utf16.md",
       "bucket": "scanned",
       "extractor": "markdown",
-      "why": "Readable but not byte-addressable: a decoded-string offset is not a file-byte offset here, which is why `apply` refuses to patch such a file rather than writing at a plausible-looking wrong place. Being READ is the claim; being patchable is not."
+      "why": "Readable but not byte-addressable: a decoded-string offset is not a file-byte offset here, which is why `apply` refuses to patch such a file rather than writing at a plausible-looking wrong place. `claimRatio` is pinned ABSENT — `null` asserts absence — because the ratio used to divide decoded UTF-8 by raw UTF-16 and report 0.506 on a file nothing was skipped in. Dividing decoded by decoded would be worse: it mints a 1.0, and `sweep` reads a 1.0 as the extractor asserting it accounted for every byte, which is the one claim this file cannot make. Not measured is not zero.",
+      "byteAddressable": false,
+      "claimRatio": null
     },
     {
       "file": "assets/binary.dat",
@@ -130,6 +141,13 @@
       "bucket": "skipped",
       "reason": "symlink-outside-root",
       "why": "Following it would pull bytes from outside the repository into a report that claims to describe the repository."
+    },
+    {
+      "file": "dangling-link",
+      "bucket": "skipped",
+      "reason": "broken-symlink",
+      "mustVerifyManually": false,
+      "why": "Named, not dropped. The reason is the entire value of this case: `unaccounted` tells a reader that this walker has a bug, and `broken-symlink` tells them their repository has a dangling link. G1 stays green because the path landed in exactly one bucket with a reason, which is the whole census claim."
     }
   ],
   "expectations": [
@@ -205,8 +223,5 @@
       "why": "The filename is in the source language while the file itself is an unreadable binary. A tool treating every path as an untouchable slug reports this repository as clean; one that renames it breaks every referrer it failed to find. Refusing, and saying so, is the only correct answer."
     }
   ],
-  "knownGaps": [
-    "assets/utf16.md reports claimRatio 0.506 because bytesClaimed counts decoded UTF-8 while bytesTotal counts the UTF-16 file. It reads as 'the extractor skipped half this file' when it skipped nothing. Not asserted here, because writing 0.506 into ground truth would turn a measurement artefact into a decision.",
-    "A BROKEN symlink is dropped by the walker before it reaches any skip list, so a tracked one would surface as G1 `unaccounted` with no reason. Not exercised here — the case would fail, and it deserves a fix rather than a pinned expectation."
-  ]
+  "knownGaps": []
 }

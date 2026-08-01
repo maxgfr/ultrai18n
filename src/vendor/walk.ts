@@ -54,6 +54,18 @@ export type SkipReason =
   | 'gitignored'
   | 'minified'
   | 'symlink-outside-root'
+  /**
+   * A symlink whose target does not exist.
+   *
+   * ULTRAI18N delta: `statSync` FOLLOWS a link, so a dangling one throws and
+   * the path used to be dropped by the catch before it reached any skip list.
+   * If git tracks it — and git does track a broken symlink, storing the target
+   * as a blob — the census then reported `unaccounted` and G1 failed with
+   * nothing anybody could act on. A named reason is the difference between a
+   * gate that reports a bug in the repository and one that reports a bug in
+   * this walker.
+   */
+  | 'broken-symlink'
   | 'ignore-dir'
 
 export interface Skipped {
@@ -169,6 +181,15 @@ export function walk(root: string, opts: WalkOptions = {}): WalkResult {
       try {
         st = isLink ? statSync(abs) : lstatSync(abs)
       } catch {
+        // A dangling symlink: `statSync` follows, finds nothing, and throws.
+        // It is named rather than dropped, because git tracks a broken symlink
+        // like any other path and an unnamed one fails G1 as `unaccounted`
+        // with no reason a reader can act on.
+        //
+        // The non-link branch stays a bare `continue`: that is a file deleted
+        // between `readdir` and `lstat`, which genuinely is unaccountable, and
+        // `unaccounted` is the honest report for it.
+        if (isLink) skipped.push({ rel, reason: 'broken-symlink' })
         continue
       }
       if (st.isDirectory()) {
@@ -229,6 +250,10 @@ export function walk(root: string, opts: WalkOptions = {}): WalkResult {
             continue
           }
         } catch {
+          // The link resolved far enough for `statSync` to succeed but breaks
+          // somewhere along the chain. Same class as the dangling case above,
+          // and it gets the same name rather than a second silent drop.
+          skipped.push({ rel, reason: 'broken-symlink' })
           continue
         }
       }

@@ -175,7 +175,14 @@ function join_(hits, inventory) {
     // confirmed misses turned every `.po` file in a gettext repository into an
     // accusation, when "gettext has no reader" is a limit this project states
     // out loud and G2 already refuses to pass on.
-    const asserted = census.claimRatio === 1 && measuredRatio(census)
+    //
+    // It also does not hold for a file whose decoded offsets are not file-byte
+    // offsets. `claimRatio` is now ABSENT for one rather than misreported, and
+    // the `!== false` test states the requirement rather than leaning on
+    // `undefined !== 1`: an accounted-for-every-byte claim is exactly what a
+    // file the engine cannot address by byte is unable to make.
+    const asserted =
+      census.byteAddressable !== false && census.claimRatio === 1 && measuredRatio(census)
     if (asserted && hit.confidence === 'strong') {
       buckets['confirmed-miss'].push(entry(hit, census))
     } else {

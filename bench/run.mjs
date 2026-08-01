@@ -339,10 +339,23 @@ function evaluate(dir, expected, inventory, report, deterministic) {
       findings.push({ kind: 'census-missing', id: want.file, detail: 'not in the census at all' })
       continue
     }
-    for (const key of ['bucket', 'reason', 'extractor', 'degraded', 'mustVerifyManually']) {
+    const CENSUS_KEYS = [
+      'bucket', 'reason', 'extractor', 'degraded', 'mustVerifyManually',
+      'byteAddressable', 'claimRatio',
+    ]
+    for (const key of CENSUS_KEYS) {
       if (want[key] === undefined) continue
       const actual = key === 'extractor' ? (got.extractors ?? []).join(',') : got[key]
-      const matches = key === 'reason' ? String(actual ?? '').startsWith(want[key]) : actual === want[key]
+      // `null` asserts ABSENCE. Needed because the interesting claim about a
+      // UTF-16 file is that the engine reports no `claimRatio` for it at all —
+      // "not measured" rather than a number — and `undefined` already means
+      // "this case does not care".
+      const matches =
+        want[key] === null
+          ? actual === undefined
+          : key === 'reason'
+            ? String(actual ?? '').startsWith(want[key])
+            : actual === want[key]
       if (!matches) {
         censusMismatches++
         findings.push({
