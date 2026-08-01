@@ -21494,7 +21494,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
     masked = blank(masked, LINK, (m) => keepGroup(m, 1));
     masked = blank(masked, AUTOLINK);
     let runIndex = 0;
-    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/g)) {
+    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/gm)) {
       const at = match.index ?? 0;
       const slice = match[0];
       const trimmed = slice.trimEnd();
@@ -21622,12 +21622,15 @@ function makeSite(file, path, kind, startChar, endChar, value, map, baseOffset) 
 }
 
 // src/extract/css.ts
-function extractCss(file, text, map) {
+function extractCss(file, text, map, range) {
   const sites = [];
   const identifiers = /* @__PURE__ */ new Set();
   let index2 = 0;
-  for (const match of text.matchAll(/\/\*[\s\S]*?\*\//g)) {
-    const at = match.index ?? 0;
+  const from = range?.from ?? 0;
+  const to = range?.to ?? text.length;
+  const body2 = range ? text.slice(from, to) : text;
+  for (const match of body2.matchAll(/\/\*[\s\S]*?\*\//g)) {
+    const at = from + (match.index ?? 0);
     const raw = match[0];
     const value = raw.slice(2, -2).split("\n").map((l) => l.replace(/^\s*\*+ ?/, "").trim()).join("\n").trim();
     if (!new RegExp("\\p{L}{2,}", "u").test(value)) continue;
@@ -21639,18 +21642,18 @@ function extractCss(file, text, map) {
     s0.linePrefix = gutter;
     sites.push(s0);
   }
-  for (const match of text.matchAll(/content\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)) {
-    const at = match.index ?? 0;
+  for (const match of body2.matchAll(/content\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)) {
+    const at = from + (match.index ?? 0);
     const quoteAt = at + match[0].indexOf(match[1]);
     const raw = match[0].slice(match[0].indexOf(match[1]));
     const value = match[2];
     if (!new RegExp("\\p{L}{2,}", "u").test(value)) continue;
     sites.push(site2(file, `content[${index2++}]`, "string-literal", quoteAt, quoteAt + raw.length, value, match[1], map, text));
   }
-  for (const match of text.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) identifiers.add(match[1]);
-  for (const match of text.matchAll(/--([\w-]+)\s*:/g)) identifiers.add(`--${match[1]}`);
+  for (const match of body2.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) identifiers.add(match[1]);
+  for (const match of body2.matchAll(/--([\w-]+)\s*:/g)) identifiers.add(`--${match[1]}`);
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: map.byteOf(text.length), identifiers };
+  return { sites, claimedBytes: map.byteOf(to) - map.byteOf(from), identifiers };
 }
 function site2(file, path, kind, startChar, endChar, value, quote, map, text) {
   const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
@@ -21694,6 +21697,7 @@ function extractHtml(file, text, map) {
   let i2 = 0;
   const n = text.length;
   const openStack = [];
+  const unclaimed = [];
   let docKind = "markup";
   let messageOrdinal = -1;
   let numerusOrdinal = 0;
@@ -21786,7 +21790,15 @@ function extractHtml(file, text, map) {
     i2 = gt + 1;
     if (!closing2 && (tag === "script" || tag === "style")) {
       const close = text.toLowerCase().indexOf(`</${tag}`, i2);
-      i2 = close === -1 ? n : close;
+      const end = close === -1 ? n : close;
+      if (tag === "style") {
+        const css = extractCss(file, text, map, { from: i2, to: end });
+        for (const site3 of css.sites) sites.push(site3);
+        for (const id of css.identifiers) identifiers.add(id);
+      } else {
+        unclaimed.push({ start: map.byteOf(i2), end: map.byteOf(end) });
+      }
+      i2 = end;
       openStack.pop();
     }
   }
@@ -21893,7 +21905,8 @@ function extractHtml(file, text, map) {
     }
   }
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: map.byteOf(text.length), identifiers };
+  const skipped = unclaimed.reduce((n2, span) => n2 + (span.end - span.start), 0);
+  return { sites, claimedBytes: map.byteOf(text.length) - skipped, identifiers, unclaimed };
 }
 function allAttributes(tagBody) {
   const out2 = {};
@@ -27150,6 +27163,22 @@ function pluralAdvisories(families) {
   }
   return out2;
 }
+function markupResult(base, file, read2, map, tokens, extra) {
+  const { sites, claimedBytes, identifiers, unclaimed } = extractHtml(file.rel, read2.text, map);
+  for (const id of identifiers) tokens.identifiers.add(id);
+  const residual = unclaimed.length ? sweepFile(file.rel, read2.text, map, [...complement(merge(unclaimed), base.bytesTotal), ...sites.map((s) => s.span)], {
+    identifiers: tokens.identifiers,
+    extractor: "html",
+    reason: "inside a <script> block, which the markup scanner reads past; found by the residual sweep"
+  }) : [];
+  return {
+    ...base,
+    sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+    extractor: "html",
+    bytesClaimed: claimedBytes,
+    ...extra?.reason ? { reason: extra.reason } : {}
+  };
+}
 async function extractFile(file, tokens, opts) {
   const read2 = readTextEx(file.abs);
   const base = {
@@ -27170,15 +27199,9 @@ async function extractFile(file, tokens, opts) {
   const map = new OffsetMap(read2.text);
   const ext = file.ext;
   if (ext === ".ts" && isQtTranslation(read2.text)) {
-    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read2.text, map);
-    for (const id of identifiers) tokens.identifiers.add(id);
-    return {
-      ...base,
-      sites,
-      extractor: "html",
-      bytesClaimed: claimedBytes,
+    return markupResult(base, file, read2, map, tokens, {
       reason: "Qt translation catalog: routed by content, because .ts is also TypeScript"
-    };
+    });
   }
   if (isDockerfile(file.rel)) {
     const { sites, keys, claimedBytes } = extractDockerfile(file.rel, read2.text, map);
@@ -27261,9 +27284,7 @@ async function extractFile(file, tokens, opts) {
     return { ...base, sites, extractor: "css", bytesClaimed: claimedBytes };
   }
   if (HTML_EXT.has(ext)) {
-    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read2.text, map);
-    for (const id of identifiers) tokens.identifiers.add(id);
-    return { ...base, sites, extractor: "html", bytesClaimed: claimedBytes };
+    return markupResult(base, file, read2, map, tokens);
   }
   if (isPlainText(file.rel, ext)) {
     const { sites, claimedBytes } = extractText(file.rel, read2.text, map);

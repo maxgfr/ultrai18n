@@ -20,14 +20,32 @@ export interface CssExtractResult {
   identifiers: Set<string>
 }
 
-export function extractCss(file: string, text: string, map: OffsetMap): CssExtractResult {
+/**
+ * Read a stylesheet, or one region of a larger file.
+ *
+ * `range` exists for an inline `<style>` inside an HTML document. It scans a
+ * slice while keeping every offset absolute against the ORIGINAL text and map,
+ * which is what lets the markup extractor hand its style blocks here instead of
+ * skipping them — and skipping them, while still claiming their bytes, is how a
+ * `content: "Nouveau message"` used to vanish from a file reporting a
+ * claimRatio of 1.
+ */
+export function extractCss(
+  file: string,
+  text: string,
+  map: OffsetMap,
+  range?: { from: number; to: number },
+): CssExtractResult {
   const sites: RawSite[] = []
   const identifiers = new Set<string>()
   let index = 0
+  const from = range?.from ?? 0
+  const to = range?.to ?? text.length
+  const body = range ? text.slice(from, to) : text
 
   // Comments.
-  for (const match of text.matchAll(/\/\*[\s\S]*?\*\//g)) {
-    const at = match.index ?? 0
+  for (const match of body.matchAll(/\/\*[\s\S]*?\*\//g)) {
+    const at = from + (match.index ?? 0)
     const raw = match[0]
     const value = raw
       .slice(2, -2)
@@ -46,8 +64,8 @@ export function extractCss(file: string, text: string, map: OffsetMap): CssExtra
   }
 
   // `content:` values. Only quoted ones: `content: counter(x)` is a function.
-  for (const match of text.matchAll(/content\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)) {
-    const at = match.index ?? 0
+  for (const match of body.matchAll(/content\s*:\s*(['"])((?:\\.|(?!\1)[^\\])*)\1/g)) {
+    const at = from + (match.index ?? 0)
     const quoteAt = at + match[0].indexOf(match[1]!)
     const raw = match[0].slice(match[0].indexOf(match[1]!))
     const value = match[2]!
@@ -55,13 +73,13 @@ export function extractCss(file: string, text: string, map: OffsetMap): CssExtra
     sites.push(site(file, `content[${index++}]`, 'string-literal', quoteAt, quoteAt + raw.length, value, match[1]!, map, text))
   }
 
-  for (const match of text.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) identifiers.add(match[1]!)
-  for (const match of text.matchAll(/--([\w-]+)\s*:/g)) identifiers.add(`--${match[1]!}`)
+  for (const match of body.matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) identifiers.add(match[1]!)
+  for (const match of body.matchAll(/--([\w-]+)\s*:/g)) identifiers.add(`--${match[1]!}`)
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  // The whole file was scanned; the parts not emitted were read and judged
+  // Everything in range was scanned; the parts not emitted were read and judged
   // non-textual, which is a different claim from "not looked at".
-  return { sites, claimedBytes: map.byteOf(text.length), identifiers }
+  return { sites, claimedBytes: map.byteOf(to) - map.byteOf(from), identifiers }
 }
 
 function site(

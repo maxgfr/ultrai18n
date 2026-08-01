@@ -8,7 +8,7 @@
   },
   "gates": {
     "G1": "pass",
-    "G2": "pass",
+    "G2": "fail",
     "G3": "any",
     "G4": "fail",
     "G5": "pass",
@@ -51,6 +51,13 @@
       "bucket": "scanned",
       "extractor": "css",
       "why": "Comments in a stylesheet — the miss two separate human passes both made on the reference repository."
+    },
+    {
+      "file": "inline.html",
+      "bucket": "scanned",
+      "extractor": "html",
+      "byteAddressable": true,
+      "why": "An inline <style> and an inline <script>, which the markup scanner cannot read as prose. It used to read PAST both and still count their bytes as claimed, so this file would have reported a claimRatio of 1.0 — the extractor asserting it accounted for every byte — while three French strings inside them reached no site and no sweep. A false claim of full coverage is the one failure the whole accountability argument rests on not making."
     }
   ],
   "expectations": [
@@ -239,10 +246,35 @@
         "rule": "npm.package-json.description"
       },
       "why": "Rendered on npmjs.com and by `npm search`, and read by everyone as dependency config."
+    },
+    {
+      "id": "inline.style-comment",
+      "file": "inline.html",
+      "find": "Le style de la bannière, écrit à la main",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A stylesheet HAS a reader, so the markup scanner now hands it the range instead of skipping it. Comments in a hand-written stylesheet are exactly where a whole-repo translation pass leaves residue."
+    },
+    {
+      "id": "inline.style-content",
+      "file": "inline.html",
+      "find": "Nouvelle version disponible",
+      "why": "A `content:` value renders on screen. Found for the same reason, and through the same extractor that reads a standalone .css."
+    },
+    {
+      "id": "inline.script-string",
+      "file": "inline.html",
+      "find": "Aucun projet pour le moment",
+      "expect": {
+        "verdict": "unclassified"
+      },
+      "why": "There is no JavaScript reader here — the AST tier is async and belongs to `scan`, not to a markup scanner. So the bytes are declared UNREAD and the sweep covers them: the string is LISTED and G2 refuses, rather than being silently absent from a file claiming to be fully read. Listed, not claimed."
     }
   ],
   "knownGaps": [
     "`html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.",
-    "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises."
+    "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises.",
+    "An inline <script> is swept rather than parsed, so its strings arrive as `unclassified` instead of carrying container semantics. Routing the body to the AST tier would give real verdicts; it needs the async grammar load that lives in `scan`, and the sweep already makes the text impossible to miss."
   ]
 }

@@ -387,6 +387,42 @@ function pluralAdvisories(families: PluralFamily[]): Advisory[] {
   return out
 }
 
+/**
+ * Read markup, and sweep whatever the scanner had to read past.
+ *
+ * An inline `<script>` is code with no reader here, so its bytes are declared
+ * UNREAD and the residual sweep covers them. Before this, they were counted as
+ * claimed: a document with a French string inside a `<script>` reported
+ * `claimRatio: 1` while that string reached no site and no sweep — a false
+ * claim of full coverage, which is the one failure the whole accountability
+ * argument rests on not making.
+ */
+function markupResult(
+  base: FileResult,
+  file: WalkedFile,
+  read: { text: string },
+  map: OffsetMap,
+  tokens: TokenIndex,
+  extra?: { reason?: string },
+): FileResult {
+  const { sites, claimedBytes, identifiers, unclaimed } = extractHtml(file.rel, read.text, map)
+  for (const id of identifiers) tokens.identifiers.add(id)
+  const residual = unclaimed.length
+    ? sweepFile(file.rel, read.text, map, [...complement(mergeSpans(unclaimed), base.bytesTotal), ...sites.map((s) => s.span)], {
+        identifiers: tokens.identifiers,
+        extractor: 'html',
+        reason: 'inside a <script> block, which the markup scanner reads past; found by the residual sweep',
+      })
+    : []
+  return {
+    ...base,
+    sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+    extractor: 'html',
+    bytesClaimed: claimedBytes,
+    ...(extra?.reason ? { reason: extra.reason } : {}),
+  }
+}
+
 async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptions): Promise<FileResult> {
   const read = readTextEx(file.abs)
   const base = {
@@ -418,15 +454,9 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   // but nothing was understood either. Extension routing stays right for
   // everything else; this is the one case that earns a sniff.
   if (ext === '.ts' && isQtTranslation(read.text)) {
-    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map)
-    for (const id of identifiers) tokens.identifiers.add(id)
-    return {
-      ...base,
-      sites,
-      extractor: 'html',
-      bytesClaimed: claimedBytes,
+    return markupResult(base, file, read, map, tokens, {
       reason: 'Qt translation catalog: routed by content, because .ts is also TypeScript',
-    }
+    })
   }
 
   // A Dockerfile is not prose, and reading it as prose made every `RUN apt-get
@@ -529,9 +559,7 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   }
 
   if (HTML_EXT.has(ext)) {
-    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map)
-    for (const id of identifiers) tokens.identifiers.add(id)
-    return { ...base, sites, extractor: 'html', bytesClaimed: claimedBytes }
+    return markupResult(base, file, read, map, tokens)
   }
 
   if (isPlainText(file.rel, ext)) {

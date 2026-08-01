@@ -1,7 +1,7 @@
-# ultrai18n bench — 8 case(s), 84 expectation(s)
+# ultrai18n bench — 8 case(s), 90 expectation(s)
 
 ```
-  accounting coverage     84/84       1.000   ok
+  accounting coverage     90/90       1.000   ok
   expectation mismatches  0                   ok
   trap violations         0                   ok
   census mismatches       0                   ok
@@ -16,7 +16,7 @@
 ### census-edges — Every path git tracks lands in one bucket with a reason
 
 ```
-  7/7 accounted   15 site(s)   16 tracked path(s)
+  10/10 accounted   22 site(s)   17 tracked path(s)
   G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
 
@@ -50,13 +50,14 @@
 ### surfaces-web-app — Where user-visible text hides in a web project: build configs, CI, store listings
 
 ```
-  20/20 accounted   86 site(s)   10 tracked path(s)
-  G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 fail  G7 pass
+  23/23 accounted   91 site(s)   11 tracked path(s)
+  G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 fail  G7 pass
 ```
 
   Known gaps, gated by nothing:
   - `html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.
   - `manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises.
+  - An inline <script> is swept rather than parsed, so its strings arrive as `unclassified` instead of carrying container semantics. Routing the body to the AST tier would give real verdicts; it needs the async grammar load that lives in `scan`, and the sweep already makes the text impossible to miss.
 
 ### traps-interop — Formats other tools depend on, and text the licence forbids rewriting
 

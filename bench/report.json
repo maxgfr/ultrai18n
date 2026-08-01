@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "totals": {
     "cases": 8,
-    "expectations": 84,
-    "accounted": 84,
+    "expectations": 90,
+    "accounted": 90,
     "expectationMismatches": 0,
     "trapViolations": 0,
     "censusMismatches": 0,
@@ -55,10 +55,10 @@
     {
       "case": "census-edges",
       "title": "Every path git tracks lands in one bucket with a reason",
-      "expectations": 7,
-      "accounted": 7,
-      "sites": 15,
-      "tracked": 16,
+      "expectations": 10,
+      "accounted": 10,
+      "sites": 22,
+      "tracked": 17,
       "gates": {
         "G1": "pass",
         "G2": "pass",
@@ -135,13 +135,13 @@
     {
       "case": "surfaces-web-app",
       "title": "Where user-visible text hides in a web project: build configs, CI, store listings",
-      "expectations": 20,
-      "accounted": 20,
-      "sites": 86,
-      "tracked": 10,
+      "expectations": 23,
+      "accounted": 23,
+      "sites": 91,
+      "tracked": 11,
       "gates": {
         "G1": "pass",
-        "G2": "pass",
+        "G2": "fail",
         "G3": "fail",
         "G4": "fail",
         "G5": "pass",
@@ -150,7 +150,8 @@
       },
       "knownGaps": [
         "`html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.",
-        "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises."
+        "`manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises.",
+        "An inline <script> is swept rather than parsed, so its strings arrive as `unclassified` instead of carrying container semantics. Routing the body to the AST tier would give real verdicts; it needs the async grammar load that lives in `scan`, and the sweep already makes the text impossible to miss."
       ],
       "findings": []
     },

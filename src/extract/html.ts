@@ -11,6 +11,7 @@ import type { Span } from '../types'
 import type { Container, RawSite } from './raw'
 import { OffsetMap } from '../vendor/text'
 import { pointer } from '../identity'
+import { extractCss } from './css'
 
 /**
  * Is this `.ts` file a Qt Linguist catalog rather than a TypeScript module?
@@ -42,6 +43,20 @@ export interface HtmlExtractResult {
   sites: RawSite[]
   claimedBytes: number
   identifiers: Set<string>
+  /**
+   * Byte spans this scanner READ PAST rather than read — an inline `<script>`.
+   *
+   * Reported instead of silently folded into `claimedBytes`, because the two
+   * claims are not the same. A document with a French string inside a `<script>`
+   * used to report `claimRatio: 1` — the extractor asserting it accounted for
+   * every byte — while that string reached no site and no sweep. That is a
+   * false claim of full coverage, which is the one failure this project exists
+   * to make impossible.
+   *
+   * `scan` subtracts these and sweeps them, so the text lands in the inventory
+   * as `unclassified` and G2 refuses: listed, not claimed.
+   */
+  unclaimed: Span[]
 }
 
 export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExtractResult {
@@ -67,6 +82,7 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   // is ADDITIVE: an ordinary HTML, SVG, Vue, Svelte or Astro document takes
   // exactly the path it took before, which is the property the regression test
   // in `extract-text-formats` pins.
+  const unclaimed: Span[] = []
   let docKind: 'markup' | 'plist' | 'qt' = 'markup'
   let messageOrdinal = -1
   let numerusOrdinal = 0
@@ -181,11 +197,25 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
 
     i = gt + 1
 
-    // Skip the body of script/style wholesale: their content belongs to the
-    // JS and CSS extractors, and reading it as prose would emit nonsense.
+    // The body of a `<script>` or `<style>` is code, and reading it as prose
+    // would emit nonsense — but it is not empty of text, and pretending it was
+    // read is what made a `content:` value disappear from a file claiming full
+    // coverage.
     if (!closing && (tag === 'script' || tag === 'style')) {
       const close = text.toLowerCase().indexOf(`</${tag}`, i)
-      i = close === -1 ? n : close
+      const end = close === -1 ? n : close
+      if (tag === 'style') {
+        // A stylesheet has a reader. Hand it the range rather than the file, so
+        // every offset stays absolute against this document.
+        const css = extractCss(file, text, map, { from: i, to: end })
+        for (const site of css.sites) sites.push(site)
+        for (const id of css.identifiers) identifiers.add(id)
+      } else {
+        // No JS reader here — the AST tier is async and belongs to `scan`. So
+        // the bytes are declared UNREAD and the sweep covers them.
+        unclaimed.push({ start: map.byteOf(i), end: map.byteOf(end) })
+      }
+      i = end
       openStack.pop()
     }
   }
@@ -350,7 +380,8 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   }
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  return { sites, claimedBytes: map.byteOf(text.length), identifiers }
+  const skipped = unclaimed.reduce((n, span) => n + (span.end - span.start), 0)
+  return { sites, claimedBytes: map.byteOf(text.length) - skipped, identifiers, unclaimed }
 }
 
 /** Every quoted attribute on a tag, lowercased by name. */

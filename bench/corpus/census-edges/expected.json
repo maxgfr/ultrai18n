@@ -148,6 +148,14 @@
       "reason": "broken-symlink",
       "mustVerifyManually": false,
       "why": "Named, not dropped. The reason is the entire value of this case: `unaccounted` tells a reader that this walker has a bug, and `broken-symlink` tells them their repository has a dangling link. G1 stays green because the path landed in exactly one bucket with a reason, which is the whole census claim."
+    },
+    {
+      "file": "docs/wrapped.md",
+      "bucket": "scanned",
+      "extractor": "markdown",
+      "byteAddressable": true,
+      "claimRatio": 1,
+      "why": "Hard-wrapped prose, which is how most markdown is written. Only the LAST line of each block used to reach the inventory: the run pattern cannot cross a newline and its `$` meant end-of-block rather than end-of-line, so every line above the last failed the lookahead and was dropped — while claimRatio still reported 1.0. Measured on two real repositories, that lost roughly one prose line in five across every markdown file they had."
     }
   ],
   "expectations": [
@@ -213,6 +221,33 @@
         "verdict": "translate"
       },
       "why": "Proves the space in the path did not stop the file being read, as opposed to merely being listed."
+    },
+    {
+      "id": "md.wrapped-first-line",
+      "file": "docs/wrapped.md",
+      "find": "La première ligne de ce paragraphe est enveloppée à la main.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The first line of a multi-line paragraph. It is pinned separately from the last because the last one always worked — a fixture that only checked one line of one paragraph would have passed throughout."
+    },
+    {
+      "id": "md.wrapped-middle-line",
+      "file": "docs/wrapped.md",
+      "find": "La deuxième ligne appartient au même paragraphe et doit être trouvée.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A middle line, which is the case a two-line fixture cannot distinguish from an off-by-one."
+    },
+    {
+      "id": "md.wrapped-list-continuation",
+      "file": "docs/wrapped.md",
+      "find": "dont la seconde ligne compte tout autant.",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A wrapped list item. Lists take a different branch from paragraphs, so it is pinned rather than assumed to follow."
     }
   ],
   "pathSites": [

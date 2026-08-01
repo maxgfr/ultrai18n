@@ -75,7 +75,16 @@ export function extractMarkdown(
     masked = blank(masked, AUTOLINK)
 
     let runIndex = 0
-    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/g)) {
+    // `m` is load-bearing. Without it `$` means end of the whole BLOCK, and a
+    // run may not cross a newline — so in a hard-wrapped paragraph only the
+    // last line could ever satisfy the lookahead, and every line above it was
+    // silently dropped while `claimedBytes` still reported the whole file. A
+    // three-line paragraph yielded one site and a claimRatio of 1.0.
+    //
+    // Hard-wrapped prose is the normal way markdown is written, so this was the
+    // single largest recall hole in the tool: on one real repository it lost
+    // most of the body text of 192 files while reporting them fully read.
+    for (const match of masked.matchAll(/[^\s][^\n]*?(?=\s{2,}|$)/gm)) {
       const at = match.index ?? 0
       const slice = match[0]
       const trimmed = slice.trimEnd()
