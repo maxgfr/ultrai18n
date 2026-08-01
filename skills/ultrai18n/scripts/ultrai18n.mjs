@@ -30115,6 +30115,120 @@ function cmdApply(repo, out2, flags2) {
 // src/check.ts
 import { existsSync as existsSync16, readFileSync as readFileSync19 } from "fs";
 import { join as join29 } from "path";
+
+// src/plural/verify.ts
+function parsePluralReturns(raw) {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.returns) ? raw.returns : Array.isArray(raw?.families) ? raw.families : null;
+  if (!list) return null;
+  return list.map((e) => e);
+}
+function verifyPluralReturns(opts) {
+  const problems = [];
+  const claims = [];
+  const wanted = new Map(opts.todo.families.map((f) => [f.familyId, f]));
+  const families = opts.inventory.plurals ?? [];
+  const byId = new Map(families.map((f) => [f.id, f]));
+  const seen = /* @__PURE__ */ new Set();
+  for (const entry of opts.returns) {
+    const familyId2 = String(entry.familyId ?? "");
+    const todo = wanted.get(familyId2);
+    if (!todo) {
+      problems.push(
+        `${familyId2 || "(no familyId)"}: not a family this run handed out \u2014 the worklist is what the phase was asked to do, and a claim outside it verifies nothing`
+      );
+      continue;
+    }
+    if (seen.has(familyId2)) {
+      problems.push(`${familyId2}: claimed twice`);
+      continue;
+    }
+    seen.add(familyId2);
+    const note = String(entry.note ?? "").trim();
+    const target = todo.targetCategories;
+    const family = byId.get(familyId2);
+    if (family) {
+      const present = new Set(family.forms.map((f) => f.category));
+      const absent = target.filter((c2) => !present.has(c2));
+      if (absent.length === 0 && family.missing.length === 0) {
+        claims.push({ familyId: familyId2, file: todo.file, ok: true, note });
+      } else {
+        claims.push({
+          familyId: familyId2,
+          file: todo.file,
+          ok: false,
+          note,
+          detail: `still has no ${[.../* @__PURE__ */ new Set([...absent, ...family.missing])].join(" or ")} form. The worklist supplied ${target.join(", ")} already translated, so this is the code edit, not the words.`
+        });
+      }
+      continue;
+    }
+    const replacement = families.find(
+      (f) => f.file === todo.file && target.every((c2) => f.forms.some((form) => form.category === c2))
+    );
+    claims.push(
+      replacement ? { familyId: familyId2, file: todo.file, ok: true, note } : {
+        familyId: familyId2,
+        file: todo.file,
+        ok: false,
+        note,
+        detail: `reported an edit the re-scan cannot see. ${todo.anchor} is gone from the inventory and no family in ${todo.file} covers ${target.join(", ")}.`
+      }
+    );
+  }
+  const unclaimed = opts.todo.families.map((f) => f.familyId).filter((id) => !seen.has(id));
+  const failed2 = claims.filter((c2) => !c2.ok).length;
+  return {
+    schemaVersion: 1,
+    // Silence is not success. A family handed out and never reported on is work
+    // nobody did, and passing on it would make the whole phase optional.
+    ok: problems.length === 0 && failed2 === 0 && unclaimed.length === 0,
+    counts: { claimed: claims.length, verified: claims.length - failed2, failed: failed2, unclaimed: unclaimed.length },
+    claims,
+    unclaimed,
+    problems
+  };
+}
+function formatPluralVerify(r) {
+  const lines = ["ultrai18n plurals --apply", ""];
+  if (r.problems.length) {
+    lines.push(`REFUSED (${r.problems.length})`);
+    for (const p of r.problems) lines.push(`  \u2717 ${p}`);
+    lines.push("");
+  }
+  for (const c2 of r.claims.filter((c3) => !c3.ok)) {
+    lines.push(`  \u2717 ${c2.familyId}  ${c2.file}`);
+    lines.push(`      ${c2.detail}`);
+  }
+  if (r.unclaimed.length) {
+    lines.push("");
+    lines.push(`UNCLAIMED (${r.unclaimed.length}) \u2014 handed out and never reported on`);
+    for (const id of r.unclaimed.slice(0, 10)) lines.push(`  ${id}`);
+  }
+  lines.push(
+    "",
+    r.ok ? `VERDICT  ok \u2014 ${r.counts.verified} claimed edit(s) are visible in a fresh scan` : `VERDICT  fail \u2014 ${r.counts.failed} claim(s) the re-scan cannot see, ${r.counts.unclaimed} never reported`
+  );
+  return lines.join("\n");
+}
+function readStructuralReturns(raw) {
+  const list = Array.isArray(raw) ? raw : Array.isArray(raw?.returns) ? raw.returns : [];
+  return list.map((e) => e);
+}
+function unverifiedStructural(returns, inventory) {
+  const holes = new Map(
+    inventory.sites.filter((s) => s.reason === "grammar-hole").map((s) => [s.id, s])
+  );
+  const out2 = [];
+  for (const entry of returns) {
+    const siteId2 = String(entry.siteId ?? "");
+    const site3 = holes.get(siteId2);
+    if (!site3) continue;
+    out2.push({ siteId: siteId2, file: site3.file, note: String(entry.note ?? "").trim() });
+  }
+  return out2;
+}
+
+// src/check.ts
 var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "identifier",
   "module-specifier",
@@ -30400,6 +30514,26 @@ function gateCoherence(inv, repo) {
       kind: "plural-incomplete",
       message: `${family.base} is a plural family in ${family.locale ?? "an unknown locale"}, which selects ${family.ownRequired?.join(", ") ?? "?"} \u2014 and it has ${parts2.join(", and ")}`
     });
+  }
+  const structuralPath = join29(repo, ".ultrai18n", "STRUCTURAL.json");
+  if (existsSync16(structuralPath)) {
+    try {
+      const returns = readStructuralReturns(JSON.parse(readFileSync19(structuralPath, "utf8")));
+      for (const claim of unverifiedStructural(returns, inv)) {
+        findings.push({
+          file: claim.file,
+          siteKey: claim.siteId,
+          kind: "structural-unverified",
+          message: `a structural edit was reported for ${claim.siteId} and the grammar hole is still there` + (claim.note ? ` \u2014 the note said ${JSON.stringify(clip3(claim.note))}` : "")
+        });
+      }
+    } catch {
+      findings.push({
+        file: "STRUCTURAL.json",
+        kind: "structural-unverified",
+        message: "the structural returns file could not be read, so no claim in it was verified"
+      });
+    }
   }
   for (const key of danglingSidecarKeys(join29(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
     findings.push({
@@ -31092,7 +31226,15 @@ expression.
 Edit **only the one file named in your prompt**. This phase runs after
 \`apply --write\`, never alongside it.
 
-Return \`{familyId, file, note}\` describing what you changed and why.
+Return \`{familyId, file, note}\` describing what you changed and why, and write
+the collected returns to \`<out>/PLURALS.returns.json\`.
+
+Your return is a CLAIM THAT AN EDIT WAS MADE, and it is verified. The join
+re-scans and \`plurals --apply\` asserts that each family you named now has every
+form its target locale selects. A family you report and did not edit fails
+there; so does a family handed to you and never reported on, because silence is
+not success. If a family cannot be completed, say so in the note and leave it
+out of the returns rather than claiming it.
 `
   },
   structural: {
@@ -31110,7 +31252,13 @@ Edit **only the one file named in your prompt**. This is the single place in
 this pipeline where an agent writes, and it runs after \`apply --write\`, never
 alongside it.
 
-Return \`{siteId, file, note}\` describing what you changed and why.
+Return \`{siteId, file, note}\` describing what you changed and why, and write the
+collected returns to \`<out>/STRUCTURAL.json\`.
+
+Your return is a CLAIM THAT AN EDIT WAS MADE, and it is verified. \`check\` folds
+that file in and fails when a site you named still carries its grammar hole. The
+site id comes from the anchor rather than from the text, so it survives the edit
+\u2014 which is exactly what makes the claim checkable.
 `
   }
 };
@@ -31119,7 +31267,9 @@ var JOINS = {
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
-  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out}`,
+  // Re-scan, THEN verify the claims against what the re-scan sees. Re-scanning
+  // and not comparing is what let a reported edit nobody made pass.
+  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out} --apply ${o.out}/PLURALS.returns.json`,
   structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
 };
 function workflowScript(phase, o, status2, role) {
@@ -31996,7 +32146,7 @@ Usage:
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
-  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
+  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--apply <returns.json>] [--json]
   ultrai18n dialects   [--explain <file>] [--check] [--propose] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
@@ -32021,6 +32171,13 @@ Commands:
   plurals     Every plural family, with the forms its own locale selects and the
               forms it actually has. Exits 1 when one is short \u2014 that is a wrong
               string rendering today, not a missing translation.
+
+              \`--apply <returns.json>\` VERIFIES the pluralist phase. That phase
+              writes files itself, so its return is a claim that an edit was
+              made rather than a decision to fold in \u2014 and the join's re-scan
+              was never compared against it. This asserts each claimed family
+              now has every form its target locale selects, and fails on a
+              family handed out and never reported on.
 
   dialects    How this repository spells its plurals: the shipped catalog plus
               anything \`.ultrai18n/dialects.json\` declares, with the manifest
@@ -32482,6 +32639,17 @@ join:     ${emitted.join}
     case "plurals": {
       const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      if (p.flags.apply !== void 0) {
+        const returns = parsePluralReturns(readJson2(String(p.flags.apply), "the returns file"));
+        if (!returns) usage("expected an array of {familyId, file, note}, or {returns: [...]}");
+        const todo = readJson2(join37(out2, "PLURALS.todo.json"), "PLURALS.todo.json");
+        const result = verifyPluralReturns({ returns, todo, inventory });
+        writeJson(join37(out2, "PLURALS.verify.json"), result);
+        if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
+        else say(formatPluralVerify(result));
+        if (!result.ok) process.exitCode = 1;
+        return;
+      }
       const families = inventory.plurals ?? [];
       const incomplete = families.filter((f) => f.missing.length || f.extra.length);
       if (json) {

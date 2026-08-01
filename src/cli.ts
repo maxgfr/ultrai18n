@@ -22,6 +22,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readGlossary, writeGlossary } from './commands'
 import { selectSites, formatSites, driftAgainst, formatDrift, UnknownTokenError } from './sites'
 import { auditCoverage, formatAudit, locatorTable } from './audit'
+import { formatPluralVerify, parsePluralReturns, verifyPluralReturns } from './plural/verify'
 import { profile, selfTest, formatGuess, formatProfile, formatSelfTest } from './langcmd'
 import { detect } from './lang/detect'
 import {
@@ -47,7 +48,7 @@ Usage:
   ultrai18n apply      [--write] [--out <dir>] [--json]
   ultrai18n verify     [--apply <verdicts.json>] [--max-verify <n>] [--json]
   ultrai18n check      [--from <lang>] [--to <lang>] [--semantic] [--new-only] [--json]
-  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--json]
+  ultrai18n plurals    [--repo <dir>] [--out <dir>] [--apply <returns.json>] [--json]
   ultrai18n dialects   [--explain <file>] [--check] [--propose] [--json]
   ultrai18n sync       [--catalog <glob>] [--source-locale <lang>] [--json]
   ultrai18n glossary   [--seed] [--list] [--json]
@@ -72,6 +73,13 @@ Commands:
   plurals     Every plural family, with the forms its own locale selects and the
               forms it actually has. Exits 1 when one is short — that is a wrong
               string rendering today, not a missing translation.
+
+              \`--apply <returns.json>\` VERIFIES the pluralist phase. That phase
+              writes files itself, so its return is a claim that an edit was
+              made rather than a decision to fold in — and the join's re-scan
+              was never compared against it. This asserts each claimed family
+              now has every form its target locale selects, and fails on a
+              family handed out and never reported on.
 
   dialects    How this repository spells its plurals: the shipped catalog plus
               anything \`.ultrai18n/dialects.json\` declares, with the manifest
@@ -504,6 +512,23 @@ async function main(): Promise<void> {
     case 'plurals': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+
+      // The `pluralist` phase WRITES files, so its return is a claim that an
+      // edit was made rather than a decision to fold in. The join already
+      // re-scans; this is what compares the re-scan against what the agent said
+      // it did. A verifier, not a parser.
+      if (p.flags.apply !== undefined) {
+        const returns = parsePluralReturns(readJson<unknown>(String(p.flags.apply), 'the returns file'))
+        if (!returns) usage('expected an array of {familyId, file, note}, or {returns: [...]}')
+        const todo = readJson<{ families: never[] }>(join(out, 'PLURALS.todo.json'), 'PLURALS.todo.json')
+        const result = verifyPluralReturns({ returns, todo, inventory })
+        writeJson(join(out, 'PLURALS.verify.json'), result)
+        if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n')
+        else say(formatPluralVerify(result))
+        if (!result.ok) process.exitCode = 1
+        return
+      }
+
       const families = (inventory.plurals ?? []) as PluralFamily[]
       const incomplete = families.filter((f) => f.missing.length || f.extra.length)
       if (json) {

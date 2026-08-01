@@ -13,6 +13,7 @@ import type { Inventory, Site } from './types'
 import { runCensus } from './census'
 import { slugify } from './extract/markdown'
 import { danglingSidecarKeys, type PluralFamily } from './plural'
+import { readStructuralReturns, unverifiedStructural } from './plural/verify'
 
 export interface Exception {
   siteKey: string
@@ -446,6 +447,39 @@ function gateCoherence(inv: Inventory, repo: string): Gate {
         `${family.base} is a plural family in ${family.locale ?? 'an unknown locale'}, which selects ` +
         `${family.ownRequired?.join(', ') ?? '?'} — and it has ${parts.join(', and ')}`,
     })
+  }
+
+  // A structural edit somebody reported and the re-scan cannot see.
+  //
+  // The `structuralist` phase WRITES files, so its return is a claim rather
+  // than a decision — and nothing compared that claim against the repository.
+  // A `grammar-hole` site is one the engine refused because a plural rule is
+  // baked into an expression; the whole job is to make the hole go away, and
+  // the site id is derived from the ANCHOR rather than the text, so it survives
+  // the edit and can be checked.
+  //
+  // Costs an absent run nothing: with no returns file there is nothing to fold.
+  const structuralPath = join(repo, '.ultrai18n', 'STRUCTURAL.json')
+  if (existsSync(structuralPath)) {
+    try {
+      const returns = readStructuralReturns(JSON.parse(readFileSync(structuralPath, 'utf8')))
+      for (const claim of unverifiedStructural(returns, inv)) {
+        findings.push({
+          file: claim.file,
+          siteKey: claim.siteId,
+          kind: 'structural-unverified',
+          message:
+            `a structural edit was reported for ${claim.siteId} and the grammar hole is still there` +
+            (claim.note ? ` — the note said ${JSON.stringify(clip(claim.note))}` : ''),
+        })
+      }
+    } catch {
+      findings.push({
+        file: 'STRUCTURAL.json',
+        kind: 'structural-unverified',
+        message: 'the structural returns file could not be read, so no claim in it was verified',
+      })
+    }
   }
 
   // A declaration pointing at a site that no longer exists. Usually the code

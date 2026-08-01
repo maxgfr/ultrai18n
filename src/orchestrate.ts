@@ -288,7 +288,15 @@ expression.
 Edit **only the one file named in your prompt**. This phase runs after
 \`apply --write\`, never alongside it.
 
-Return \`{familyId, file, note}\` describing what you changed and why.
+Return \`{familyId, file, note}\` describing what you changed and why, and write
+the collected returns to \`<out>/PLURALS.returns.json\`.
+
+Your return is a CLAIM THAT AN EDIT WAS MADE, and it is verified. The join
+re-scans and \`plurals --apply\` asserts that each family you named now has every
+form its target locale selects. A family you report and did not edit fails
+there; so does a family handed to you and never reported on, because silence is
+not success. If a family cannot be completed, say so in the note and leave it
+out of the returns rather than claiming it.
 `,
   },
   structural: {
@@ -306,7 +314,13 @@ Edit **only the one file named in your prompt**. This is the single place in
 this pipeline where an agent writes, and it runs after \`apply --write\`, never
 alongside it.
 
-Return \`{siteId, file, note}\` describing what you changed and why.
+Return \`{siteId, file, note}\` describing what you changed and why, and write the
+collected returns to \`<out>/STRUCTURAL.json\`.
+
+Your return is a CLAIM THAT AN EDIT WAS MADE, and it is verified. \`check\` folds
+that file in and fails when a site you named still carries its grammar hole. The
+site id comes from the anchor rather than from the text, so it survives the edit
+— which is exactly what makes the claim checkable.
 `,
   },
 }
@@ -317,8 +331,13 @@ const JOINS: Record<PhaseName, (o: OrchestrateOptions) => string> = {
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
-  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out}`,
-  structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`,
+  // Re-scan, THEN verify the claims against what the re-scan sees. Re-scanning
+  // and not comparing is what let a reported edit nobody made pass.
+  plural: (o) =>
+    `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && ` +
+    `node ${o.engine} plurals --repo ${o.repo} --out ${o.out} --apply ${o.out}/PLURALS.returns.json`,
+  structural: (o) =>
+    `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`,
 }
 
 function workflowScript(phase: PhaseName, o: OrchestrateOptions, status: PhaseStatus, role: string): string {
