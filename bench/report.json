@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
   "totals": {
-    "cases": 8,
-    "expectations": 92,
-    "accounted": 92,
+    "cases": 9,
+    "expectations": 101,
+    "accounted": 101,
     "expectationMismatches": 0,
     "trapViolations": 0,
     "censusMismatches": 0,
@@ -137,11 +137,35 @@
       "findings": []
     },
     {
+      "case": "surfaces-scripts",
+      "title": "The four formats that used to have no reader: .py, .sh, .sql, .jsonl — plus the ignore files that share the shell's comment syntax",
+      "expectations": 10,
+      "accounted": 10,
+      "sites": 22,
+      "tracked": 6,
+      "gates": {
+        "G1": "pass",
+        "G2": "pass",
+        "G3": "fail",
+        "G4": "fail",
+        "G5": "pass",
+        "G6": "pass",
+        "G7": "pass"
+      },
+      "knownGaps": [
+        "A shell script's STRINGS are never emitted, only its comments. `echo \"Terminé\"` is a real miss and a deliberate one: emitting shell arguments hands a translator a wall of paths, flags and package names to refuse one at a time.",
+        "Four regions are deliberately NOT sites, and G2 is what gates that rather than an expectation: a `#!` shebang, a `# type:` directive, a `# shellcheck` directive, and every line of DDL. `mustNotClaim` cannot express them — it means \"this site exists and must not be translate\", so declaring one would fail accounting for a region that correctly has no site. Without the .sql reader that DDL sweeps into the inventory as unclassified and G2 fails, which is exactly the silencing this case measures.",
+        "`.ini`, `.conf`, `.cfg` and `.properties` also use `#` comments and are not shell. Handing one to the bash grammar buys unparseable regions in exchange for comments the sweep already surfaces, so each is its own decision with its own case.",
+        "A SQL literal carrying prose is emitted and left to the classifier. Whether a seed row is copy or a fixture is not something the lexer can know."
+      ],
+      "findings": []
+    },
+    {
       "case": "surfaces-web-app",
       "title": "Where user-visible text hides in a web project: build configs, CI, store listings",
       "expectations": 23,
       "accounted": 23,
-      "sites": 91,
+      "sites": 93,
       "tracked": 11,
       "gates": {
         "G1": "pass",
@@ -162,9 +186,9 @@
     {
       "case": "traps-interop",
       "title": "Formats other tools depend on, and text the licence forbids rewriting",
-      "expectations": 11,
-      "accounted": 11,
-      "sites": 25,
+      "expectations": 10,
+      "accounted": 10,
+      "sites": 24,
       "tracked": 5,
       "gates": {
         "G1": "pass",
@@ -176,7 +200,8 @@
         "G7": "pass"
       },
       "knownGaps": [
-        "`'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four."
+        "`'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four.",
+        "`postgres://localhost:5432/atelier` is no longer a site. The shell reader emits comments and claims everything else as read and non-textual, so a connection string is silenced instead of surfacing as `unclassified` — the same trade the .sql reader makes. It cannot be written as a `mustNotClaim` expectation, which requires a covering site; the gate that holds it is G2 on this case."
       ],
       "findings": []
     },

@@ -32,7 +32,12 @@ export default defineConfig({
     const from = 'node_modules/@maxgfr/codeindex/scripts/grammars'
     const to = 'skills/ultrai18n/scripts/grammars'
     mkdirSync(to, { recursive: true })
-    for (const name of ['tsx', 'typescript', 'javascript', 'web-tree-sitter']) {
+    // python and bash are here for the same reason the JS/TS four are: the
+    // alternative is resolving through codeindex's shared cache and reaching
+    // the network on first use, which turns "this repo is parsed properly" into
+    // a conditional guarantee whose failure looks like a quietly thinner
+    // result on somebody else's machine.
+    for (const name of ['tsx', 'typescript', 'javascript', 'python', 'bash', 'web-tree-sitter']) {
       copyFileSync(`${from}/${name}.wasm`, `${to}/${name}.wasm`)
     }
   },

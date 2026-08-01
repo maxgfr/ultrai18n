@@ -102,6 +102,15 @@ export interface Container {
   /** True inside a test file. */
   inTest?: boolean
   /**
+   * A Python docstring — the first statement of a module, class or function.
+   *
+   * Recorded rather than inferred from the kind, because `comment.docstring`
+   * has been in the surface vocabulary since it was written and was reachable
+   * by nothing. A docstring is a comment for classification and a STRING for
+   * escaping, which is why both facts have to travel.
+   */
+  docstring?: boolean
+  /**
    * The tag of a tagged template — `css`, `gql`, `styled.div`.
    *
    * Kept apart from `callee` because a tagged template is not a call

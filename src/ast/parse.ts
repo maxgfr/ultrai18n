@@ -15,9 +15,19 @@ import { ensureGrammars, grammarKeyForExt, resolveGrammarsDir } from '@maxgfr/co
 
 export type { Node, Tree }
 
-/** Extensions we have a grammar for AND a visitor for. */
+/**
+ * Extensions we have a grammar for AND a visitor for.
+ *
+ * Both halves are required. codeindex's CORE tier ships fifteen grammars and
+ * `grammarKeyForExt` maps far more extensions than these; what makes one
+ * eligible here is a visitor that keeps prose, positions and container
+ * semantics — which is precisely what codeindex's own extractor does not do,
+ * and why this engine borrows its parser and not its visitor.
+ */
 export const AST_EXTENSIONS = new Set([
   '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.pyi',
+  '.sh', '.bash', '.zsh',
 ])
 
 let initialized = false

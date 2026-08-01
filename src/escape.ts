@@ -27,6 +27,16 @@ export type HostSyntax =
   | 'toml-literal'
   | 'ftl-pattern'
   | 'dockerfile-value'
+  /**
+   * A Python triple-quoted string — a docstring, chiefly.
+   *
+   * Its own syntax rather than a parameter on the single-quoted one: a real
+   * newline is legal inside it and must survive, which is the opposite of what
+   * `js-double` does, and the only sequence that can terminate it early is the
+   * closing delimiter itself.
+   */
+  | 'py-triple'
+  | 'sql-string'
   | 'plain'
 
 export class UnknownSyntaxError extends Error {
@@ -80,6 +90,19 @@ export function syntaxFor(site: {
       return site.kind === 'comment' ? 'line-comment' : 'ftl-pattern'
     case 'dockerfile':
       return site.kind === 'comment' ? 'line-comment' : 'dockerfile-value'
+    case 'python-ast':
+      // A docstring arrives as `comment`, but it is a STRING and a newline
+      // inside it is legal — so it must not go to `line-comment`, which folds
+      // newlines to spaces. The quote is what decides, exactly as it does for
+      // TypeScript.
+      if (site.quote === '"""' || site.quote === "'''") return 'py-triple'
+      if (site.kind === 'comment') return 'line-comment'
+      return site.quote === '"' ? 'js-double' : 'js-single'
+    case 'shell-ast':
+      return 'line-comment'
+    case 'sql':
+      if (site.kind === 'comment') return site.raw.startsWith('/*') ? 'block-comment' : 'line-comment'
+      return 'sql-string'
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site.extractor}"`)
   }
@@ -189,6 +212,23 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
       return text.replace(/\{/g, '{"{"}')
     case 'dockerfile-value':
       return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
+    case 'py-triple': {
+      // A real newline is legal here and must survive — a docstring is written
+      // across lines, and folding it would reformat the file. The only sequence
+      // that can end the string early is the delimiter itself, and a trailing
+      // quote would fuse with the closing one.
+      const delimiter = opts.quote === "'''" ? "'''" : '"""'
+      const q = delimiter[0]!
+      return text
+        .replace(/\\/g, '\\\\')
+        .split(delimiter)
+        .join(`\\${q}\\${q}\\${q}`)
+        .replace(new RegExp(`\\${q}$`), `\\${q}`)
+    }
+    case 'sql-string':
+      // Standard SQL has exactly one escape and it is doubling the quote. There
+      // is no backslash mechanism, so introducing one would write a backslash.
+      return text.replace(/'/g, "''").replace(/\r?\n/g, ' ')
     case 'plain':
       return text
   }
@@ -284,24 +324,43 @@ export function unescapeFor(syntax: HostSyntax, text: string, opts: EscapeOption
     case 'css-comment':
     case 'block-comment':
       return text.replace(/\*\\\//g, '*/')
+    // Six of these used to hold a COPY OF THE ESCAPER rather than its inverse,
+    // and the round-trip corpus in `tests/apply.test.ts` covered exactly the
+    // eight syntaxes that were right — so `apply`'s self-check, the thing that
+    // turns an escaper bug into a loud refusal, was comparing escape(escape(x))
+    // against x for every format below. It passed on text with nothing to
+    // escape, which is most text, and would have refused a correct write on any
+    // comment containing a backslash.
     case 'line-comment':
+      // Folding a newline to a space is LOSSY and the inverse is identity, on
+      // purpose. Re-reading returns the folded text, which no longer equals the
+      // intended translation, so `apply` refuses — which is right: a newline
+      // cannot be written into a line comment at all.
+      return text
     case 'po-string':
-      // C-style, as gettext defines it. `\n` matters: a PO string is written on
-      // one line and a real newline would end the string.
-      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+      return text
+        .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
+        .replace(/\\(["\\])/g, '$1')
     case 'toml-basic':
-      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+      return text
+        .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
+        .replace(/\\(["\\])/g, '$1')
     case 'toml-literal':
       // Nothing is escapable here, so nothing is escaped. A value containing an
-      // apostrophe CANNOT be written into a literal string, and `unescapeFor`
-      // models that truncation so `apply`'s round-trip check refuses the write
-      // instead of silently cutting the sentence short.
+      // apostrophe CANNOT be written into a literal string, and this models
+      // that truncation so `apply`'s round-trip check refuses the write instead
+      // of silently cutting the sentence short.
       return text
     case 'ftl-pattern':
-      // `{` opens a placeable. Fluent's own literal-brace form is `{"{"}`.
-      return text.replace(/\{/g, '{"{"}')
+      return text.replace(/\{"\{"\}/g, '{')
     case 'dockerfile-value':
-      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
+      return text.replace(/\\(["\\])/g, '$1')
+    case 'py-triple': {
+      const q = opts.quote === "'''" ? "'" : '"'
+      return text.split(`\\${q}\\${q}\\${q}`).join(q.repeat(3)).replace(/\\([\\"'])/g, '$1')
+    }
+    case 'sql-string':
+      return text.replace(/''/g, "'")
     case 'plain':
       return text
   }

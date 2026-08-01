@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "case": "surfaces-scripts",
+  "title": "The four formats that used to have no reader: .py, .sh, .sql, .jsonl — plus the ignore files that share the shell's comment syntax",
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
+  "gates": {
+    "G1": "pass",
+    "G2": "pass",
+    "G3": "any"
+  },
+  "generate": [
+    {
+      "file": ".gitignore",
+      "repeat": "# Rien de ce dossier ne doit être publié\ndist/\n*.log\n",
+      "bytes": 55,
+      "why": "A corpus file git ignores never reaches a fresh clone, and a case holding its own .gitignore applies it to THIS repository. Generated into the isolated copy instead — which is why it carries a census claim and not a region claim: `locate` resolves a region against the corpus directory, where a generated file does not exist."
+    }
+  ],
+  "census": [
+    {
+      "file": "src/facturation.py",
+      "bucket": "scanned",
+      "why": "Read by the python grammar codeindex already ships in its CORE tier. Before this it had no reader at all, so a Python application had no meaningful coverage."
+    },
+    {
+      "file": "db/schema.sql",
+      "bucket": "scanned",
+      "why": "The reader that earns its place by SILENCING: without it the residual sweep forces every human-looking run of DDL into the inventory as unclassified, and check refuses until somebody adjudicates each one."
+    },
+    {
+      "file": "events.jsonl",
+      "bucket": "scanned",
+      "why": "One JSON document per line. The file-level scanner loses sync on the second, which is why these used to arrive from the sweep as fragments cut mid-token."
+    },
+    {
+      "file": ".gitignore",
+      "bucket": "scanned",
+      "why": "Routed to the shell reader by NAME — it has no extension of its own and is a `#`-comment format. Read rather than skipped is the claim; the region claim lives on .env.example, which the corpus can hold."
+    }
+  ],
+  "expectations": [
+    {
+      "id": "py.module-docstring",
+      "file": "src/facturation.py",
+      "find": "Calcule les montants dus par chaque abonné.",
+      "expect": {
+        "verdict": "translate",
+        "surface": "comment.docstring"
+      },
+      "why": "A module docstring is prose written for a person. `comment.docstring` has been in the surface vocabulary since it was written and was reachable by nothing before this reader."
+    },
+    {
+      "id": "py.function-docstring",
+      "file": "src/facturation.py",
+      "find": "Rend une phrase lisible par une personne.",
+      "expect": {
+        "verdict": "translate",
+        "surface": "comment.docstring"
+      },
+      "why": "A docstring is the first STATEMENT of a body, not a string that happens to come first. Nothing but a parser can tell those apart, which is the argument for putting this reader on the AST tier rather than writing a lexer."
+    },
+    {
+      "id": "py.comment",
+      "file": "src/facturation.py",
+      "find": "Arrondi au centime le plus proche",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "An ordinary comment, and the residue a whole-repo pass leaves behind."
+    },
+    {
+      "id": "sh.install-comment",
+      "file": "install.sh",
+      "find": "Installe les dépendances avant de démarrer le serveur",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "An install instruction a user reads. The comments are what a person reads in a shell script; the strings are arguments to programs."
+    },
+    {
+      "id": "sql.line-comment",
+      "file": "db/schema.sql",
+      "find": "Table des abonnés et de leur statut de paiement",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A schema comment is documentation, and it is the only prose in most .sql files."
+    },
+    {
+      "id": "sql.block-comment",
+      "file": "db/schema.sql",
+      "find": "Index ajouté pour la recherche par statut",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The block-comment form of the same thing."
+    },
+    {
+      "id": "jsonl.first-line",
+      "file": "events.jsonl",
+      "find": "Démarrer la session de travail",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A whole label rather than a fragment. The sweep accounted for these and cut them mid-token, which is accounted for and useless as a unit of translation."
+    },
+    {
+      "id": "jsonl.second-line",
+      "file": "events.jsonl",
+      "find": "Arrêter la session en cours",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The second document, which is where a file-level JSON scanner loses sync."
+    },
+    {
+      "id": "py.compared-literal",
+      "file": "src/facturation.py",
+      "find": "\"actif\"",
+      "occurrence": 2,
+      "mustNotClaim": true,
+      "why": "Compared, not rendered — code that tests a value for equality is not showing it to anyone. This is the container fact a hand-written lexer could not have supplied, and the reason the reader is on the AST tier."
+    },
+    {
+      "id": "env.example-comment",
+      "file": ".env.example",
+      "find": "Renseignez ces valeurs avant le premier démarrage",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "An example env file is instructions for whoever sets the project up. It shares the shell's comment syntax and is routed to the shell reader by extension."
+    }
+  ],
+  "knownGaps": [
+    "A shell script's STRINGS are never emitted, only its comments. `echo \"Terminé\"` is a real miss and a deliberate one: emitting shell arguments hands a translator a wall of paths, flags and package names to refuse one at a time.",
+    "Four regions are deliberately NOT sites, and G2 is what gates that rather than an expectation: a `#!` shebang, a `# type:` directive, a `# shellcheck` directive, and every line of DDL. `mustNotClaim` cannot express them — it means \"this site exists and must not be translate\", so declaring one would fail accounting for a region that correctly has no site. Without the .sql reader that DDL sweeps into the inventory as unclassified and G2 fails, which is exactly the silencing this case measures.",
+    "`.ini`, `.conf`, `.cfg` and `.properties` also use `#` comments and are not shell. Handing one to the bash grammar buys unparseable regions in exchange for comments the sweep already surfaces, so each is its own decision with its own case.",
+    "A SQL literal carrying prose is emitted and left to the classifier. Whether a seed row is copy or a fixture is not something the lexer can know."
+  ]
+}

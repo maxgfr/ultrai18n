@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync9, writeFileSync as writeFileSync10 } from "fs";
-import { join as join36, resolve as resolve3 } from "path";
+import { join as join37, resolve as resolve3 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -16009,10 +16009,10 @@ var init_community = __esm({
 });
 function computeSurprises(graph) {
   const commOf = /* @__PURE__ */ new Map();
-  const tierOf2 = /* @__PURE__ */ new Map();
+  const tierOf22 = /* @__PURE__ */ new Map();
   for (const m of graph.modules) {
     if (m.community !== void 0) commOf.set(m.slug, m.community);
-    tierOf2.set(m.slug, m.tier);
+    tierOf22.set(m.slug, m.tier);
   }
   const pairCount = /* @__PURE__ */ new Map();
   const pairKey = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`;
@@ -16024,7 +16024,7 @@ function computeSurprises(graph) {
     if (ca === void 0 || cb === void 0 || ca === cb) continue;
     pairCount.set(pairKey(ca, cb), (pairCount.get(pairKey(ca, cb)) ?? 0) + 1);
     if (!DEP_KINDS.has(e.kind)) continue;
-    if (tierOf2.get(e.to) === 0) continue;
+    if (tierOf22.get(e.to) === 0) continue;
     candidates.push({ edge: e, comms: [ca, cb] });
   }
   return candidates.filter((c2) => pairCount.get(pairKey(c2.comms[0], c2.comms[1])) <= MAX_PAIR_EDGES).map((c2) => ({
@@ -20192,7 +20192,12 @@ var AST_EXTENSIONS = /* @__PURE__ */ new Set([
   ".js",
   ".jsx",
   ".mjs",
-  ".cjs"
+  ".cjs",
+  ".py",
+  ".pyi",
+  ".sh",
+  ".bash",
+  ".zsh"
 ]);
 var initialized = false;
 var cache = /* @__PURE__ */ new Map();
@@ -20915,6 +20920,471 @@ function siblingOrdinal(node) {
   return total > 1 ? `[${index2}]` : "";
 }
 
+// src/extract/python.ts
+var DIRECTIVE = /^#\s*(type:|noqa|pylint:|mypy:|flake8:|pragma:|ruff:|isort:|fmt:|coding[:=]|-\*-|!)/;
+var PERSIST_CALLEES2 = /* @__PURE__ */ new Set(["getenv", "environ", "get", "set", "setex", "hget", "hset", "cache_key"]);
+var MEMBERSHIP_CALLEES2 = /* @__PURE__ */ new Set(["startswith", "endswith", "count", "index", "find"]);
+var TEST_FILE3 = /(^|\/)(tests?|conftest)\.py$|(^|\/)tests?\//;
+var DOCSTRING_HOSTS = /* @__PURE__ */ new Set(["module", "function_definition", "class_definition"]);
+function extractPython(file, text, tree, map) {
+  const sites = [];
+  const enums = /* @__PURE__ */ new Map();
+  const compared = /* @__PURE__ */ new Map();
+  const persisted = /* @__PURE__ */ new Map();
+  const identifiers = /* @__PURE__ */ new Set();
+  const errorSpans = [];
+  const inTest = TEST_FILE3.test(file);
+  let hasError = false;
+  const push = (node, kind, value, valueNode, quote, holes, container, escapes, prefix, suffix) => {
+    const span = byteSpan2(node, map);
+    const valueSpan = valueNode ? byteSpan2(valueNode, map) : span;
+    const s = map.lineColOf(node.startIndex);
+    const e = map.lineColOf(node.endIndex);
+    sites.push({
+      file,
+      path: anchorPath2(node),
+      kind,
+      span,
+      valueSpan,
+      raw: text.slice(node.startIndex, node.endIndex),
+      value,
+      quote,
+      escapes,
+      holes,
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "python-ast",
+      tier: "ast",
+      container,
+      ...prefix !== void 0 ? { prefix, suffix: suffix ?? "", linePrefix: "" } : {}
+    });
+  };
+  walkTree(tree.rootNode, (node) => {
+    if (node.type === "ERROR" || node.isMissing) {
+      hasError = true;
+      errorSpans.push(byteSpan2(node, map));
+      return false;
+    }
+    if (node.type === "identifier") {
+      identifiers.add(node.text);
+      return;
+    }
+    if (node.type === "comment") {
+      const body2 = node.text;
+      if (DIRECTIVE.test(body2)) return false;
+      const marker = /^#+\s?/.exec(body2)?.[0] ?? "#";
+      const value = body2.slice(marker.length).trimEnd();
+      if (!new RegExp("\\p{L}{2,}", "u").test(value)) return false;
+      push(node, "comment", value, null, null, [], { isKey: false }, false, marker, "");
+      return false;
+    }
+    if (node.type === "string") {
+      emitString(node);
+      return false;
+    }
+    return void 0;
+  });
+  function emitString(node) {
+    const content = namedChildrenOfType(node, "string_content");
+    const start2 = node.child(0);
+    const end = node.child(node.childCount - 1);
+    const opener = start2?.type === "string_start" ? start2.text : "";
+    const quoteMatch = /("""|'''|"|')$/.exec(opener);
+    const quote = quoteMatch?.[1] ?? null;
+    if (!quote) return;
+    const interpolations = namedChildrenOfType(node, "interpolation");
+    const container = containerFor(node);
+    const holes = interpolations.map((n, index2) => ({
+      index: index2,
+      span: byteSpan2(n, map),
+      expr: n.text.replace(/^\{|\}$/g, "")
+    }));
+    const from = start2?.type === "string_start" ? start2.endIndex : node.startIndex;
+    const to = end?.type === "string_end" ? end.startIndex : node.endIndex;
+    if (to < from) return;
+    const raw = text.slice(from, to);
+    let value = "";
+    let cursor = from;
+    for (const n of interpolations) {
+      value += decode(text.slice(cursor, n.startIndex), quote, opener);
+      value += `{${interpolations.indexOf(n)}}`;
+      cursor = n.endIndex;
+    }
+    value += decode(text.slice(cursor, to), quote, opener);
+    if (!new RegExp("\\p{L}{2,}", "u").test(value)) return;
+    const valueNode = content.length === 1 && interpolations.length === 0 ? content[0] : null;
+    const docstring = interpolations.length === 0 && isDocstring(node);
+    if (docstring) container.docstring = true;
+    const kind = interpolations.length > 0 ? "template" : docstring ? "comment" : "string-literal";
+    if (valueNode) {
+      push(node, kind, value, valueNode, quote, holes, container, /\\/.test(raw));
+      return;
+    }
+    const s = map.lineColOf(node.startIndex);
+    const e = map.lineColOf(node.endIndex);
+    sites.push({
+      file,
+      path: anchorPath2(node),
+      kind,
+      span: byteSpan2(node, map),
+      valueSpan: { start: map.byteOf(from), end: map.byteOf(to) },
+      raw: text.slice(node.startIndex, node.endIndex),
+      value,
+      quote,
+      escapes: /\\/.test(raw),
+      holes,
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "python-ast",
+      tier: "ast",
+      container
+    });
+  }
+  function isDocstring(node) {
+    const statement = node.parent;
+    if (statement?.type !== "expression_statement") return false;
+    if (statement.namedChildCount !== 1) return false;
+    const body2 = statement.parent;
+    if (!body2) return false;
+    const host = body2.type === "block" ? body2.parent : body2;
+    if (!host || !DOCSTRING_HOSTS.has(host.type)) return false;
+    return firstNamedChild(body2) === statement.id;
+  }
+  function containerFor(node) {
+    const container = { isKey: false };
+    const symbol = enclosingSymbol2(node);
+    if (symbol) container.enclosingSymbol = symbol;
+    if (inTest) container.inTest = true;
+    const parent = node.parent;
+    const value = node.text;
+    if (parent?.type === "pair" && parent.child(0)?.id === node.id) container.isKey = true;
+    if (ancestorOfType(node, /* @__PURE__ */ new Set(["import_statement", "import_from_statement", "future_import_statement"]))) {
+      container.moduleSpecifier = true;
+    }
+    if (parent?.type === "comparison_operator") {
+      container.compared = true;
+      addToken(compared, value, `${file}#${anchorPath2(node)}`);
+    }
+    const call = ancestorOfType(node, /* @__PURE__ */ new Set(["call"]));
+    const callee = call ? calleeName(call) : null;
+    if (callee) {
+      container.callee = callee;
+      const leaf = callee.split(".").pop() ?? callee;
+      if (MEMBERSHIP_CALLEES2.has(leaf)) container.compared = true;
+      if (PERSIST_CALLEES2.has(leaf)) {
+        container.persisted = true;
+        addToken(persisted, value, `${file}#${anchorPath2(node)}`);
+      }
+    }
+    const cls = ancestorOfType(node, /* @__PURE__ */ new Set(["class_definition"]));
+    if (cls && /\b(Enum|StrEnum|IntEnum|TextChoices|Choices)\b/.test(superclasses(cls))) {
+      container.enumMember = true;
+      addToken(enums, value, `${file}#${anchorPath2(node)}`);
+    }
+    const comment = nearestComment(node);
+    if (comment) container.nearestComment = comment;
+    return container;
+  }
+  function nearestComment(node) {
+    let cur = node;
+    while (cur && !cur.previousNamedSibling) cur = cur.parent;
+    const prev = cur?.previousNamedSibling;
+    return prev?.type === "comment" ? prev.text.replace(/^#+\s?/, "").trim() : null;
+  }
+  return { sites, tokens: { enums, compared, persisted, identifiers }, errorSpans, hasError };
+}
+function anchorPath2(node) {
+  const segments = [];
+  let cur = node;
+  let child = null;
+  while (cur) {
+    const named = nameOf2(cur);
+    if (named) segments.push(named);
+    else if (child && segments.length === 0 && ORDINAL_CONTAINERS2.has(cur.type)) {
+      segments.push(`[${ordinalOf(cur, child)}]`);
+    }
+    child = cur;
+    cur = cur.parent;
+  }
+  return segments.reverse().join("/") || "root";
+}
+var ORDINAL_CONTAINERS2 = /* @__PURE__ */ new Set(["module", "block", "list", "tuple", "set", "argument_list", "dictionary"]);
+function nameOf2(node) {
+  switch (node.type) {
+    case "function_definition":
+    case "class_definition":
+      return node.childForFieldName("name")?.text ?? null;
+    case "assignment": {
+      const left = node.childForFieldName("left");
+      return left?.type === "identifier" ? left.text : null;
+    }
+    case "pair": {
+      const key = node.child(0);
+      return key?.type === "string" ? stringLiteralText(key) : null;
+    }
+    case "keyword_argument":
+      return node.childForFieldName("name")?.text ?? null;
+    default:
+      return null;
+  }
+}
+function ordinalOf(container, child) {
+  let n = 0;
+  for (let i2 = 0; i2 < container.namedChildCount; i2++) {
+    const c2 = container.namedChild(i2);
+    if (!c2) continue;
+    if (c2.id === child.id) return n;
+    n++;
+  }
+  return n;
+}
+function stringLiteralText(node) {
+  const content = namedChildrenOfType(node, "string_content")[0];
+  return content ? content.text : null;
+}
+function superclasses(cls) {
+  return cls.childForFieldName("superclasses")?.text ?? "";
+}
+function calleeName(call) {
+  const fn = call.childForFieldName("function");
+  if (!fn) return null;
+  return fn.type === "identifier" || fn.type === "attribute" ? fn.text : null;
+}
+function enclosingSymbol2(node) {
+  let cur = node.parent;
+  while (cur) {
+    const named = nameOf2(cur);
+    if (named) return named;
+    cur = cur.parent;
+  }
+  return null;
+}
+function ancestorOfType(node, types) {
+  let cur = node.parent;
+  while (cur) {
+    if (types.has(cur.type)) return cur;
+    cur = cur.parent;
+  }
+  return null;
+}
+function firstNamedChild(body2) {
+  return body2.namedChild(0)?.id ?? null;
+}
+function namedChildrenOfType(node, type) {
+  const out2 = [];
+  for (let i2 = 0; i2 < node.childCount; i2++) {
+    const c2 = node.child(i2);
+    if (c2 && c2.type === type) out2.push(c2);
+  }
+  return out2;
+}
+function byteSpan2(node, map) {
+  return { start: map.byteOf(node.startIndex), end: map.byteOf(node.endIndex) };
+}
+function decode(raw, quote, opener) {
+  if (/r/i.test(opener.slice(0, opener.length - quote.length))) return raw;
+  return raw.replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|[\s\S])/g, (_, seq) => {
+    if (seq.startsWith("u{")) return String.fromCodePoint(parseInt(seq.slice(2, -1), 16));
+    if (seq[0] === "u") return String.fromCharCode(parseInt(seq.slice(1), 16));
+    if (seq[0] === "x") return String.fromCharCode(parseInt(seq.slice(1), 16));
+    switch (seq) {
+      case "n":
+        return "\n";
+      case "t":
+        return "	";
+      case "r":
+        return "\r";
+      case "0":
+        return "\0";
+      case "\n":
+        return "";
+      default:
+        return seq;
+    }
+  });
+}
+
+// src/extract/shell.ts
+var DIRECTIVE2 = /^#\s*(!|shellcheck\b|shfmt\b|-\*-|vim:|Editor:)/;
+var COMMENT_ONLY_BASENAMES = /* @__PURE__ */ new Set([
+  ".gitignore",
+  ".dockerignore",
+  ".npmignore",
+  ".eslintignore",
+  ".prettierignore",
+  ".gitattributes",
+  ".env.example",
+  ".env.sample",
+  ".env.template"
+]);
+var COMMENT_ONLY_EXT = /* @__PURE__ */ new Set([".example", ".sample", ".template"]);
+function isCommentOnly(rel2, ext) {
+  const base = rel2.slice(rel2.lastIndexOf("/") + 1);
+  if (COMMENT_ONLY_BASENAMES.has(base)) return true;
+  return COMMENT_ONLY_EXT.has(ext);
+}
+function extractShell(file, text, tree, map) {
+  const sites = [];
+  const identifiers = /* @__PURE__ */ new Set();
+  const errorSpans = [];
+  let hasError = false;
+  let index2 = 0;
+  walkTree(tree.rootNode, (node) => {
+    if (node.type === "ERROR" || node.isMissing) {
+      hasError = true;
+      errorSpans.push({ start: map.byteOf(node.startIndex), end: map.byteOf(node.endIndex) });
+      return false;
+    }
+    if (node.type === "command_name" || node.type === "variable_name") {
+      identifiers.add(node.text);
+      return;
+    }
+    if (node.type !== "comment") return void 0;
+    const body2 = node.text;
+    if (DIRECTIVE2.test(body2)) return false;
+    const marker = /^#+\s?/.exec(body2)?.[0] ?? "#";
+    const value = body2.slice(marker.length).trimEnd();
+    if (!new RegExp("\\p{L}{2,}", "u").test(value)) return false;
+    const s = map.lineColOf(node.startIndex);
+    const e = map.lineColOf(node.endIndex);
+    sites.push({
+      file,
+      path: `#comment[${index2++}]`,
+      kind: "comment",
+      span: { start: map.byteOf(node.startIndex), end: map.byteOf(node.endIndex) },
+      valueSpan: { start: map.byteOf(node.startIndex + marker.length), end: map.byteOf(node.endIndex) },
+      raw: body2,
+      value,
+      quote: null,
+      escapes: false,
+      holes: [],
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "shell-ast",
+      tier: "ast",
+      container: { isKey: false },
+      prefix: marker,
+      suffix: "",
+      linePrefix: ""
+    });
+    return false;
+  });
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return {
+    sites,
+    tokens: { enums: /* @__PURE__ */ new Map(), compared: /* @__PURE__ */ new Map(), persisted: /* @__PURE__ */ new Map(), identifiers },
+    errorSpans,
+    hasError
+  };
+}
+
+// src/extract/sql.ts
+function extractSql(file, text, map) {
+  const sites = [];
+  let index2 = 0;
+  let i2 = 0;
+  let claimed = 0;
+  let complete = true;
+  const n = text.length;
+  const push = (kind, startChar, endChar, valueStartChar, valueEndChar, value, quote, prefix, suffix) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    sites.push({
+      file,
+      path: `${kind === "comment" ? "#comment" : "string"}[${index2++}]`,
+      kind,
+      span,
+      valueSpan: { start: map.byteOf(valueStartChar), end: map.byteOf(valueEndChar) },
+      raw: text.slice(startChar, endChar),
+      value,
+      quote,
+      escapes: quote === "'" && text.slice(startChar, endChar).includes("''"),
+      holes: [],
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "sql",
+      tier: "structural",
+      container: { isKey: false },
+      ...prefix !== void 0 ? { prefix, suffix: suffix ?? "", linePrefix: "" } : {}
+    });
+  };
+  while (i2 < n) {
+    const c2 = text[i2];
+    if (c2 === "-" && text[i2 + 1] === "-") {
+      const end = indexOfOr(text, "\n", i2, n);
+      const marker = /^-{2,}\s?/.exec(text.slice(i2, end))[0];
+      const value = text.slice(i2 + marker.length, end).trimEnd();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+        push("comment", i2, end, i2 + marker.length, end, value, null, marker, "");
+      }
+      claimed += map.byteOf(end) - map.byteOf(i2);
+      i2 = end;
+      continue;
+    }
+    if (c2 === "/" && text[i2 + 1] === "*") {
+      const close = text.indexOf("*/", i2 + 2);
+      if (close === -1) {
+        complete = false;
+        break;
+      }
+      const end = close + 2;
+      const value = text.slice(i2 + 2, close).trim();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) push("comment", i2, end, i2 + 2, close, value, null, "/* ", " */");
+      claimed += map.byteOf(end) - map.byteOf(i2);
+      i2 = end;
+      continue;
+    }
+    if (c2 === "'") {
+      let k = i2 + 1;
+      while (k < n) {
+        if (text[k] === "'" && text[k + 1] === "'") {
+          k += 2;
+          continue;
+        }
+        if (text[k] === "'") break;
+        k++;
+      }
+      if (k >= n) {
+        complete = false;
+        break;
+      }
+      const end = k + 1;
+      const value = text.slice(i2 + 1, k).replace(/''/g, "'");
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) push("scalar", i2, end, i2 + 1, k, value, "'");
+      claimed += map.byteOf(end) - map.byteOf(i2);
+      i2 = end;
+      continue;
+    }
+    if (c2 === '"' || c2 === "`") {
+      const close = text.indexOf(c2, i2 + 1);
+      if (close === -1) {
+        complete = false;
+        break;
+      }
+      claimed += map.byteOf(close + 1) - map.byteOf(i2);
+      i2 = close + 1;
+      continue;
+    }
+    claimed += map.byteOf(i2 + 1) - map.byteOf(i2);
+    i2++;
+  }
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, claimedBytes: claimed, complete };
+}
+function indexOfOr(text, needle, from, fallback) {
+  const idx = text.indexOf(needle, from);
+  return idx === -1 ? fallback : idx;
+}
+
 // src/identity.ts
 import { createHash as createHash4 } from "crypto";
 function siteId(siteKey) {
@@ -21038,7 +21508,7 @@ function extractJson(file, text, map) {
     }
     if (c2 === "/" && (at(i2 + 1) === "/" || at(i2 + 1) === "*")) {
       const block = at(i2 + 1) === "*";
-      const end = block ? indexOfOr(text, "*/", i2 + 2, n) + 2 : indexOfOr(text, "\n", i2 + 2, n);
+      const end = block ? indexOfOr2(text, "*/", i2 + 2, n) + 2 : indexOfOr2(text, "\n", i2 + 2, n);
       const raw = text.slice(i2, Math.min(end, n));
       const value = block ? raw.slice(2, -2).trim() : raw.slice(2).trim();
       if (new RegExp("\\p{L}{2,}", "u").test(value)) {
@@ -21134,7 +21604,7 @@ function extractJson(file, text, map) {
   sites.sort((a, b) => a.span.start - b.span.start);
   return { sites, keys, claimedBytes: claimed, complete };
 }
-function indexOfOr(text, needle, from, fallback) {
+function indexOfOr2(text, needle, from, fallback) {
   const idx = text.indexOf(needle, from);
   return idx === -1 ? fallback : idx;
 }
@@ -21147,7 +21617,7 @@ function isKeyPosition(text, afterToken, n) {
       continue;
     }
     if (c2 === "/" && (text[k + 1] === "/" || text[k + 1] === "*")) {
-      k = text[k + 1] === "*" ? indexOfOr(text, "*/", k + 2, n) + 2 : indexOfOr(text, "\n", k + 2, n);
+      k = text[k + 1] === "*" ? indexOfOr2(text, "*/", k + 2, n) + 2 : indexOfOr2(text, "\n", k + 2, n);
       continue;
     }
     return c2 === ":";
@@ -21239,6 +21709,7 @@ function extractYaml(file, text, map, nested) {
   const sites = [];
   const keys = /* @__PURE__ */ new Set();
   const skipped = [];
+  const skippedSpans = [];
   let claimed = 0;
   let complete = true;
   const stack = [];
@@ -21318,20 +21789,11 @@ function extractYaml(file, text, map, nested) {
       if (blockMatch) {
         const block = readBlock(lines, li + 1, indent);
         if (block) {
-          const container = { isKey: false };
-          push(
-            "block-scalar",
-            block.start,
-            block.end,
-            block.dedented,
-            null,
-            path,
-            container
-          );
-          if (nested) {
-            for (const child of nested(block.dedented, block.start + block.bodyIndent, path)) {
-              sites.push(child);
-            }
+          const children = nested ? nested({ from: block.start, to: block.end }, path, block.dedented) : [];
+          if (children.length) {
+            for (const child of children) sites.push(child);
+          } else {
+            push("block-scalar", block.start, block.end, block.dedented, null, path, { isKey: false });
           }
           for (let k = li + 1; k <= block.lastLine && k < lines.length; k++) {
             claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
@@ -21342,12 +21804,19 @@ function extractYaml(file, text, map, nested) {
       }
       const trimmedValue = valueText.trim();
       if (trimmedValue === "" || trimmedValue.startsWith("#")) continue;
+      const skip = (what) => {
+        skipped.push(`${file}:${li + 1}: ${what}`);
+        skippedSpans.push({
+          start: map.byteOf(lineStart + valueStart),
+          end: map.byteOf(lineStart + line.length)
+        });
+      };
       if (trimmedValue.startsWith("&") || trimmedValue.startsWith("*")) {
-        skipped.push(`${file}:${li + 1}: anchor or alias`);
+        skip("anchor or alias");
         continue;
       }
       if (trimmedValue.startsWith("[") || trimmedValue.startsWith("{")) {
-        skipped.push(`${file}:${li + 1}: flow collection`);
+        skip("flow collection");
         continue;
       }
       const scalar2 = readScalar(valueText, lineStart + valueStart);
@@ -21362,7 +21831,8 @@ function extractYaml(file, text, map, nested) {
     }
   }
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, keys, claimedBytes: claimed, complete, skipped };
+  const unread = skippedSpans.reduce((n, s) => n + (s.end - s.start), 0);
+  return { sites, keys, claimedBytes: claimed - unread, complete, skipped, skippedSpans };
 }
 function splitLines(text) {
   const out2 = [];
@@ -21773,24 +22243,24 @@ var TABLE_ROW = /^\s*\|(.+)\|\s*$/;
 var TABLE_SEP = /^[\s|:-]+$/;
 var HTML_BLOCK = /^\s*<\/?[a-zA-Z][^>]*>/;
 var REF_DEF = /^\s*\[[^\]]+\]:\s+\S+/;
-var INLINE_CODE = /`[^`]*`/g;
+var INLINE_CODE = /`[^`\n]*`/g;
 var LINK = /\[([^\]]*)\]\(([^)]*)\)/g;
 var IMAGE = /!\[([^\]]*)\]\(([^)]*)\)/g;
 var AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g;
-function extractMarkdown2(file, text, map, baseOffset = 0) {
+function extractMarkdown2(file, text, map, range) {
   const sites = [];
-  const headings = [];
   let claimed = 0;
-  const lines = [];
+  const all = [];
   {
     let start2 = 0;
     for (let i2 = 0; i2 <= text.length; i2++) {
       if (i2 === text.length || text[i2] === "\n") {
-        lines.push({ text: text.slice(start2, i2), start: start2 });
+        all.push({ text: text.slice(start2, i2), start: start2 });
         start2 = i2 + 1;
       }
     }
   }
+  const lines = range ? all.filter((l) => l.start >= range.from && l.start < range.to) : all;
   let inFence = false;
   let fenceMarker = "";
   let paragraph = null;
@@ -21815,7 +22285,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
       const from = startChar + at;
       const to = from + trimmed.length;
       sites.push(
-        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, "prose-run", from, to, raw.slice(at, at + trimmed.length), map, baseOffset)
+        makeSite(file, `${pathPrefix}/text[${runIndex++}]`, "prose-run", from, to, raw.slice(at, at + trimmed.length), map)
       );
     }
   };
@@ -21854,7 +22324,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
         claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
       }
       for (const site3 of extractHtml(file, text, map, { from, to }).sites) {
-        sites.push(baseOffset ? { ...site3, span: shift(site3.span, baseOffset), valueSpan: shift(site3.valueSpan, baseOffset) } : site3);
+        sites.push(site3);
       }
       i2 = last;
       continue;
@@ -21864,9 +22334,8 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
       flush();
       const body3 = heading[3];
       const at = start2 + heading[1].length + heading[2].length + 1;
-      headings.push({ text: body3, slug: slugify2(body3), line: i2 + 1 });
       if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
-        sites.push(makeSite(file, `h${heading[2].length}[${blockIndex++}]`, "prose-run", at, at + body3.length, body3, map, baseOffset));
+        sites.push(makeSite(file, `h${heading[2].length}[${blockIndex++}]`, "prose-run", at, at + body3.length, body3, map));
       }
       continue;
     }
@@ -21880,7 +22349,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
         const body3 = part.trim();
         if (new RegExp("\\p{L}{2,}", "u").test(body3)) {
           const from = cursor + trimmedStart;
-          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, "prose-run", from, from + body3.length, body3, map, baseOffset));
+          sites.push(makeSite(file, `table[${blockIndex}]/cell[${cell}]`, "prose-run", from, from + body3.length, body3, map));
         }
         cursor += part.length + 1;
         cell++;
@@ -21906,7 +22375,7 @@ function extractMarkdown2(file, text, map, baseOffset = 0) {
   }
   flush();
   sites.sort((a, b) => a.span.start - b.span.start);
-  return { sites, claimedBytes: claimed, headings };
+  return { sites, claimedBytes: claimed };
 }
 function blank(s, re, keep) {
   return s.replace(new RegExp(re.source, re.flags), (...args2) => {
@@ -21923,14 +22392,11 @@ function keepGroup(m, group) {
   if (at === -1 || inner === "") return " ".repeat(whole.length);
   return " ".repeat(at) + inner + " ".repeat(whole.length - at - inner.length);
 }
-function shift(span, by) {
-  return { start: span.start + by, end: span.end + by };
-}
 function slugify2(heading) {
   return heading.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, "").trim().replace(/\s+/g, "-");
 }
-function makeSite(file, path, kind, startChar, endChar, value, map, baseOffset) {
-  const span = { start: baseOffset + map.byteOf(startChar), end: baseOffset + map.byteOf(endChar) };
+function makeSite(file, path, kind, startChar, endChar, value, map) {
+  const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
   const s = map.lineColOf(startChar);
   const e = map.lineColOf(endChar);
   return {
@@ -22757,7 +23223,7 @@ function extractFtl(file, text, map) {
       skipped.push(`junk at line ${map.lineColOf(entry.start).line}`);
       continue;
     }
-    claimed += byteSpan2(map, text, entry.start, entry.end);
+    claimed += byteSpan3(map, text, entry.start, entry.end);
     if (entry.kind === "comment") {
       const raw = text.slice(entry.start, entry.end);
       const marker = /^#{1,3}\s?/.exec(raw)?.[0] ?? "# ";
@@ -22784,7 +23250,7 @@ function extractFtl(file, text, map) {
   sites.sort((a, b) => a.span.start - b.span.start);
   return { sites, keys, claimedBytes: claimed, complete: ok, skipped };
 }
-function byteSpan2(map, text, start2, end) {
+function byteSpan3(map, text, start2, end) {
   return lineBytes(map, text, start2, Math.max(0, end - start2 - 1));
 }
 function blankBytes(map, text, entries) {
@@ -24523,7 +24989,12 @@ var RULES17 = [
     when: {
       kind: "pointer",
       file: [".github/workflows/*.yml", ".github/workflows/*.yaml"],
-      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)$/
+      // The pointer, AND anything under it. The body is markdown that renders
+      // on a public page, so it is read as markdown — and every prose run that
+      // comes back anchors below this pointer. Ending the pattern at `$` left
+      // the rule matching a block scalar nobody emits any more, and every run
+      // inside it falling through to the language detector.
+      pointerRegex: /^\/jobs\/[^/]+\/steps\/\d+\/with\/(body|release_name|release_notes)(\/|$)/
     },
     emit: { surface: "ui.release-notes", verdict: "translate", flags: ["public-facing"] },
     companions: [
@@ -24797,7 +25268,7 @@ function classify2(raw, opts) {
     hard: decided.hard ?? false,
     extractor: raw.extractor,
     tier: raw.tier,
-    degraded: raw.tier === "regex",
+    degraded: opts.degraded ?? false,
     lang,
     flags: decided.flags ?? [],
     constraints: {
@@ -25016,6 +25487,7 @@ function surfaceFor(raw) {
     case "template":
       return "ui.template-literal";
     case "comment":
+      if (raw.container.docstring) return "comment.docstring";
       return raw.raw.startsWith("/*") ? "comment.block" : "comment.line";
     case "block-scalar":
     case "prose-run":
@@ -26164,6 +26636,15 @@ function syntaxFor(site3) {
       return site3.kind === "comment" ? "line-comment" : "ftl-pattern";
     case "dockerfile":
       return site3.kind === "comment" ? "line-comment" : "dockerfile-value";
+    case "python-ast":
+      if (site3.quote === '"""' || site3.quote === "'''") return "py-triple";
+      if (site3.kind === "comment") return "line-comment";
+      return site3.quote === '"' ? "js-double" : "js-single";
+    case "shell-ast":
+      return "line-comment";
+    case "sql":
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
+      return "sql-string";
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
   }
@@ -26213,6 +26694,13 @@ function escapeRaw(syntax, text, opts) {
       return text.replace(/\{/g, '{"{"}');
     case "dockerfile-value":
       return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
+    case "py-triple": {
+      const delimiter = opts.quote === "'''" ? "'''" : '"""';
+      const q = delimiter[0];
+      return text.replace(/\\/g, "\\\\").split(delimiter).join(`\\${q}\\${q}\\${q}`).replace(new RegExp(`\\${q}$`), `\\${q}`);
+    }
+    case "sql-string":
+      return text.replace(/'/g, "''").replace(/\r?\n/g, " ");
     case "plain":
       return text;
   }
@@ -26274,17 +26762,31 @@ function unescapeFor(syntax, text, opts = {}) {
     case "css-comment":
     case "block-comment":
       return text.replace(/\*\\\//g, "*/");
+    // Six of these used to hold a COPY OF THE ESCAPER rather than its inverse,
+    // and the round-trip corpus in `tests/apply.test.ts` covered exactly the
+    // eight syntaxes that were right — so `apply`'s self-check, the thing that
+    // turns an escaper bug into a loud refusal, was comparing escape(escape(x))
+    // against x for every format below. It passed on text with nothing to
+    // escape, which is most text, and would have refused a correct write on any
+    // comment containing a backslash.
     case "line-comment":
+      return text;
     case "po-string":
-      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+      return text.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "	").replace(/\\(["\\])/g, "$1");
     case "toml-basic":
-      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+      return text.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "	").replace(/\\(["\\])/g, "$1");
     case "toml-literal":
       return text;
     case "ftl-pattern":
-      return text.replace(/\{/g, '{"{"}');
+      return text.replace(/\{"\{"\}/g, "{");
     case "dockerfile-value":
-      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
+      return text.replace(/\\(["\\])/g, "$1");
+    case "py-triple": {
+      const q = opts.quote === "'''" ? "'" : '"';
+      return text.split(`\\${q}\\${q}\\${q}`).join(q.repeat(3)).replace(/\\([\\"'])/g, "$1");
+    }
+    case "sql-string":
+      return text.replace(/''/g, "'");
     case "plain":
       return text;
   }
@@ -27001,11 +27503,34 @@ var HTML_EXT = /* @__PURE__ */ new Set([".html", ".htm", ".xhtml", ".svg", ".xml
 var PO_EXT = /* @__PURE__ */ new Set([".po", ".pot"]);
 var TOML_EXT = /* @__PURE__ */ new Set([".toml"]);
 var FTL_EXT = /* @__PURE__ */ new Set([".ftl"]);
+var SQL_EXT = /* @__PURE__ */ new Set([".sql", ".ddl", ".psql"]);
+var JSONL_EXT = /* @__PURE__ */ new Set([".jsonl", ".ndjson"]);
+var VISITORS = {
+  ".py": extractPython,
+  ".pyi": extractPython,
+  ".sh": extractShell,
+  ".bash": extractShell,
+  ".zsh": extractShell
+};
+var EXTRACTOR_NAMES = {
+  ".py": "python-ast",
+  ".pyi": "python-ast",
+  ".sh": "shell-ast",
+  ".bash": "shell-ast",
+  ".zsh": "shell-ast"
+};
+function grammarExtFor(rel2, ext) {
+  if (AST_EXTENSIONS.has(ext)) return ext;
+  if (isCommentOnly(rel2, ext)) return ".sh";
+  return null;
+}
 async function scan2(opts) {
   const { repo } = opts;
   const to = opts.to ?? "en";
   const walked = walk(repo);
-  const exts = new Set(walked.files.map((f) => f.ext));
+  const exts = new Set(
+    walked.files.map((f) => grammarExtFor(f.rel, f.ext)).filter((e) => e !== null)
+  );
   if (!opts.noAst) await prepareGrammars(exts);
   const tokens = emptyTokenIndex();
   const results = [];
@@ -27019,7 +27544,7 @@ async function scan2(opts) {
   const pairs = [];
   for (const result of results) {
     for (const raw of result.sites) {
-      const site3 = classify2(raw, { from, to, tokens, fileLocale });
+      const site3 = classify2(raw, { from, to, tokens, fileLocale, degraded: result.degraded });
       sites.push(site3);
       pairs.push({ raw, site: site3 });
     }
@@ -27200,6 +27725,18 @@ function markupResult(base, file, read2, map, tokens, extra) {
     ...extra?.reason ? { reason: extra.reason } : {}
   };
 }
+var MARKDOWN_SURFACES = /* @__PURE__ */ new Set(["ui.release-notes", "doc.markdown-prose", "doc.changelog"]);
+function markdownInYaml(file, text, map, region, path, body2) {
+  const key = path.split("/").pop() ?? "";
+  const matched = matchRules(RULES17, { file, path, value: body2, key }).some(
+    (m) => MARKDOWN_SURFACES.has(m.emit.surface)
+  );
+  if (!matched) return [];
+  return extractMarkdown2(file, text, map, region).sites.map((site3) => ({
+    ...site3,
+    path: `${path}/${site3.path}`
+  }));
+}
 async function extractFile(file, tokens, opts) {
   const read2 = readTextEx(file.abs);
   const base = {
@@ -27229,12 +27766,15 @@ async function extractFile(file, tokens, opts) {
     for (const k of keys) tokens.identifiers.add(k);
     return { ...base, sites, extractor: "dockerfile", bytesClaimed: claimedBytes };
   }
-  if (!opts.noAst && AST_EXTENSIONS.has(ext)) {
-    const parser2 = await parserForExt(ext);
+  const grammarExt = grammarExtFor(file.rel, ext);
+  if (grammarExt) {
+    const parser2 = opts.noAst ? null : await parserForExt(grammarExt);
     if (parser2) {
       const tree = parser2.parse(read2.text);
       if (tree) {
-        const { sites, tokens: contributed, errorSpans, hasError } = extractTs(
+        const visit = VISITORS[grammarExt] ?? extractTs;
+        const extractor = EXTRACTOR_NAMES[grammarExt] ?? "ts-ast";
+        const { sites, tokens: contributed, errorSpans, hasError } = visit(
           file.rel,
           read2.text,
           tree,
@@ -27242,32 +27782,41 @@ async function extractFile(file, tokens, opts) {
         );
         merge2(tokens, contributed);
         if (!hasError) {
-          return { ...base, sites, extractor: "ts-ast", bytesClaimed: read2.bytes };
+          return { ...base, sites, extractor, bytesClaimed: read2.bytes };
         }
         const unreadable = merge(errorSpans);
         const claimed = [...complement(unreadable, read2.bytes), ...sites.map((s) => s.span)];
-        const residual2 = sweepFile(file.rel, read2.text, map, claimed, {
+        const residual3 = sweepFile(file.rel, read2.text, map, claimed, {
           identifiers: tokens.identifiers,
-          extractor: "ts-ast",
-          reason: `the ${ext} grammar could not parse this span; found by the residual sweep`
+          extractor,
+          reason: `the ${grammarExt} grammar could not parse this span; found by the residual sweep`
         });
         const unreadableBytes = unreadable.reduce((n, s) => n + (s.end - s.start), 0);
         return {
           ...base,
-          sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
-          extractor: "ts-ast",
+          sites: [...sites, ...residual3].sort((a, b) => a.span.start - b.span.start),
+          extractor,
           degraded: true,
           bytesClaimed: Math.max(0, read2.bytes - unreadableBytes),
           complete: false,
-          reason: `the ${ext} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`
+          reason: `the ${grammarExt} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`
         };
       }
     }
+    const reason = grammarStatus().reason ?? "no grammar for this extension";
+    const residual2 = sweepFile(file.rel, read2.text, map, [], {
+      identifiers: tokens.identifiers,
+      extractor: "none",
+      reason: `no ${grammarExt} parser was available (${reason}); found by the residual sweep`
+    });
     return {
       ...base,
+      sites: residual2,
       extractor: "none",
       degraded: true,
-      reason: grammarStatus().reason ?? "no grammar for this extension"
+      bytesClaimed: read2.bytes,
+      complete: false,
+      reason
     };
   }
   if (JSON_EXT.has(ext)) {
@@ -27275,10 +27824,64 @@ async function extractFile(file, tokens, opts) {
     for (const k of keys) tokens.identifiers.add(k);
     return { ...base, sites, extractor: "json", bytesClaimed: claimedBytes, complete };
   }
+  if (JSONL_EXT.has(ext)) {
+    const sites = [];
+    let claimed = 0;
+    let complete = true;
+    let at = 0;
+    let line = 0;
+    for (const body2 of read2.text.split("\n")) {
+      if (body2.trim() !== "") {
+        const out2 = extractJson(file.rel, body2, new OffsetMap(body2));
+        for (const k of out2.keys) tokens.identifiers.add(k);
+        if (!out2.complete) complete = false;
+        const shift = map.byteOf(at);
+        const lineNo = map.lineColOf(at).line - 1;
+        for (const site3 of out2.sites) {
+          sites.push({
+            ...site3,
+            // The line ordinal is part of the anchor. Without it every document
+            // in the file shares `/message/text` and one translation lands on
+            // another's bytes.
+            path: `/line[${line}]${site3.path}`,
+            span: { start: site3.span.start + shift, end: site3.span.end + shift },
+            valueSpan: { start: site3.valueSpan.start + shift, end: site3.valueSpan.end + shift },
+            line: site3.line + lineNo,
+            endLine: site3.endLine + lineNo
+          });
+        }
+        claimed += out2.claimedBytes;
+      }
+      claimed += map.byteOf(Math.min(at + body2.length + 1, read2.text.length)) - map.byteOf(at + body2.length);
+      at += body2.length + 1;
+      line++;
+    }
+    return { ...base, sites, extractor: "json", bytesClaimed: claimed, complete };
+  }
+  if (SQL_EXT.has(ext)) {
+    const { sites, claimedBytes, complete } = extractSql(file.rel, read2.text, map);
+    return { ...base, sites, extractor: "sql", bytesClaimed: claimedBytes, complete };
+  }
   if (YAML_EXT.has(ext)) {
-    const { sites, keys, claimedBytes, complete } = extractYaml(file.rel, read2.text, map);
+    const { sites, keys, claimedBytes, complete, skippedSpans } = extractYaml(
+      file.rel,
+      read2.text,
+      map,
+      (region, path, body2) => markdownInYaml(file.rel, read2.text, map, region, path, body2)
+    );
     for (const k of keys) tokens.identifiers.add(k);
-    return { ...base, sites, extractor: "yaml", bytesClaimed: claimedBytes, complete };
+    const residual2 = skippedSpans.length ? sweepFile(file.rel, read2.text, map, [...complement(merge(skippedSpans), read2.bytes), ...sites.map((s) => s.span)], {
+      identifiers: tokens.identifiers,
+      extractor: "yaml",
+      reason: "a YAML flow collection or alias, which the indentation scanner does not enter; found by the residual sweep"
+    }) : [];
+    return {
+      ...base,
+      sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
+      extractor: "yaml",
+      bytesClaimed: claimedBytes,
+      complete
+    };
   }
   if (MARKDOWN_EXT2.has(ext)) {
     const { sites, claimedBytes } = extractMarkdown2(file.rel, read2.text, map);
@@ -27384,6 +27987,13 @@ function claimRatioOf(result) {
   const body2 = result.bytesTotal - result.bodyStart;
   return body2 > 0 ? round2(result.bytesClaimed / body2) : 1;
 }
+function tierOf2(result) {
+  const extractor = result.extractor;
+  if (!extractor || extractor === "empty") return null;
+  if (extractor.endsWith("-ast")) return "ast";
+  if (extractor === "residual-sweep" || extractor === "none") return "sweep";
+  return "structural";
+}
 function buildCensus(repo, walked, results) {
   const tracked = gitLsFiles(repo);
   const byFile = new Map(results.map((r) => [r.file.rel, r]));
@@ -27407,6 +28017,7 @@ function buildCensus(repo, walked, results) {
       bucket: result.sites.length > 0 ? "scanned" : "scanned-zero",
       sites: result.sites.length,
       extractors: result.extractor ? [result.extractor] : [],
+      ...tierOf2(result) ? { tier: tierOf2(result) } : {},
       degraded: result.degraded,
       byteAddressable: result.byteAddressable,
       bytesTotal: result.bytesTotal,
@@ -27652,7 +28263,7 @@ function rulingFor(group, adjudications, byId, stale) {
   group.mirrors = group.mirrors.filter((id) => !excluded.has(id));
   return "resolved";
 }
-var TEST_FILE3 = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//;
+var TEST_FILE4 = /(\.|\/)(test|spec)\.[cm]?[jt]sx?$|(^|\/)(__tests__|e2e)\//;
 function plan(inv, opts = {}) {
   const mode = opts.mode ?? "swap";
   const glossary = opts.glossary ?? /* @__PURE__ */ new Map();
@@ -27891,7 +28502,7 @@ function findUnlinked(inv, groups) {
   const known = new Set(groups.map((g) => normalizeForGrouping(g.text)));
   const out2 = [];
   for (const site3 of inv.sites) {
-    if (!TEST_FILE3.test(site3.file)) continue;
+    if (!TEST_FILE4.test(site3.file)) continue;
     if (site3.reason !== "test-fixture") continue;
     const normalized = normalizeForGrouping(site3.value);
     if (known.has(normalized)) continue;
@@ -30983,6 +31594,191 @@ function clip4(s, n = 60) {
   return JSON.stringify(flat.length > n ? flat.slice(0, n - 1) + "\u2026" : flat);
 }
 
+// src/audit.ts
+import { join as join36 } from "path";
+var TWO_WORDS = new RegExp("\\p{L}{2,}[^\\p{L}\\n]{0,2}\\s\\p{L}{2,}", "u");
+var LOCATORS = [
+  {
+    id: "quoted-prose",
+    extractors: ["ts-ast", "python-ast"],
+    re: /(['"`])(?<text>(?:[^'"`\\\n]|\\.)*)\1/g,
+    why: "A quoted literal holding two or more words. This is where a code file keeps its copy, and an extractor claiming every byte has no excuse for one."
+  },
+  {
+    id: "jsx-text",
+    extractors: ["ts-ast"],
+    // A COMPLETE open tag, text, and the start of a closing tag. A bare
+    // `>` … `<` pair matched `Map<string, Site[]>` and `a >= b && c`, which is
+    // most of a TypeScript file.
+    re: /<[a-zA-Z][^<>]*>([^<>{}\n]+)<\//g,
+    why: "Text between two JSX tags on one line \u2014 the visible label of a component, and the one thing a symbol indexer never sees."
+  },
+  {
+    id: "json-value",
+    extractors: ["json"],
+    re: /:\s*"((?:[^"\\]|\\.)*)"/g,
+    why: "A string VALUE in an object. A key is an identifier; a value with two words in it is copy until something says otherwise."
+  },
+  {
+    id: "yaml-scalar",
+    extractors: ["yaml"],
+    re: /^\s*(?:[\w.@/-]+\s*:\s*|-\s+)(.+)$/,
+    not: /^\s*#|^\s*[\w.@/-]+\s*:\s*[|>]/,
+    why: "A mapping value or sequence item. Block scalars are excluded here because their body is read line by line by the row above them."
+  },
+  {
+    id: "markdown-prose",
+    extractors: ["markdown", "text"],
+    re: /^(.*)$/,
+    not: /^\s{4,}|^\s*[|>]|^\s*```|^\s*~~~|^\s*\[[^\]]+\]:\s|^\s*<|^\s*$/,
+    why: "A prose line in a document. Hard-wrapped paragraphs are the normal way markdown is written, and losing all but the last line of one was the largest recall hole this project has had."
+  },
+  {
+    id: "markup-text",
+    extractors: ["html"],
+    re: />([^<>\n]*)</g,
+    why: "Text between two tags. Includes an SVG <title> and <desc>, which carry the accessible name of every icon in an interface."
+  },
+  {
+    id: "comment",
+    extractors: ["ts-ast", "python-ast", "shell-ast", "css", "sql", "dockerfile", "json", "yaml"],
+    // Anchored at the start of the line, and `--` must be followed by a space.
+    // Unanchored, a regex literal holding `\/\/` read as a comment marker and a
+    // CSS custom property `--color-ink-950` read as a SQL comment. A TRAILING
+    // comment is therefore outside this oracle — a real gap, and the safe one:
+    // the alternative to anchoring is lexing the line, and an oracle that needs
+    // a lexer is the extractor it is supposed to be independent of.
+    re: /^\s*(?:\/\/+|#+|--\s|\/\*)\s*(.+?)(?:\*\/)?\s*$/,
+    not: /^\s*#!|shellcheck|eslint-|prettier-|@ts-|noqa|pylint|type:\s|https?:\/\//,
+    why: "A comment on its own line. The file of comments nobody opened is the classic residue of a translation pass, and four French ones in a stylesheet survived two separate human passes on the reference repository."
+  }
+];
+function asserts(entry) {
+  if (entry.bucket !== "scanned") return false;
+  if (entry.byteAddressable === false) return false;
+  if (entry.claimRatio !== 1) return false;
+  const extractor = entry.extractors?.[0] ?? "";
+  return extractor !== "" && extractor !== "residual-sweep" && extractor !== "none" && extractor !== "empty";
+}
+function auditCoverage(inv, repo) {
+  const sitesByFile = /* @__PURE__ */ new Map();
+  for (const site3 of inv.sites) {
+    const list = sitesByFile.get(site3.file);
+    if (list) list.push(site3);
+    else sitesByFile.set(site3.file, [site3]);
+  }
+  const findings = [];
+  const excused = { measured: 0, unaddressable: 0, noLocator: 0 };
+  let audited = 0;
+  let linesChecked = 0;
+  for (const entry of inv.census) {
+    if (!asserts(entry)) {
+      if (entry.bucket !== "scanned") continue;
+      if (entry.byteAddressable === false) excused.unaddressable++;
+      else excused.measured++;
+      continue;
+    }
+    const extractor = entry.extractors[0];
+    const rows = LOCATORS.filter((l) => l.extractors.includes(extractor));
+    if (rows.length === 0) {
+      excused.noLocator++;
+      continue;
+    }
+    let text;
+    try {
+      const read2 = readTextEx(join36(repo, entry.file));
+      if (!read2.ok || read2.binary) continue;
+      text = read2.text;
+    } catch {
+      continue;
+    }
+    audited++;
+    const covered = coveredLines(sitesByFile.get(entry.file) ?? []);
+    const lines = text.split("\n");
+    let inFence = false;
+    for (let i2 = 0; i2 < lines.length; i2++) {
+      const line = lines[i2];
+      if (/^\s*(```|~~~)/.test(line)) {
+        inFence = !inFence;
+        continue;
+      }
+      if (inFence) continue;
+      const number = i2 + 1;
+      if (covered.has(number)) continue;
+      linesChecked++;
+      for (const row of rows) {
+        if (row.not?.test(line)) continue;
+        const hit = firstProse(row.re, line);
+        if (hit === null) continue;
+        findings.push({
+          file: entry.file,
+          line: number,
+          locator: row.id,
+          text: hit.length > 100 ? hit.slice(0, 99) + "\u2026" : hit,
+          claimRatio: entry.claimRatio,
+          extractor
+        });
+        break;
+      }
+    }
+  }
+  findings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
+  return { audited, excused, linesChecked, findings, ok: findings.length === 0 };
+}
+function firstProse(re, line) {
+  if (re.global) {
+    const local = new RegExp(re.source, re.flags);
+    for (const m2 of line.matchAll(local)) {
+      const body3 = textOf(m2);
+      if (TWO_WORDS.test(body3)) return body3;
+    }
+    return null;
+  }
+  const m = re.exec(line);
+  if (!m) return null;
+  const body2 = textOf(m);
+  return TWO_WORDS.test(body2) ? body2 : null;
+}
+function textOf(m) {
+  return (m.groups?.text ?? m[1] ?? m[0]).trim();
+}
+function coveredLines(sites) {
+  const out2 = /* @__PURE__ */ new Set();
+  for (const site3 of sites) {
+    for (let n = site3.line; n <= site3.endLine; n++) out2.add(n);
+  }
+  return out2;
+}
+function formatAudit(v) {
+  const lines = [
+    `ultrai18n sites --audit  ${v.audited} file(s) asserting full coverage, ${v.linesChecked} uncovered line(s) checked`,
+    ""
+  ];
+  if (v.findings.length) {
+    lines.push(
+      "CONTRADICTED \u2014 the extractor recorded a claimRatio of 1.0 for this file, meaning it",
+      "accounted for every byte. These lines hold text and no site covers them.",
+      ""
+    );
+    for (const f of v.findings.slice(0, 40)) {
+      lines.push(`  ${f.file}:${f.line}  [${f.locator}]  ${JSON.stringify(f.text)}`);
+      lines.push(`      extractor ${f.extractor}, claimRatio ${f.claimRatio}`);
+    }
+    if (v.findings.length > 40) lines.push(`  \u2026 and ${v.findings.length - 40} more`);
+    lines.push("");
+  }
+  lines.push(
+    `  ${v.excused.measured} file(s) not audited: their ratio was set rather than measured`,
+    `  ${v.excused.unaddressable} not byte-addressable, ${v.excused.noLocator} with no locator for their format`,
+    "",
+    v.ok ? `VERDICT  ok \u2014 no site is missing from ${v.audited} file(s) claiming to have read all of themselves` : `VERDICT  fail \u2014 ${v.findings.length} line(s) contradict a recorded claim of full coverage`
+  );
+  return lines.join("\n");
+}
+function locatorTable() {
+  return LOCATORS.map((l) => ({ id: l.id, extractors: l.extractors, why: l.why }));
+}
+
 // src/langcmd.ts
 function profile(inv) {
   const byLang = /* @__PURE__ */ new Map();
@@ -31113,6 +31909,7 @@ Usage:
   ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json]
   ultrai18n census     [--repo <dir>] [--json]
   ultrai18n sites      [--verdict <v>] [--surface <glob>] [--file <glob>] [--dup] [--json]
+                       [--audit] [--drift <inventory.json>]
   ultrai18n catalog    [--explain <file>] [--ecosystem <id>] [--rule <id>] [--json]
   ultrai18n lang       [--value "<text>"] [--test] [--json]
   ultrai18n adjudicate [--out <dir>] [--batch <n>]
@@ -31135,6 +31932,14 @@ Commands:
               reason. The denominator is \`git ls-files\`, not the walker, because
               the walker's own exclusions are what needs auditing. Exits 1 when
               any tracked path is unaccounted for (gate G1).
+
+  sites       Filtered views over the inventory. \`--audit\` is the odd one out
+              and the only one that gates: for every file whose extractor
+              recorded a claimRatio of 1.0 \u2014 asserting it accounted for every
+              byte \u2014 it asks whether any line holding text is covered by no
+              site. The oracle is a table of locators the extractors do not
+              share, because asking an extractor whether it found everything is
+              a tautology. Exits 1 on a contradiction.
 
   plurals     Every plural family, with the forms its own locale selects and the
               forms it actually has. Exits 1 when one is short \u2014 that is a wrong
@@ -31260,7 +32065,8 @@ var BOOL_FLAGS = /* @__PURE__ */ new Set([
   "no-ast",
   "no-recover",
   "propose",
-  "check"
+  "check",
+  "audit"
 ]);
 var RETIRED = {
   "no-sweep": 'the residual sweep is what makes G2 checkable \u2014 "nothing was dropped without a recorded reason". A run with it disabled looks clean and proves nothing, which is worse than a run that fails.'
@@ -31364,7 +32170,7 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -31372,18 +32178,18 @@ ${r.docs ? `    ${r.docs}
         noAst: p.flags["no-ast"] === true
       });
       mkdirSync9(out2, { recursive: true });
-      writeFileSync10(join36(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      writeFileSync10(join37(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         say(formatScan(inv));
         note(`
-wrote ${join36(out2, "inventory.json")}
+wrote ${join37(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -31397,7 +32203,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -31456,7 +32262,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, {
         write: p.flags.write === true,
         recover: p.flags["no-recover"] !== true,
@@ -31470,8 +32276,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
-      const todoPath = join36(out2, "VERIFY.todo.json");
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
+      const todoPath = join37(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
@@ -31480,7 +32286,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         );
         const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
         const result = applyVerdicts({ todo: todo2, verdicts: list });
-        writeJson(join36(out2, "VERIFY.json"), result);
+        writeJson(join37(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else {
           process.stdout.write(
@@ -31502,7 +32308,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
       });
       writeJson(todoPath, todo);
-      writeFileSync10(join36(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      writeFileSync10(join37(out2, "VERIFY.md"), formatVerifyTodo(todo));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
@@ -31515,7 +32321,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const engine = resolve3(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
@@ -31552,7 +32358,7 @@ join:     ${emitted.join}
       return;
     }
     case "dialects": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.check === true) {
         const problems2 = runCheck(repo, inventory);
@@ -31597,7 +32403,7 @@ join:     ${emitted.join}
       return;
     }
     case "plurals": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const families = inventory.plurals ?? [];
       const incomplete = families.filter((f) => f.missing.length || f.extra.length);
@@ -31631,13 +32437,13 @@ join:     ${emitted.join}
       return;
     }
     case "sync": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
         inventory,
         ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
-        statePath: join36(out2, "catalog-state.json")
+        statePath: join37(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else say(formatSync(report));
@@ -31645,9 +32451,9 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const report = check({ repo, inventory, exceptions: readExceptions(join36(out2, "exceptions.json")) });
+      const report = check({ repo, inventory, exceptions: readExceptions(join37(out2, "exceptions.json")) });
       const result = init2({
         repo,
         out: out2,
@@ -31666,8 +32472,18 @@ join:     ${emitted.join}
       return;
     }
     case "sites": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      if (p.flags.audit === true) {
+        const view = auditCoverage(inventory, repo);
+        if (json) {
+          process.stdout.write(JSON.stringify({ ...view, locators: locatorTable() }, null, 2) + "\n");
+        } else {
+          say(formatAudit(view));
+        }
+        if (!view.ok) process.exitCode = 1;
+        return;
+      }
       if (p.flags.drift !== void 0) {
         const previous = readJson2(String(p.flags.drift), "the previous inventory");
         const drift = driftAgainst(previous, inventory);
@@ -31710,7 +32526,7 @@ join:     ${emitted.join}
         else say(formatGuess(text, guess));
         return;
       }
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const prof = profile(inventory);
       if (json) process.stdout.write(JSON.stringify(prof, null, 2) + "\n");
@@ -31718,7 +32534,7 @@ join:     ${emitted.join}
       return;
     }
     case "adjudicate": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       const inventory = readJson2(dirs.inventory, "inventory.json");
       const planned = readJson2(dirs.plan, "PLAN.json");
@@ -31735,23 +32551,23 @@ join:     ${emitted.join}
           const existing = existsSync21(dirs.exceptions) ? readJson2(dirs.exceptions, "exceptions.json") : { entries: [] };
           const merged = mergeExceptions(existing, result.accepted);
           writeJson(dirs.exceptions, merged.merged);
-          writeJson(join36(out2, "adjudications.json"), {
+          writeJson(join37(out2, "adjudications.json"), {
             schemaVersion: 1,
             entries: result.accepted
           });
           wrote = { exceptions: merged.wrote, unchanged: merged.unchanged };
         }
-        writeJson(join36(out2, "ADJUDICATE.json"), { ...result, wrote });
+        writeJson(join37(out2, "ADJUDICATE.json"), { ...result, wrote });
         if (json) process.stdout.write(JSON.stringify({ ...result, wrote }, null, 2) + "\n");
         else say(formatAdjudicate(result, wrote));
         if (!result.ok || result.blocked.length) process.exitCode = 1;
         return;
       }
       const todo = buildHazardTodo(inventory, planned);
-      const todoPath = join36(out2, "ADJUDICATE.todo.json");
+      const todoPath = join37(out2, "ADJUDICATE.todo.json");
       writeJson(todoPath, todo);
-      mkdirSync9(join36(out2, "agents"), { recursive: true });
-      writeFileSync10(join36(out2, "agents", "adjudicator.md"), contractFor("adjudicate"));
+      mkdirSync9(join37(out2, "agents"), { recursive: true });
+      writeFileSync10(join37(out2, "agents", "adjudicator.md"), contractFor("adjudicate"));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         note(`  wrote ${todoPath} and agents/adjudicator.md
@@ -31767,7 +32583,7 @@ VERDICT  ${todo.hazards.length ? `${todo.hazards.length} hazard(s) awaiting a ru
       return;
     }
     case "glossary": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       if (p.flags.seed === true && p.flags.list === true) {
         usage("--seed rewrites the generated region; --list reads it. Pick one.");
@@ -31824,10 +32640,10 @@ VERDICT  ok \u2014 proposals refreshed`
       return;
     }
     case "check": {
-      const out2 = resolve3(String(p.flags.out ?? join36(repo, ".ultrai18n")));
+      const out2 = resolve3(String(p.flags.out ?? join37(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join36(out2, "exceptions.json"));
-      const baselinePath = join36(out2, "baseline.json");
+      const exceptions = readExceptions(join37(out2, "exceptions.json"));
+      const baselinePath = join37(out2, "baseline.json");
       const baseline = existsSync21(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({
         repo,
@@ -31837,8 +32653,8 @@ VERDICT  ok \u2014 proposals refreshed`
         ...baseline ? { baseline } : {}
       });
       if (p.flags.semantic) {
-        const todoPath = join36(out2, "VERIFY.todo.json");
-        const resultPath = join36(out2, "VERIFY.json");
+        const todoPath = join37(out2, "VERIFY.todo.json");
+        const resultPath = join37(out2, "VERIFY.json");
         const semantic = checkSemantic({
           repo,
           inventory,

@@ -26,9 +26,12 @@
     {
       "file": ".env.example",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .example",
-      "why": "Same mechanism on a different unsupported extension, and a reminder that `.example` files are committed precisely so a human reads them."
+      "extractor": "shell-ast",
+      "why": "`.example` shares the shell's comment syntax and is routed to the shell reader by extension. The claim that matters is the one that changed: this file used to be `residual-sweep`, which means nothing read it and everything human-looking in it was forced into the inventory for a person to adjudicate one line at a time.",
+      "acceptedFrom": {
+        "reason": "no extractor for .example",
+        "extractor": "residual-sweep"
+      }
     },
     {
       "file": "LICENSE",
@@ -68,20 +71,16 @@
       "why": "Data, not copy. `actif` is a stored value that looks exactly like a French adjective, because it is one."
     },
     {
-      "id": "env.url",
-      "file": ".env.example",
-      "find": "postgres://localhost:5432/atelier",
-      "mustNotClaim": true,
-      "why": "A connection string surfaced by the sweep. Human-looking enough to be found, and not a sentence."
-    },
-    {
       "id": "env.comment",
       "file": ".env.example",
       "find": "Copiez ce fichier en .env avant de démarrer le serveur.",
       "expect": {
-        "verdict": "unclassified"
+        "verdict": "translate"
       },
-      "why": "Genuinely a French sentence a reader sees, and still `unclassified`, because no extractor claimed the file. The honest report is 'found, not understood' rather than a verdict the engine has no grounds for."
+      "why": "Genuinely a French sentence a reader sees. It used to come back `unclassified` because no extractor claimed `.example` at all — 'found, not understood'. The shell reader claims it now, so the honest report is a verdict rather than a refusal.",
+      "acceptedFrom": {
+        "expect.verdict": "unclassified"
+      }
     },
     {
       "id": "license.body",
@@ -157,6 +156,7 @@
     }
   ],
   "knownGaps": [
-    "`'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four."
+    "`'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four.",
+    "`postgres://localhost:5432/atelier` is no longer a site. The shell reader emits comments and claims everything else as read and non-textual, so a connection string is silenced instead of surfacing as `unclassified` — the same trade the .sql reader makes. It cannot be written as a `mustNotClaim` expectation, which requires a covering site; the gate that holds it is G2 on this case."
   ]
 }

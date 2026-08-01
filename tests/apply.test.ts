@@ -119,19 +119,42 @@ describe('escaping', () => {
       '100% — «guillemets»',
       'Fin */ et /* début',
     ]
+    // Every syntax that CAN round-trip, not the eight that happened to work.
+    // Six inverses used to be copies of the escaper, so this check was comparing
+    // escape(escape(x)) against x for every format outside the original list —
+    // and passing, because most text has nothing to escape.
     const syntaxes: HostSyntax[] = [
       'js-single', 'js-double', 'js-template', 'json-string',
       'jsx-attr-string', 'html-attr', 'html-text', 'jsx-text',
+      'po-string', 'toml-basic', 'ftl-pattern', 'dockerfile-value',
+      'py-triple', 'sql-string', 'plain',
     ]
+    /**
+     * Syntaxes that cannot hold a newline, so folding it is the correct answer
+     * and the round trip is deliberately lossy. `apply` refuses such a write
+     * rather than performing it, which is what the identity inverse encodes.
+     */
+    const foldsNewlines = new Set<HostSyntax>(['line-comment', 'dockerfile-value', 'sql-string'])
     const broken: string[] = []
     for (const syntax of syntaxes) {
       for (const text of corpus) {
+        if (foldsNewlines.has(syntax) && /\n/.test(text)) continue
         const quote = syntax === 'js-single' ? "'" : '"'
         const back = unescapeFor(syntax, escapeFor(syntax, text, { quote }), { quote })
         if (back !== text) broken.push(`${syntax}: ${JSON.stringify(text)} → ${JSON.stringify(back)}`)
       }
     }
     expect(broken).toEqual([])
+  })
+
+  it('refuses rather than silently folding, where the host cannot hold a newline', () => {
+    // The lossy direction is modelled, not hidden: re-reading returns the
+    // folded text, which no longer equals the translation, so `apply`'s
+    // round-trip self-check fails the write instead of performing it.
+    const text = 'Ligne un\nligne deux'
+    for (const syntax of ['line-comment', 'sql-string', 'dockerfile-value'] as HostSyntax[]) {
+      expect(`${syntax}: ${unescapeFor(syntax, escapeFor(syntax, text))}`).not.toBe(`${syntax}: ${text}`)
+    }
   })
 })
 

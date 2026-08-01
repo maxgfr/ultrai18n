@@ -10,6 +10,9 @@ import { extname, join } from 'node:path'
 import { walk, type WalkedFile } from './vendor/walk'
 import { readTextEx, OffsetMap } from './vendor/text'
 import { extractTs } from './extract/ts'
+import { extractPython } from './extract/python'
+import { extractShell, isCommentOnly } from './extract/shell'
+import { extractSql } from './extract/sql'
 import { extractJson } from './extract/json'
 import { extractYaml } from './extract/yaml'
 import { extractMarkdown } from './extract/markdown'
@@ -55,6 +58,48 @@ const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.vue', '.s
 const PO_EXT = new Set(['.po', '.pot'])
 const TOML_EXT = new Set(['.toml'])
 const FTL_EXT = new Set(['.ftl'])
+const SQL_EXT = new Set(['.sql', '.ddl', '.psql'])
+// JSON Lines: one JSON document per line, and nothing at the file level. Split
+// and route each line to the JSON reader at its own offset, which is what
+// `extractYaml` already does for a block scalar's body.
+const JSONL_EXT = new Set(['.jsonl', '.ndjson'])
+
+/**
+ * Which visitor reads which extension on the AST tier.
+ *
+ * A table rather than a switch because the three of them make the SAME
+ * guarantee — reach every node, report the spans the grammar could not parse —
+ * so everything around the call is shared and only the visitor differs.
+ */
+const VISITORS: Record<string, typeof extractTs> = {
+  '.py': extractPython as typeof extractTs,
+  '.pyi': extractPython as typeof extractTs,
+  '.sh': extractShell as typeof extractTs,
+  '.bash': extractShell as typeof extractTs,
+  '.zsh': extractShell as typeof extractTs,
+}
+
+const EXTRACTOR_NAMES: Record<string, string> = {
+  '.py': 'python-ast',
+  '.pyi': 'python-ast',
+  '.sh': 'shell-ast',
+  '.bash': 'shell-ast',
+  '.zsh': 'shell-ast',
+}
+
+/**
+ * Which grammar reads this file, if any.
+ *
+ * `.gitignore`, `.dockerignore` and `.env.example` have no extension of their
+ * own and are `#`-comment formats, so the shell grammar reads them — routed by
+ * NAME here rather than by adding pseudo-extensions to `AST_EXTENSIONS`, which
+ * would claim a grammar exists for a format nobody wrote one for.
+ */
+function grammarExtFor(rel: string, ext: string): string | null {
+  if (AST_EXTENSIONS.has(ext)) return ext
+  if (isCommentOnly(rel, ext)) return '.sh'
+  return null
+}
 
 export interface ScanOptions {
   repo: string
@@ -89,7 +134,11 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   const to = opts.to ?? 'en'
   const walked = walk(repo)
 
-  const exts = new Set(walked.files.map((f) => f.ext))
+  // The grammars this repository needs, by ROUTE rather than by extension: a
+  // `.gitignore` has no extension and is read by the shell grammar.
+  const exts = new Set(
+    walked.files.map((f) => grammarExtFor(f.rel, f.ext)).filter((e): e is string => e !== null),
+  )
   if (!opts.noAst) await prepareGrammars(exts)
 
   // Pass 1 — extract, and merge every file's contribution to the cross-reference
@@ -514,12 +563,19 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   // module read by no reader, described as though that were an ordinary
   // outcome. The flag's own comment says it exists "to exercise degradation",
   // and until now it exercised a different path entirely.
-  if (AST_EXTENSIONS.has(ext)) {
-    const parser = opts.noAst ? null : await parserForExt(ext)
+  const grammarExt = grammarExtFor(file.rel, ext)
+  if (grammarExt) {
+    const parser = opts.noAst ? null : await parserForExt(grammarExt)
     if (parser) {
       const tree = parser.parse(read.text)
       if (tree) {
-        const { sites, tokens: contributed, errorSpans, hasError } = extractTs(
+        // One branch, three visitors. Which one runs is the extension's
+        // business; everything below — the clean-parse claim, the error-span
+        // sweep, the degradation — is identical for all of them, because the
+        // guarantee each makes is the same guarantee.
+        const visit = VISITORS[grammarExt] ?? extractTs
+        const extractor = EXTRACTOR_NAMES[grammarExt] ?? 'ts-ast'
+        const { sites, tokens: contributed, errorSpans, hasError } = visit(
           file.rel,
           read.text,
           tree,
@@ -529,7 +585,7 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
         if (!hasError) {
           // The visitor reaches every node, so a clean parse genuinely did look
           // at every byte.
-          return { ...base, sites, extractor: 'ts-ast', bytesClaimed: read.bytes }
+          return { ...base, sites, extractor, bytesClaimed: read.bytes }
         }
         // It did not. Sweep exactly the regions the grammar failed on, so a
         // parse that broke down halfway produces `unclassified` sites rather
@@ -539,18 +595,18 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
         const claimed = [...complement(unreadable, read.bytes), ...sites.map((s) => s.span)]
         const residual = sweepFile(file.rel, read.text, map, claimed, {
           identifiers: tokens.identifiers,
-          extractor: 'ts-ast',
-          reason: `the ${ext} grammar could not parse this span; found by the residual sweep`,
+          extractor,
+          reason: `the ${grammarExt} grammar could not parse this span; found by the residual sweep`,
         })
         const unreadableBytes = unreadable.reduce((n, s) => n + (s.end - s.start), 0)
         return {
           ...base,
           sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
-          extractor: 'ts-ast',
+          extractor,
           degraded: true,
           bytesClaimed: Math.max(0, read.bytes - unreadableBytes),
           complete: false,
-          reason: `the ${ext} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`,
+          reason: `the ${grammarExt} grammar reported ${errorSpans.length} unparseable region(s); container semantics are unavailable there`,
         }
       }
     }
@@ -570,7 +626,7 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     const residual = sweepFile(file.rel, read.text, map, [], {
       identifiers: tokens.identifiers,
       extractor: 'none',
-      reason: `no ${ext} parser was available (${reason}); found by the residual sweep`,
+      reason: `no ${grammarExt} parser was available (${reason}); found by the residual sweep`,
     })
     return {
       ...base,
@@ -587,6 +643,51 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     const { sites, keys, claimedBytes, complete } = extractJson(file.rel, read.text, map)
     for (const k of keys) tokens.identifiers.add(k)
     return { ...base, sites, extractor: 'json', bytesClaimed: claimedBytes, complete }
+  }
+
+  // JSON Lines. One document per line, so the file-level scanner loses sync on
+  // the second one — which is why a `.jsonl` used to reach the residual sweep
+  // and arrive as fragments like `"grounding\", \"author\": \"lens-A\", \"dim`.
+  // Accounted for, and useless as a unit of translation.
+  if (JSONL_EXT.has(ext)) {
+    const sites: RawSite[] = []
+    let claimed = 0
+    let complete = true
+    let at = 0
+    let line = 0
+    for (const body of read.text.split('\n')) {
+      if (body.trim() !== '') {
+        const out = extractJson(file.rel, body, new OffsetMap(body))
+        for (const k of out.keys) tokens.identifiers.add(k)
+        if (!out.complete) complete = false
+        const shift = map.byteOf(at)
+        const lineNo = map.lineColOf(at).line - 1
+        for (const site of out.sites) {
+          sites.push({
+            ...site,
+            // The line ordinal is part of the anchor. Without it every document
+            // in the file shares `/message/text` and one translation lands on
+            // another's bytes.
+            path: `/line[${line}]${site.path}`,
+            span: { start: site.span.start + shift, end: site.span.end + shift },
+            valueSpan: { start: site.valueSpan.start + shift, end: site.valueSpan.end + shift },
+            line: site.line + lineNo,
+            endLine: site.endLine + lineNo,
+          })
+        }
+        claimed += out.claimedBytes
+      }
+      // The newline itself is read and is not text.
+      claimed += map.byteOf(Math.min(at + body.length + 1, read.text.length)) - map.byteOf(at + body.length)
+      at += body.length + 1
+      line++
+    }
+    return { ...base, sites, extractor: 'json', bytesClaimed: claimed, complete }
+  }
+
+  if (SQL_EXT.has(ext)) {
+    const { sites, claimedBytes, complete } = extractSql(file.rel, read.text, map)
+    return { ...base, sites, extractor: 'sql', bytesClaimed: claimedBytes, complete }
   }
 
   if (YAML_EXT.has(ext)) {

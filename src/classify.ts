@@ -511,7 +511,9 @@ function surfaceFor(raw: RawSite): Surface {
     case 'jsx-text': return 'ui.jsx-text'
     case 'attr': return 'ui.attribute-text'
     case 'template': return 'ui.template-literal'
-    case 'comment': return raw.raw.startsWith('/*') ? 'comment.block' : 'comment.line'
+    case 'comment':
+      if (raw.container.docstring) return 'comment.docstring'
+      return raw.raw.startsWith('/*') ? 'comment.block' : 'comment.line'
     case 'block-scalar':
     case 'prose-run': return 'doc.markdown-prose'
     case 'key': return 'identifier.object-key'

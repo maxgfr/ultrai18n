@@ -64,9 +64,12 @@
     {
       "file": ".gitignore",
       "bucket": "scanned-zero",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for extensionless file",
-      "why": "No extractor claims it, so the residual sweep reads the whole file and finds nothing human-looking. `scanned-zero` is the honest answer — 'looked at all of it, found no text' — and it must not be confused with `skipped`."
+      "extractor": "shell-ast",
+      "why": "A `.gitignore` is where a repository writes down what it is hiding, often in prose. It has no extension of its own, so it is routed to the shell reader by NAME — it used to be `residual-sweep`, meaning nothing read it and its comments reached a person as unclassified residue rather than as a verdict.",
+      "acceptedFrom": {
+        "reason": "no extractor for extensionless file",
+        "extractor": "residual-sweep"
+      }
     },
     {
       "file": "assets/bom.md",
