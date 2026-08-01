@@ -467,8 +467,15 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
     return { ...base, sites, extractor: 'dockerfile', bytesClaimed: claimedBytes }
   }
 
-  if (!opts.noAst && AST_EXTENSIONS.has(ext)) {
-    const parser = await parserForExt(ext)
+  // An AST-eligible file enters this branch whether or not the tier is
+  // available, and `--no-ast` is a way INTO it rather than around it. Skipping
+  // the branch let such a file fall through to the bottom, where it was swept
+  // and reported `extractor: residual-sweep, degraded: false` — a TypeScript
+  // module read by no reader, described as though that were an ordinary
+  // outcome. The flag's own comment says it exists "to exercise degradation",
+  // and until now it exercised a different path entirely.
+  if (AST_EXTENSIONS.has(ext)) {
+    const parser = opts.noAst ? null : await parserForExt(ext)
     if (parser) {
       const tree = parser.parse(read.text)
       if (tree) {
@@ -507,13 +514,32 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
         }
       }
     }
-    // The AST tier is unavailable. Say so per file rather than quietly
-    // producing a thinner result that reads identically.
+    // The AST tier is unavailable — no grammar shipped, no grammar loadable,
+    // or `--no-ast`. Saying so per file was necessary and was not sufficient:
+    // this branch returned ZERO sites and claimed ZERO bytes, so every string
+    // in the file left the pipeline with no site, no `unclassified`, and no
+    // gate. An advisory named the tier and nothing named the text. That is the
+    // one failure this whole design exists to make impossible, and it was
+    // reachable on any machine where a grammar failed to load.
+    //
+    // So the file is swept, exactly as the broken-parse branch above sweeps the
+    // regions the grammar gave up on. `extractor` stays `none` on purpose:
+    // `sites --audit` and `bench/sweep.mjs` both read that as "this file's
+    // ratio was set, not measured", which is precisely what a 1.0 means here.
+    const reason = grammarStatus().reason ?? 'no grammar for this extension'
+    const residual = sweepFile(file.rel, read.text, map, [], {
+      identifiers: tokens.identifiers,
+      extractor: 'none',
+      reason: `no ${ext} parser was available (${reason}); found by the residual sweep`,
+    })
     return {
       ...base,
+      sites: residual,
       extractor: 'none',
       degraded: true,
-      reason: grammarStatus().reason ?? 'no grammar for this extension',
+      bytesClaimed: read.bytes,
+      complete: false,
+      reason,
     }
   }
 

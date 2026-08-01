@@ -13,6 +13,7 @@ import { extractTs } from '../src/extract/ts'
 import { prepareGrammars, parserForExt } from '../src/ast/parse'
 import { OffsetMap } from '../src/vendor/text'
 import { scan, disambiguatePaths } from '../src/scan'
+import { check } from '../src/check'
 import { classify } from '../src/classify'
 import { emptyTokenIndex, type RawSite } from '../src/extract/raw'
 
@@ -96,6 +97,53 @@ describe('a broken parse changes what the census claims', () => {
   it('raises an advisory naming the cause', async () => {
     const inv = await scan({ repo, from: 'en', to: 'fr' })
     expect(inv.advisories.some((a) => a.id === 'ast-parse-error')).toBe(true)
+  })
+})
+
+describe('a file with no parser is swept, not silently dropped', () => {
+  // The branch that runs when the AST tier is unavailable used to return zero
+  // sites and claim zero bytes. Every string in the file then left the pipeline
+  // with no site, no `unclassified` and no gate — an advisory named the tier
+  // and nothing named the text. `--no-ast` reaches that branch now instead of
+  // going around it, which is what the flag always claimed to be for.
+  let repo: string
+
+  beforeAll(() => {
+    repo = mkdtempSync(join(tmpdir(), 'ultrai18n-nograms-'))
+    mkdirSync(join(repo, 'src'), { recursive: true })
+    writeFileSync(
+      join(repo, 'src', 'app.ts'),
+      'export const label = "Enregistrer les modifications du profil"\n',
+    )
+  })
+
+  afterAll(() => rmSync(repo, { recursive: true, force: true }))
+
+  it('finds the text as unclassified rather than not at all', async () => {
+    const inv = await scan({ repo, from: 'fr', to: 'en', noAst: true })
+    const residual = inv.sites.filter((s) => s.file === 'src/app.ts' && s.verdict === 'unclassified')
+    expect(residual.some((s) => s.value.includes('Enregistrer les modifications'))).toBe(true)
+    expect(residual[0]!.whyUnclaimed).toMatch(/no \.ts parser was available/)
+  })
+
+  it('marks the file degraded, so the weaker claim is on the record', async () => {
+    const inv = await scan({ repo, from: 'fr', to: 'en', noAst: true })
+    const entry = inv.census.find((c) => c.file === 'src/app.ts')!
+    expect(entry.degraded).toBe(true)
+    expect(entry.extractors).toEqual(['none'])
+  })
+
+  it('and G2 refuses to pass while that site is there', async () => {
+    const inv = await scan({ repo, from: 'fr', to: 'en', noAst: true })
+    const gate = check({ repo, inventory: inv }).gates.find((g) => g.id === 'G2')!
+    expect(gate.ok).toBe(false)
+  })
+
+  it('finds it as a real site when the tier IS available', async () => {
+    const inv = await scan({ repo, from: 'fr', to: 'en' })
+    const site = inv.sites.find((s) => s.value.includes('Enregistrer les modifications'))!
+    expect(site.verdict).toBe('translate')
+    expect(site.extractor).toBe('ts-ast')
   })
 })
 
