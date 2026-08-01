@@ -1,16 +1,16 @@
-# ultrai18n bench — 9 case(s), 101 expectation(s)
+# ultrai18n bench — 10 case(s), 106 expectation(s)
 
 ```
-  accounting coverage     101/101     1.000   ok
+  accounting coverage     106/106     1.000   ok
   expectation mismatches  0                   ok
   trap violations         0                   ok
   census mismatches       0                   ok
   gate mismatches         0                   ok
   anchor drift            0                   ok
-  determinism             9/9                 ok
+  determinism             10/10               ok
 ```
 
-## catalog coverage — 20 rule(s) exercised, 0 never
+## catalog coverage — 21 rule(s) exercised, 0 never
 
 ## by case
 
@@ -43,6 +43,17 @@
 
   Known gaps, gated by nothing:
   - gettext's `nplurals=N` header is read verbatim and used by nothing. Comparing it against the number of `msgstr[n]` present would find a live rendering bug, and it is deliberately not done: reading half a header invites the reader to believe the whole thing is understood, and `plural=` is a C expression this engine will not evaluate.
+
+### surfaces-apple-plist — An Info.plist: the two usage descriptions a person reads, separated from the bundle configuration nobody does
+
+```
+  5/5 accounted   10 site(s)   1 tracked path(s)
+  G1 pass  G2 pass  G3 pass  G4 fail  G5 pass  G6 pass  G7 pass
+```
+
+  Known gaps, gated by nothing:
+  - `CFBundleDisplayName` is deliberately not in the rule. It is the launcher label, which some teams localise and others treat as the product name — a judgement rather than a rule, and it comes back for a person to make instead of being guessed either way.
+  - A `.strings` file — the other half of an iOS localisation — still has no reader. `.stringsdict` and `.xcstrings` do.
 
 ### surfaces-polyglot-manifests — Package descriptions across ecosystems — and the three catalog rules that cannot fire
 

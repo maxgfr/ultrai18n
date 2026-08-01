@@ -54,7 +54,14 @@ const CSS_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl'])
 // extension alone would have produced `string/text[7]`, a document-order index
 // that says nothing about which `<key>` owns the value, which is exactly the
 // information an Apple plural is made of.
-const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.vue', '.svelte', '.astro', '.ejs', '.hbs', '.handlebars', '.njk', '.erb', '.twig', '.liquid', '.stringsdict'])
+// `.plist` is registered for the same reason `.stringsdict` is — the markup
+// scanner gives a plist dict a JSON Pointer, so a value is addressable by the
+// `<key>` that owns it. Registering the extension ALONE would have been wrong,
+// and was the reason this waited: every iOS repository has dozens, and
+// `Info.plist` would turn `CFBundleIdentifier` and every usage-description
+// string into sites at once. Two catalog rules decide them, so the surface a
+// person actually reads is separated from the bundle configuration nobody does.
+const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.vue', '.svelte', '.astro', '.ejs', '.hbs', '.handlebars', '.njk', '.erb', '.twig', '.liquid', '.stringsdict', '.plist'])
 const PO_EXT = new Set(['.po', '.pot'])
 const TOML_EXT = new Set(['.toml'])
 const FTL_EXT = new Set(['.ftl'])

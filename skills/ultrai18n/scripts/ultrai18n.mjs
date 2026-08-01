@@ -25178,6 +25178,35 @@ var RULES17 = [
     when: { kind: "keyName", file: ["**/Dockerfile", "**/Dockerfile.*", "**/*.dockerfile"], key: /^org\.opencontainers\.image\.(description|title)$/ },
     emit: { surface: "meta.oci-label", verdict: "translate" }
   },
+  // ------------------------------------------------------------------- apple
+  {
+    id: "apple.plist.usage-description",
+    ecosystem: "apple",
+    title: "iOS permission prompt copy",
+    docs: "https://developer.apple.com/documentation/bundleresources/information-property-list/protected-resources",
+    when: {
+      kind: "pointer",
+      file: ["**/*.plist"],
+      pointerRegex: /^\/NS\w*UsageDescription$/
+    },
+    emit: { surface: "ui.string-literal", verdict: "translate", flags: ["public-facing"] },
+    companions: [
+      {
+        // Everything else in a property list is bundle configuration: an
+        // identifier, a version, a URL scheme, a capability. Registering
+        // `.plist` without this rule would turn every iOS repository's dozens
+        // of them into a wall of refusals at once, which is exactly why the
+        // extension waited for the rules rather than shipping ahead of them.
+        when: {
+          kind: "pointer",
+          file: ["**/*.plist"],
+          pointerRegex: /^\/(CFBundle|UI|LS|NSExtension|NSApp|ITSApp|DTS|MinimumOSVersion|BuildMachineOSBuild)/
+        },
+        emit: { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract" }
+      }
+    ],
+    notes: "A usage description is the sentence iOS shows in the permission prompt, in the user's own language \u2014 Apple rejects an app whose description is missing, and ships an untranslated one verbatim. `CFBundleDisplayName` is deliberately NOT here: it is a launcher label some teams localise and others treat as the product name, which is a judgement rather than a rule."
+  },
   // ------------------------------------------------------------------ legal
   {
     id: "legal.vendored-verbatim",
@@ -26030,9 +26059,16 @@ var DIALECTS = [
       partSelector: { re: /^(\{[^}]*\}|[[\]][^[\]]*[[\]])\s*/, tokens: SYMFONY_INTERVALS },
       requiresCounting: true
     },
+    // Writable, now that a part can be written WITH its selector. This shipped
+    // as `code-edit` because rejoining translated parts with a bare pipe drops
+    // the interval each one carries, which corrupts the file rather than
+    // degrading it. `partTemplate` is what was missing; the classification was
+    // right all along.
     write: {
-      mode: "code-edit",
-      blocked: "each part carries its own interval selector, and rejoining translated parts with a bare pipe would drop them \u2014 the forms go to the structural worklist with their selectors intact"
+      mode: "replace",
+      partTemplate: "{selector} {form}",
+      join: "|",
+      blocked: "a form the target locale selects has no interval in the source, and an interval with no CLDR equivalent cannot be invented \u2014 the forms go to the structural worklist with their selectors intact"
     },
     // Intervals answer to Symfony's own matcher, not to CLDR.
     cldr: false,
@@ -27006,6 +27042,7 @@ function fromDetected(d, opts) {
     insertAfterSiteId,
     count: null,
     join: joinFor(d),
+    partTemplate: d.write.partTemplate ?? null,
     ...blocked ? { blocked } : {}
   };
 }
@@ -27039,6 +27076,9 @@ function fromAnnotation(a, byId, opts) {
     ordinal: false,
     count: a.count,
     join: null,
+    // An annotation names a site, never a part grammar. A declared family is
+    // written by key or by whole value.
+    partTemplate: null,
     ...declaredWritePlan(a, site3)
   };
 }
@@ -27529,7 +27569,7 @@ var JSON_EXT = /* @__PURE__ */ new Set([".json", ".jsonc", ".json5", ".webmanife
 var YAML_EXT = /* @__PURE__ */ new Set([".yml", ".yaml"]);
 var MARKDOWN_EXT2 = /* @__PURE__ */ new Set([".md", ".mdx", ".markdown"]);
 var CSS_EXT = /* @__PURE__ */ new Set([".css", ".scss", ".sass", ".less", ".styl"]);
-var HTML_EXT = /* @__PURE__ */ new Set([".html", ".htm", ".xhtml", ".svg", ".xml", ".vue", ".svelte", ".astro", ".ejs", ".hbs", ".handlebars", ".njk", ".erb", ".twig", ".liquid", ".stringsdict"]);
+var HTML_EXT = /* @__PURE__ */ new Set([".html", ".htm", ".xhtml", ".svg", ".xml", ".vue", ".svelte", ".astro", ".ejs", ".hbs", ".handlebars", ".njk", ".erb", ".twig", ".liquid", ".stringsdict", ".plist"]);
 var PO_EXT = /* @__PURE__ */ new Set([".po", ".pot"]);
 var TOML_EXT = /* @__PURE__ */ new Set([".toml"]);
 var FTL_EXT = /* @__PURE__ */ new Set([".ftl"]);
@@ -30025,8 +30065,21 @@ function writeFamily(family, forms, bySiteId) {
     const siteId2 = family.sites[0];
     const site3 = siteId2 ? bySiteId.get(siteId2) : void 0;
     if (!site3) return { translations: [], insertions: [] };
-    const rebuilt = family.primitive === "icu" ? rebuildIcu(site3.value, family, forms, target) : family.primitive === "fluent" ? rebuildFluent(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(family.join ?? " | ");
-    return rebuilt === null ? { translations: [], insertions: [] } : { translations: [{ id: site3.id, text: rebuilt }], insertions: [] };
+    const rebuilt = family.primitive === "icu" ? rebuildIcu(site3.value, family, forms, target) : family.primitive === "fluent" ? rebuildFluent(site3.value, family, forms, target) : family.partTemplate ? rebuildParts(family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(family.join ?? " | ");
+    return rebuilt === null ? {
+      translations: [],
+      insertions: [],
+      todo: {
+        familyId: family.id,
+        file: family.file,
+        anchor: family.anchor,
+        shape: family.shape,
+        why: family.blocked ?? "this family could not be rebuilt from its parts by the engine",
+        count: family.count,
+        forms,
+        targetCategories: [...target]
+      }
+    } : { translations: [{ id: site3.id, text: rebuilt }], insertions: [] };
   }
   const byCategory = new Map(family.forms.map((f) => [f.category, f]));
   const translations = [];
@@ -30046,6 +30099,17 @@ function writeFamily(family, forms, bySiteId) {
     insertions.push({ afterSiteId: anchor2, key, text, order: order++ });
   }
   return { translations, insertions };
+}
+function rebuildParts(family, forms, target) {
+  const selectors = new Map(family.forms.map((f) => [f.category, f.selector]));
+  const parts2 = [];
+  for (const category of target) {
+    const selector = selectors.get(category);
+    const text = forms[category];
+    if (selector === void 0 || text === void 0) return null;
+    parts2.push(family.partTemplate.replace("{selector}", selector).replace("{form}", text));
+  }
+  return parts2.length ? parts2.join(family.join ?? "|") : null;
 }
 function rebuildIcu(value, family, forms, target) {
   const scan3 = scanIcu(value);

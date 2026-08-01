@@ -426,10 +426,17 @@ export const DIALECTS: PluralDialect[] = [
       partSelector: { re: /^(\{[^}]*\}|[[\]][^[\]]*[[\]])\s*/, tokens: SYMFONY_INTERVALS },
       requiresCounting: true,
     },
+    // Writable, now that a part can be written WITH its selector. This shipped
+    // as `code-edit` because rejoining translated parts with a bare pipe drops
+    // the interval each one carries, which corrupts the file rather than
+    // degrading it. `partTemplate` is what was missing; the classification was
+    // right all along.
     write: {
-      mode: 'code-edit',
+      mode: 'replace',
+      partTemplate: '{selector} {form}',
+      join: '|',
       blocked:
-        'each part carries its own interval selector, and rejoining translated parts with a bare pipe would drop them — the forms go to the structural worklist with their selectors intact',
+        'a form the target locale selects has no interval in the source, and an interval with no CLDR equivalent cannot be invented — the forms go to the structural worklist with their selectors intact',
     },
     // Intervals answer to Symfony's own matcher, not to CLDR.
     cldr: false,

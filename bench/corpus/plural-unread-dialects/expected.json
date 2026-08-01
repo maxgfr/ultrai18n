@@ -169,8 +169,8 @@
         "one",
         "other"
       ],
-      "writeMode": "code-edit",
-      "why": "Was claimed by `vue-i18n.pipe-positional` as three positional forms. Same categories, different dialect, and the difference is not cosmetic: positional says 'first, second, third' while `{0}`, `]0,1]` and `]1,Inf[` say zero, one, other for a reason each part states. The interval knowledge lives in the Symfony row rather than as a guard inside vue-i18n's, because one runtime's spelling inside another's dialect is the coupling this design exists to remove."
+      "writeMode": "replace",
+      "why": "Was claimed by `vue-i18n.pipe-positional` as three positional forms. Same categories, different dialect, and the difference is not cosmetic: positional says 'first, second, third' while `{0}`, `]0,1]` and `]1,Inf[` say zero, one, other for a reason each part states. The interval knowledge lives in the Symfony row rather than as a guard inside vue-i18n's, because one runtime's spelling inside another's dialect is the coupling this design exists to remove. Writable now rather than `code-edit`: `partTemplate` puts each part's interval back where it was, so the value is rebuilt with its selectors instead of being rejoined with a bare pipe — which would have produced bodies and no intervals, a corrupted file rather than a degraded one."
     },
     {
       "anchor": "src/locales/messages.en.yaml#/apples",
@@ -179,8 +179,8 @@
         "zero",
         "other"
       ],
-      "writeMode": "code-edit",
-      "why": "The pair where the two readings DISAGREE, and therefore the one that proves `partSelector` is real. Two parts: read positionally they are one|other, because that is what two positions mean; read by their own selectors `{0}` and `]1,Inf[` they are zero|other. `cart_items` above happens to agree with the positional answer, so on its own it could never have shown the difference."
+      "writeMode": "replace",
+      "why": "The pair where the two readings DISAGREE, and therefore the one that proves `partSelector` is real. Two parts: read positionally they are one|other, because that is what two positions mean; read by their own selectors `{0}` and `]1,Inf[` they are zero|other. `cart_items` above happens to agree with the positional answer, so on its own it could never have shown the difference. Writable now rather than `code-edit`: `partTemplate` puts each part's interval back where it was, so the value is rebuilt with its selectors instead of being rejoined with a bare pipe — which would have produced bodies and no intervals, a corrupted file rather than a degraded one."
     }
   ],
   "knownGaps": [

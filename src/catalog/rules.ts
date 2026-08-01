@@ -395,6 +395,37 @@ export const RULES: Rule[] = [
     emit: { surface: 'meta.oci-label', verdict: 'translate' },
   },
 
+  // ------------------------------------------------------------------- apple
+  {
+    id: 'apple.plist.usage-description',
+    ecosystem: 'apple',
+    title: 'iOS permission prompt copy',
+    docs: 'https://developer.apple.com/documentation/bundleresources/information-property-list/protected-resources',
+    when: {
+      kind: 'pointer',
+      file: ['**/*.plist'],
+      pointerRegex: /^\/NS\w*UsageDescription$/,
+    },
+    emit: { surface: 'ui.string-literal', verdict: 'translate', flags: ['public-facing'] },
+    companions: [
+      {
+        // Everything else in a property list is bundle configuration: an
+        // identifier, a version, a URL scheme, a capability. Registering
+        // `.plist` without this rule would turn every iOS repository's dozens
+        // of them into a wall of refusals at once, which is exactly why the
+        // extension waited for the rules rather than shipping ahead of them.
+        when: {
+          kind: 'pointer',
+          file: ['**/*.plist'],
+          pointerRegex: /^\/(CFBundle|UI|LS|NSExtension|NSApp|ITSApp|DTS|MinimumOSVersion|BuildMachineOSBuild)/,
+        },
+        emit: { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'api-contract' },
+      },
+    ],
+    notes:
+      'A usage description is the sentence iOS shows in the permission prompt, in the user\'s own language — Apple rejects an app whose description is missing, and ships an untranslated one verbatim. `CFBundleDisplayName` is deliberately NOT here: it is a launcher label some teams localise and others treat as the product name, which is a judgement rather than a rule.',
+  },
+
   // ------------------------------------------------------------------ legal
   {
     id: 'legal.vendored-verbatim',

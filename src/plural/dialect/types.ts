@@ -222,6 +222,24 @@ export interface WriteSpec {
   keyTemplate?: string
   /** `replace` only: how forms rejoin. Defaults to the first delimiter, padded. */
   join?: string
+  /**
+   * `replace` only: how ONE part is written, when a part carries its own
+   * selector. `{selector}` and `{form}`.
+   *
+   * Without it, a family read by `partSelector` cannot be written at all.
+   * Rejoining translated parts with a bare delimiter drops the selector each
+   * part carries — Symfony's `{0} Rien|]0,1] Un article|]1,Inf[ %count%
+   * articles` would come back as three bodies and no intervals, which is not a
+   * degraded rendering but a corrupted file. That is why `symfony.interval`
+   * shipped as `code-edit`: the classification was right and the write was
+   * missing.
+   *
+   * A target category with no selector in the SOURCE still cannot be written —
+   * `]2,5[` has no CLDR equivalent and inventing one is exactly the guess a
+   * cited catalog exists to prevent — so such a family goes to the structural
+   * worklist with its translated forms intact.
+   */
+  partTemplate?: string
   /** Verbatim, when the mode is `code-edit` or `insertableWhen` fails. */
   blocked?: string
   /**

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.atelier.publication</string>
+	<key>CFBundleName</key>
+	<string>Atelier</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Nous utilisons l'appareil photo pour numériser vos documents.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choisissez une image dans votre photothèque pour l'ajouter au projet.</string>
+	<key>UILaunchStoryboardName</key>
+	<string>LaunchScreen</string>
+</dict>
+</plist>

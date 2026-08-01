@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "case": "surfaces-apple-plist",
+  "title": "An Info.plist: the two usage descriptions a person reads, separated from the bundle configuration nobody does",
+  "scan": { "from": "fr", "to": "en" },
+
+  "gates": { "G1": "pass", "G2": "pass", "G3": "any" },
+
+  "census": [
+    {
+      "file": "ios/Info.plist",
+      "bucket": "scanned",
+      "why": "Read by the markup scanner, which gives a plist dict a JSON Pointer — so a value is addressable by the `<key>` that owns it rather than by its position in the document. That is what makes a rule on `/NSCameraUsageDescription` possible at all."
+    }
+  ],
+
+  "expectations": [
+    {
+      "id": "plist.camera-usage",
+      "file": "ios/Info.plist",
+      "find": "Nous utilisons l'appareil photo pour numériser vos documents.",
+      "expect": { "verdict": "translate", "rule": "apple.plist.usage-description" },
+      "why": "A usage description is the sentence iOS shows in the permission prompt, in the user's own language. Apple rejects an app whose description is missing and ships an untranslated one verbatim, so this is user-visible copy by Apple's own definition."
+    },
+    {
+      "id": "plist.photos-usage",
+      "file": "ios/Info.plist",
+      "find": "Choisissez une image dans votre photothèque pour l'ajouter au projet.",
+      "expect": { "verdict": "translate", "rule": "apple.plist.usage-description" },
+      "why": "The second one, so the rule is matched by shape rather than by a single spelling."
+    },
+    {
+      "id": "plist.bundle-identifier",
+      "file": "ios/Info.plist",
+      "find": "com.atelier.publication",
+      "mustNotClaim": true,
+      "why": "The reason registering `.plist` waited for its rules. Every iOS repository has dozens of property lists, and `Info.plist` would turn the bundle identifier and every capability string into sites at once — a wall of refusals arriving with the extension."
+    },
+    {
+      "id": "plist.storyboard-name",
+      "file": "ios/Info.plist",
+      "find": "LaunchScreen",
+      "mustNotClaim": true,
+      "why": "A `UI*` key names a resource the build resolves. Translating it produces an app that cannot find its own launch screen."
+    },
+    {
+      "id": "plist.key-is-identifier",
+      "file": "ios/Info.plist",
+      "find": "NSCameraUsageDescription",
+      "occurrence": 1,
+      "mustNotClaim": true,
+      "why": "A plist `<key>` is an identifier, decided structurally by the classifier long before any rule — the same answer a JSON key gets, from the same branch."
+    }
+  ],
+
+  "knownGaps": [
+    "`CFBundleDisplayName` is deliberately not in the rule. It is the launcher label, which some teams localise and others treat as the product name — a judgement rather than a rule, and it comes back for a person to make instead of being guessed either way.",
+    "A `.strings` file — the other half of an iOS localisation — still has no reader. `.stringsdict` and `.xcstrings` do."
+  ]
+}

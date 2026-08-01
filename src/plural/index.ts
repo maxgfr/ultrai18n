@@ -98,6 +98,14 @@ export interface PluralFamily {
    * becomes one string its own runtime reads as a single form.
    */
   join: string | null
+  /**
+   * `replace` only: how one part is written when it carries its own selector.
+   *
+   * Carried on the family rather than looked up from the dialect at write time,
+   * for the same reason `join` is: a project dialect can supply one, and `apply`
+   * must not have to resolve a catalog to write a file.
+   */
+  partTemplate: string | null
   /** Set when the family cannot be completed mechanically. */
   blocked?: string
 }
@@ -234,6 +242,7 @@ function fromDetected(d: DetectedFamily, opts: AssembleOptions): PluralFamily {
     insertAfterSiteId,
     count: null,
     join: joinFor(d),
+    partTemplate: d.write.partTemplate ?? null,
     ...(blocked ? { blocked } : {}),
   }
 }
@@ -280,6 +289,9 @@ function fromAnnotation(
     ordinal: false,
     count: a.count,
     join: null,
+    // An annotation names a site, never a part grammar. A declared family is
+    // written by key or by whole value.
+    partTemplate: null,
     ...declaredWritePlan(a, site),
   }
 }

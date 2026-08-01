@@ -418,7 +418,7 @@ export interface StructuralTodo {
  *    go to a worklist WITH their translations, because the person or agent
  *    making that edit should not have to translate it again.
  */
-function writeFamily(
+export function writeFamily(
   family: PluralFamily,
   forms: Record<string, string>,
   bySiteId: Map<string, Site>,
@@ -457,9 +457,28 @@ function writeFamily(
         ? rebuildIcu(site.value, family, forms, target)
         : family.primitive === 'fluent'
           ? rebuildFluent(site.value, family, forms, target)
-          : [...target].map((c) => forms[c] ?? '').join(family.join ?? ' | ')
+          : family.partTemplate
+            ? rebuildParts(family, forms, target)
+            : [...target].map((c) => forms[c] ?? '').join(family.join ?? ' | ')
+    // A rebuild that could not be done goes to the worklist WITH its
+    // translations, rather than vanishing. Returning nothing here dropped the
+    // family silently — the words were paid for and then thrown away, and the
+    // run reported success.
     return rebuilt === null
-      ? { translations: [], insertions: [] }
+      ? {
+          translations: [],
+          insertions: [],
+          todo: {
+            familyId: family.id,
+            file: family.file,
+            anchor: family.anchor,
+            shape: family.shape,
+            why: family.blocked ?? 'this family could not be rebuilt from its parts by the engine',
+            count: family.count,
+            forms,
+            targetCategories: [...target],
+          },
+        }
       : { translations: [{ id: site.id, text: rebuilt }], insertions: [] }
   }
 
@@ -482,6 +501,38 @@ function writeFamily(
     insertions.push({ afterSiteId: anchor, key, text, order: order++ })
   }
   return { translations, insertions }
+}
+
+/**
+ * Rebuild a delimited value whose every part carries its OWN selector.
+ *
+ * Symfony writes `{0} Rien|]0,1] Un article|]1,Inf[ %count% articles`. Read
+ * positionally that is a three-part family and all three labels are wrong, which
+ * is why the dialect reads it by selector — and having read it by selector, the
+ * value cannot be rejoined without them. A bare pipe would produce three bodies
+ * and no intervals: not a degraded rendering but a corrupted file, and the
+ * reason this dialect shipped as `code-edit` with its classification already
+ * correct.
+ *
+ * Returns null when a category the TARGET selects has no selector in the
+ * source. `]2,5[` has no CLDR equivalent, and inventing an interval is exactly
+ * the guess a cited catalog exists to prevent — so the family goes to the
+ * structural worklist with its forms translated and its selectors intact.
+ */
+function rebuildParts(
+  family: PluralFamily,
+  forms: Record<string, string>,
+  target: readonly string[],
+): string | null {
+  const selectors = new Map(family.forms.map((f) => [f.category as string, f.selector]))
+  const parts: string[] = []
+  for (const category of target) {
+    const selector = selectors.get(category)
+    const text = forms[category]
+    if (selector === undefined || text === undefined) return null
+    parts.push(family.partTemplate!.replace('{selector}', selector).replace('{form}', text))
+  }
+  return parts.length ? parts.join(family.join ?? '|') : null
 }
 
 /** Rebuild an ICU message with the target's branches in place of the source's. */
