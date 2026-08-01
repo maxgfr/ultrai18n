@@ -44,19 +44,24 @@ export interface HtmlExtractResult {
   claimedBytes: number
   identifiers: Set<string>
   /**
-   * Byte spans this scanner READ PAST rather than read — an inline `<script>`.
+   * Inline `<script>` bodies, as CHAR ranges into the text this was given.
    *
-   * Reported instead of silently folded into `claimedBytes`, because the two
-   * claims are not the same. A document with a French string inside a `<script>`
-   * used to report `claimRatio: 1` — the extractor asserting it accounted for
-   * every byte — while that string reached no site and no sweep. That is a
-   * false claim of full coverage, which is the one failure this project exists
-   * to make impossible.
+   * This scanner does not read them: JavaScript needs the AST tier, which is
+   * async and belongs to `scan`. Reporting the ranges rather than swallowing
+   * them is what lets the caller decide, and the caller is the only one that
+   * can — it has the parser.
    *
-   * `scan` subtracts these and sweeps them, so the text lands in the inventory
-   * as `unclassified` and G2 refuses: listed, not claimed.
+   * Char offsets rather than byte spans because the caller has to RE-READ the
+   * region, and every reader here indexes characters. `claimedBytes` counts
+   * them as read: whether they truly were is the caller's answer to give, and
+   * `scan` subtracts the ones it could not parse before reporting a ratio.
+   *
+   * `lang` is whatever the tag declared — `lang="ts"`, `type="module"`,
+   * `type="application/ld+json"` — so the caller can pick a reader instead of
+   * assuming JavaScript. A single-file component's script block is routinely
+   * TypeScript, and a `ld+json` body is structured data rather than code.
    */
-  unclaimed: Span[]
+  scripts: { from: number; to: number; lang: string | null }[]
 }
 
 /**
@@ -95,7 +100,7 @@ export function extractHtml(
   // is ADDITIVE: an ordinary HTML, SVG, Vue, Svelte or Astro document takes
   // exactly the path it took before, which is the property the regression test
   // in `extract-text-formats` pins.
-  const unclaimed: Span[] = []
+  const scripts: HtmlExtractResult['scripts'] = []
   let docKind: 'markup' | 'plist' | 'qt' = 'markup'
   let messageOrdinal = -1
   let numerusOrdinal = 0
@@ -224,9 +229,11 @@ export function extractHtml(
         for (const site of css.sites) sites.push(site)
         for (const id of css.identifiers) identifiers.add(id)
       } else {
-        // No JS reader here — the AST tier is async and belongs to `scan`. So
-        // the bytes are declared UNREAD and the sweep covers them.
-        unclaimed.push({ start: map.byteOf(i), end: map.byteOf(end) })
+        // No JS reader HERE — the AST tier is async and belongs to `scan`. The
+        // range goes back to the caller, which has the parser; what it cannot
+        // parse it sweeps, exactly as before.
+        const attrs = openStack[openStack.length - 1]?.attrs ?? {}
+        scripts.push({ from: i, to: end, lang: attrs.lang ?? attrs.type ?? null })
       }
       i = end
       openStack.pop()
@@ -393,9 +400,11 @@ export function extractHtml(
   }
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  const skipped = unclaimed.reduce((acc, span) => acc + (span.end - span.start), 0)
+  // Every byte in range is counted as read. A `<script>` body is only truly
+  // unread if the caller cannot parse it, and the caller subtracts those before
+  // reporting a ratio — this scanner is no longer the one that knows.
   const scanned = map.byteOf(n) - map.byteOf(range?.from ?? 0)
-  return { sites, claimedBytes: scanned - skipped, identifiers, unclaimed }
+  return { sites, claimedBytes: scanned, identifiers, scripts }
 }
 
 /** Every quoted attribute on a tag, lowercased by name. */

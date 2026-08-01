@@ -21997,7 +21997,7 @@ function extractHtml(file, text, map, range) {
   let i2 = range?.from ?? 0;
   const n = range?.to ?? text.length;
   const openStack = [];
-  const unclaimed = [];
+  const scripts = [];
   let docKind = "markup";
   let messageOrdinal = -1;
   let numerusOrdinal = 0;
@@ -22096,7 +22096,8 @@ function extractHtml(file, text, map, range) {
         for (const site3 of css.sites) sites.push(site3);
         for (const id of css.identifiers) identifiers.add(id);
       } else {
-        unclaimed.push({ start: map.byteOf(i2), end: map.byteOf(end) });
+        const attrs = openStack[openStack.length - 1]?.attrs ?? {};
+        scripts.push({ from: i2, to: end, lang: attrs.lang ?? attrs.type ?? null });
       }
       i2 = end;
       openStack.pop();
@@ -22205,9 +22206,8 @@ function extractHtml(file, text, map, range) {
     }
   }
   sites.sort((a, b) => a.span.start - b.span.start);
-  const skipped = unclaimed.reduce((acc, span) => acc + (span.end - span.start), 0);
   const scanned = map.byteOf(n) - map.byteOf(range?.from ?? 0);
-  return { sites, claimedBytes: scanned - skipped, identifiers, unclaimed };
+  return { sites, claimedBytes: scanned, identifiers, scripts };
 }
 function allAttributes(tagBody) {
   const out2 = {};
@@ -27709,20 +27709,67 @@ function pluralAdvisories(families) {
   }
   return out2;
 }
-function markupResult(base, file, read2, map, tokens, extra) {
-  const { sites, claimedBytes, identifiers, unclaimed } = extractHtml(file.rel, read2.text, map);
+async function markupResult(base, file, read2, map, tokens, opts, extra) {
+  const { sites, claimedBytes, identifiers, scripts } = extractHtml(file.rel, read2.text, map);
   for (const id of identifiers) tokens.identifiers.add(id);
-  const residual = unclaimed.length ? sweepFile(file.rel, read2.text, map, [...complement(merge(unclaimed), base.bytesTotal), ...sites.map((s) => s.span)], {
+  const fromScripts = [];
+  const unread = [];
+  for (let n = 0; n < scripts.length; n++) {
+    const parsed = await readScript(file.rel, read2.text, map, scripts[n], n, tokens, opts);
+    if (parsed) fromScripts.push(...parsed);
+    else unread.push({ start: map.byteOf(scripts[n].from), end: map.byteOf(scripts[n].to) });
+  }
+  const residual = unread.length ? sweepFile(file.rel, read2.text, map, [...complement(merge(unread), base.bytesTotal), ...sites.map((s) => s.span)], {
     identifiers: tokens.identifiers,
     extractor: "html",
-    reason: "inside a <script> block, which the markup scanner reads past; found by the residual sweep"
+    reason: "inside a <script> block no reader could parse; found by the residual sweep"
   }) : [];
+  const unreadBytes = unread.reduce((acc, span) => acc + (span.end - span.start), 0);
   return {
     ...base,
-    sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+    sites: [...sites, ...fromScripts, ...residual].sort((a, b) => a.span.start - b.span.start),
     extractor: "html",
-    bytesClaimed: claimedBytes,
+    bytesClaimed: claimedBytes - unreadBytes,
+    ...unread.length ? { complete: false } : {},
     ...extra?.reason ? { reason: extra.reason } : {}
+  };
+}
+async function readScript(file, text, map, region, ordinal, tokens, opts) {
+  const body2 = text.slice(region.from, region.to);
+  if (body2.trim() === "") return [];
+  const shift = map.byteOf(region.from);
+  const at = map.lineColOf(region.from);
+  const local = new OffsetMap(body2);
+  if (region.lang && /json/i.test(region.lang)) {
+    const { sites: sites2, keys } = extractJson(file, body2, local);
+    for (const k of keys) tokens.identifiers.add(k);
+    return sites2.map((s) => relocate(s, `script[${ordinal}]`, shift, at));
+  }
+  if (opts.noAst) return null;
+  const ext = region.lang && /\bts|typescript\b/i.test(region.lang) ? ".ts" : ".js";
+  const parser2 = await parserForExt(ext);
+  if (!parser2) return null;
+  const tree = parser2.parse(body2);
+  if (!tree) return null;
+  const { sites, tokens: contributed, hasError } = extractTs(file, body2, tree, local);
+  if (hasError) return null;
+  merge2(tokens, contributed);
+  return sites.map((s) => relocate(s, `script[${ordinal}]`, shift, at));
+}
+function relocate(site3, prefix, byteShift, at) {
+  return {
+    ...site3,
+    // Prefixed so two `<script>` blocks in one document cannot share an anchor,
+    // and so a script site cannot collide with a markup one.
+    path: `${prefix}/${site3.path}`,
+    span: { start: site3.span.start + byteShift, end: site3.span.end + byteShift },
+    valueSpan: { start: site3.valueSpan.start + byteShift, end: site3.valueSpan.end + byteShift },
+    line: site3.line + at.line - 1,
+    endLine: site3.endLine + at.line - 1,
+    // Only the body's FIRST line is offset horizontally: it starts wherever the
+    // `>` left off, and every line after it starts at column 1 of its own line.
+    col: site3.line === 1 ? site3.col + at.col - 1 : site3.col,
+    endCol: site3.endLine === 1 ? site3.endCol + at.col - 1 : site3.endCol
   };
 }
 var MARKDOWN_SURFACES = /* @__PURE__ */ new Set(["ui.release-notes", "doc.markdown-prose", "doc.changelog"]);
@@ -27757,7 +27804,7 @@ async function extractFile(file, tokens, opts) {
   const map = new OffsetMap(read2.text);
   const ext = file.ext;
   if (ext === ".ts" && isQtTranslation(read2.text)) {
-    return markupResult(base, file, read2, map, tokens, {
+    return markupResult(base, file, read2, map, tokens, opts, {
       reason: "Qt translation catalog: routed by content, because .ts is also TypeScript"
     });
   }
@@ -27908,7 +27955,7 @@ async function extractFile(file, tokens, opts) {
     return { ...base, sites, extractor: "css", bytesClaimed: claimedBytes };
   }
   if (HTML_EXT.has(ext)) {
-    return markupResult(base, file, read2, map, tokens);
+    return markupResult(base, file, read2, map, tokens, opts);
   }
   if (isPlainText(file.rel, ext)) {
     const { sites, claimedBytes } = extractText(file.rel, read2.text, map);

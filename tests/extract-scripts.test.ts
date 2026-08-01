@@ -9,7 +9,7 @@
 //
 // Accounted for, and useless as a unit of translation.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { scan } from '../src/scan'
@@ -200,10 +200,7 @@ describe('jsonl', () => {
   it('gives spans that address the right bytes of the whole file', () => {
     // The failure this replaces was not a miss: the sweep listed the text and
     // fragmented it mid-token. A site has to address the file, not the line.
-    const buf = Buffer.from(
-      require('node:fs').readFileSync(join(repo, 'events.jsonl'), 'utf8') as string,
-      'utf8',
-    )
+    const buf = readFileSync(join(repo, 'events.jsonl'))
     for (const site of sitesIn('events.jsonl')) {
       expect(buf.subarray(site.valueSpan.start, site.valueSpan.end).toString('utf8')).toBe(site.value)
     }
@@ -211,6 +208,100 @@ describe('jsonl', () => {
 
   it('accounts for every byte, newlines included', () => {
     expect(censusOf('events.jsonl').claimRatio).toBe(1)
+  })
+})
+
+describe('an inline <script> is parsed, not swept', () => {
+  // The markup scanner declares a `<script>` body UNREAD and the sweep covers
+  // it. Honest, and unfinished: the strings arrive `unclassified` with no
+  // container semantics, so a persisted key and a rendered label inside one are
+  // indistinguishable. Routing the body to the AST tier is plumbing rather than
+  // a lexer — the grammar load is async and lives in `scan`.
+  let host: string
+  let page: Inventory
+
+  beforeAll(async () => {
+    host = mkdtempSync(join(tmpdir(), 'ultrai18n-inline-'))
+    writeFileSync(
+      join(host, 'index.html'),
+      [
+        '<!doctype html>',
+        '<html lang="fr">',
+        '<head>',
+        '<script type="application/ld+json">',
+        '  {"name": "Atelier de publication", "description": "Un outil pour les auteurs"}',
+        '</script>',
+        '<script>',
+        '  const VIDE = "Aucun projet pour le moment"',
+        '  if (mode === "brouillon") render(VIDE)',
+        '</script>',
+        '</head>',
+        '<body><p>Bienvenue dans l\'atelier</p></body>',
+        '</html>',
+        '',
+      ].join('\n'),
+    )
+    writeFileSync(
+      join(host, 'broken.html'),
+      '<html><script>\n  const x = "Une chaîne bien lisible" @@@ ??? !!!\n</script></html>\n',
+    )
+    page = await scan({ repo: host, from: 'fr', to: 'en' })
+  })
+
+  afterAll(() => rmSync(host, { recursive: true, force: true }))
+
+  const inPage = (file: string) => page.sites.filter((s) => s.file === file)
+
+  it('gives a script string a real verdict instead of unclassified', () => {
+    const site = inPage('index.html').find((s) => s.value === 'Aucun projet pour le moment')!
+    expect(site.verdict).toBe('translate')
+    expect(site.extractor).toBe('ts-ast')
+  })
+
+  it('carries the container semantics that were the whole point', () => {
+    // `mode === "brouillon"` is compared, not rendered. Swept, it was one more
+    // `unclassified` run indistinguishable from the label above it.
+    const site = inPage('index.html').find((s) => s.value === 'brouillon')!
+    expect(site.verdict).toBe('do-not-translate')
+    expect(site.reason).toBe('api-contract')
+  })
+
+  it('reads a ld+json body as the structured data it is', () => {
+    expect(inPage('index.html').map((s) => s.value)).toContain('Un outil pour les auteurs')
+  })
+
+  it('anchors each block separately, so two scripts cannot collide', () => {
+    const anchors = inPage('index.html').map((s) => s.siteKey)
+    expect(new Set(anchors).size).toBe(anchors.length)
+    expect(anchors.some((a) => a.includes('#script[0]/'))).toBe(true)
+    expect(anchors.some((a) => a.includes('#script[1]/'))).toBe(true)
+  })
+
+  it('gives spans that address the right bytes of the HOST file', () => {
+    // The body is parsed as its own document with its own map, so every offset
+    // has to be shifted back. Getting this wrong writes into the right file at
+    // the wrong place, which no test of the extractor alone would catch.
+    const buf = readFileSync(join(host, 'index.html'))
+    for (const site of inPage('index.html')) {
+      if (site.quote === null) continue
+      expect(buf.subarray(site.valueSpan.start, site.valueSpan.end).toString('utf8')).toBe(site.value)
+    }
+  })
+
+  it('reports line numbers in the host document', () => {
+    expect(inPage('index.html').find((s) => s.value === 'Aucun projet pour le moment')!.line).toBe(8)
+  })
+
+  it('claims every byte of a document whose scripts all parsed', () => {
+    expect(page.census.find((c) => c.file === 'index.html')).toMatchObject({ claimRatio: 1 })
+  })
+
+  it('falls back to the sweep when the grammar cannot read the block', () => {
+    // The fallback is the behaviour this replaces, reached now only when the
+    // better answer is unavailable — and it still refuses to claim the bytes.
+    const swept = inPage('broken.html').filter((s) => s.verdict === 'unclassified')
+    expect(swept.some((s) => s.value.includes('Une chaîne bien lisible'))).toBe(true)
+    expect(page.census.find((c) => c.file === 'broken.html')!.claimRatio).toBeLessThan(1)
   })
 })
 

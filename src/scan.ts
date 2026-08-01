@@ -37,7 +37,7 @@ import { assembleFamilies, mergeDialects, pluralTier, type PluralDialect, type P
 import { evidenceFor, gatherEvidence } from './plural/dialect/evidence'
 import { compileDialect } from './plural/dialect/check'
 import { suspectPlurals, unclaimedSuspicions } from './plural/suspect'
-import type { Advisory, CensusEntry, Inventory, Site, Tier } from './types'
+import type { Advisory, CensusEntry, Inventory, Site, Span, Tier } from './types'
 import { gitLsFiles } from './census'
 
 // `.xcstrings` is JSON with an Apple extension. Without it here the file sweeps,
@@ -446,29 +446,124 @@ function pluralAdvisories(families: PluralFamily[]): Advisory[] {
  * claim of full coverage, which is the one failure the whole accountability
  * argument rests on not making.
  */
-function markupResult(
+async function markupResult(
   base: FileResult,
   file: WalkedFile,
   read: { text: string },
   map: OffsetMap,
   tokens: TokenIndex,
+  opts: ScanOptions,
   extra?: { reason?: string },
-): FileResult {
-  const { sites, claimedBytes, identifiers, unclaimed } = extractHtml(file.rel, read.text, map)
+): Promise<FileResult> {
+  const { sites, claimedBytes, identifiers, scripts } = extractHtml(file.rel, read.text, map)
   for (const id of identifiers) tokens.identifiers.add(id)
-  const residual = unclaimed.length
-    ? sweepFile(file.rel, read.text, map, [...complement(mergeSpans(unclaimed), base.bytesTotal), ...sites.map((s) => s.span)], {
+
+  const fromScripts: RawSite[] = []
+  const unread: Span[] = []
+  for (let n = 0; n < scripts.length; n++) {
+    const parsed = await readScript(file.rel, read.text, map, scripts[n]!, n, tokens, opts)
+    if (parsed) fromScripts.push(...parsed)
+    else unread.push({ start: map.byteOf(scripts[n]!.from), end: map.byteOf(scripts[n]!.to) })
+  }
+
+  // Whatever no reader could take is declared UNREAD, exactly as every script
+  // body used to be. Listed, not claimed.
+  const residual = unread.length
+    ? sweepFile(file.rel, read.text, map, [...complement(mergeSpans(unread), base.bytesTotal), ...sites.map((s) => s.span)], {
         identifiers: tokens.identifiers,
         extractor: 'html',
-        reason: 'inside a <script> block, which the markup scanner reads past; found by the residual sweep',
+        reason: 'inside a <script> block no reader could parse; found by the residual sweep',
       })
     : []
+  const unreadBytes = unread.reduce((acc, span) => acc + (span.end - span.start), 0)
+
   return {
     ...base,
-    sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+    sites: [...sites, ...fromScripts, ...residual].sort((a, b) => a.span.start - b.span.start),
     extractor: 'html',
-    bytesClaimed: claimedBytes,
+    bytesClaimed: claimedBytes - unreadBytes,
+    ...(unread.length ? { complete: false } : {}),
     ...(extra?.reason ? { reason: extra.reason } : {}),
+  }
+}
+
+/**
+ * Read one inline `<script>` body with a reader of its own.
+ *
+ * The markup scanner declares these UNREAD and the sweep covers them, which is
+ * honest and is not finished: the strings arrive `unclassified` with no
+ * container semantics, so a persisted key and a rendered label inside a
+ * `<script>` are indistinguishable. That is a plumbing problem rather than a
+ * lexer one — grammar loading is async and lives here, not in a synchronous
+ * extractor — and this is the plumbing.
+ *
+ * The body is parsed as its OWN document with its own map, and every offset is
+ * shifted back afterwards. Reading it in place is not an option: tree-sitter is
+ * given a string, and giving it the whole file would parse the markup as
+ * JavaScript.
+ *
+ * Returns null when no reader applies or the parse broke down, and null means
+ * the caller sweeps — the same fallback as before, reached only when the better
+ * answer is unavailable.
+ */
+async function readScript(
+  file: string,
+  text: string,
+  map: OffsetMap,
+  region: { from: number; to: number; lang: string | null },
+  ordinal: number,
+  tokens: TokenIndex,
+  opts: ScanOptions,
+): Promise<RawSite[] | null> {
+  const body = text.slice(region.from, region.to)
+  if (body.trim() === '') return []
+
+  const shift = map.byteOf(region.from)
+  const at = map.lineColOf(region.from)
+  const local = new OffsetMap(body)
+
+  // A `<script type="application/ld+json">` body is structured data, not code —
+  // and `meta.structured-data` is a surface the catalog already names.
+  if (region.lang && /json/i.test(region.lang)) {
+    const { sites, keys } = extractJson(file, body, local)
+    for (const k of keys) tokens.identifiers.add(k)
+    return sites.map((s) => relocate(s, `script[${ordinal}]`, shift, at))
+  }
+
+  if (opts.noAst) return null
+  // `lang="ts"` on a single-file component's script block is the common case,
+  // and handing TypeScript to the JavaScript grammar reports it as broken.
+  const ext = region.lang && /\bts|typescript\b/i.test(region.lang) ? '.ts' : '.js'
+  const parser = await parserForExt(ext)
+  if (!parser) return null
+  const tree = parser.parse(body)
+  if (!tree) return null
+
+  const { sites, tokens: contributed, hasError } = extractTs(file, body, tree, local)
+  // A broken parse here falls back to the sweep whole, rather than mixing
+  // parsed sites with swept ones inside one small region: the error spans are
+  // relative to the body, and the honest report for a `<script>` the grammar
+  // could not read is the one this always gave.
+  if (hasError) return null
+  merge(tokens, contributed)
+  return sites.map((s) => relocate(s, `script[${ordinal}]`, shift, at))
+}
+
+/** Move a site read out of an embedded region back onto its host's coordinates. */
+function relocate(site: RawSite, prefix: string, byteShift: number, at: { line: number; col: number }): RawSite {
+  return {
+    ...site,
+    // Prefixed so two `<script>` blocks in one document cannot share an anchor,
+    // and so a script site cannot collide with a markup one.
+    path: `${prefix}/${site.path}`,
+    span: { start: site.span.start + byteShift, end: site.span.end + byteShift },
+    valueSpan: { start: site.valueSpan.start + byteShift, end: site.valueSpan.end + byteShift },
+    line: site.line + at.line - 1,
+    endLine: site.endLine + at.line - 1,
+    // Only the body's FIRST line is offset horizontally: it starts wherever the
+    // `>` left off, and every line after it starts at column 1 of its own line.
+    col: site.line === 1 ? site.col + at.col - 1 : site.col,
+    endCol: site.endLine === 1 ? site.endCol + at.col - 1 : site.endCol,
   }
 }
 
@@ -543,7 +638,7 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   // but nothing was understood either. Extension routing stays right for
   // everything else; this is the one case that earns a sniff.
   if (ext === '.ts' && isQtTranslation(read.text)) {
-    return markupResult(base, file, read, map, tokens, {
+    return markupResult(base, file, read, map, tokens, opts, {
       reason: 'Qt translation catalog: routed by content, because .ts is also TypeScript',
     })
   }
@@ -749,7 +844,7 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   }
 
   if (HTML_EXT.has(ext)) {
-    return markupResult(base, file, read, map, tokens)
+    return markupResult(base, file, read, map, tokens, opts)
   }
 
   if (isPlainText(file.rel, ext)) {

@@ -67,14 +67,14 @@
 ### surfaces-web-app — Where user-visible text hides in a web project: build configs, CI, store listings
 
 ```
-  23/23 accounted   93 site(s)   11 tracked path(s)
+  23/23 accounted   92 site(s)   11 tracked path(s)
   G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 fail  G7 pass
 ```
 
   Known gaps, gated by nothing:
   - `html.title` cannot fire. The rule matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and IS translated — by the generic prose path, with no rule cited — so the miss is in traceability rather than in recall.
   - `manifest/lang` inside `rspack.config.ts` comes back with no verdict at all, where the same field in `manifest.webmanifest` is a `locale-marker`. The companion matcher lists vite, nuxt, astro and next; its parent rule lists nine more bundlers including rspack. A locale marker left undetected in a build config is exactly the G6 `locale-drift` finding this tool advertises.
-  - An inline <script> is swept rather than parsed, so its strings arrive as `unclassified` instead of carrying container semantics. Routing the body to the AST tier would give real verdicts; it needs the async grammar load that lives in `scan`, and the sweep already makes the text impossible to miss.
+  - A `<script>` the grammar cannot parse falls back to the sweep WHOLE rather than mixing parsed sites with swept ones inside it. The error spans are relative to the body, and the honest report for a block no reader could read is the one this always gave.
 
 ### traps-interop — Formats other tools depend on, and text the licence forbids rewriting
 
