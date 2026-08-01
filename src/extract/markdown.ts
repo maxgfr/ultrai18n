@@ -27,7 +27,24 @@ const HTML_BLOCK = /^\s*<\/?[a-zA-Z][^>]*>/
 const REF_DEF = /^\s*\[[^\]]+\]:\s+\S+/
 
 /** Inline constructs whose TEXT is prose but whose target is not. */
-const INLINE_CODE = /`[^`]*`/g
+/**
+ * An inline code span, which may NOT cross a line.
+ *
+ * Without the `\n` this desynchronises for the rest of the block, and it does
+ * so silently. A code span that wraps — `` `sites [--verdict <v>] … ``
+ * continuing onto the next line — leaves one unpaired backtick in the paragraph
+ * that follows it. `` `[^`]*` `` then pairs that stray backtick with the NEXT
+ * one in the block, and every pair after it is off by one: the mask blanks
+ * prose and leaves code exposed. On this repository's own SKILL.md that ate an
+ * entire line of English out of a file reporting a claimRatio of 1.0, which
+ * `sites --audit` found on its first run.
+ *
+ * Refusing to cross a line loses the masking of a genuinely multi-line span,
+ * whose body then reads as prose. That is the safe direction and the same one
+ * `emitRuns` argues for below: emitting a site too many costs one adjudication,
+ * and dropping a line costs the claim this project is built on.
+ */
+const INLINE_CODE = /`[^`\n]*`/g
 const LINK = /\[([^\]]*)\]\(([^)]*)\)/g
 const IMAGE = /!\[([^\]]*)\]\(([^)]*)\)/g
 const AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g

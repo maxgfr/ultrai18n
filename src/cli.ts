@@ -21,6 +21,7 @@ import type { Inventory } from './types'
 import { existsSync, readFileSync } from 'node:fs'
 import { readGlossary, writeGlossary } from './commands'
 import { selectSites, formatSites, driftAgainst, formatDrift, UnknownTokenError } from './sites'
+import { auditCoverage, formatAudit, locatorTable } from './audit'
 import { profile, selfTest, formatGuess, formatProfile, formatSelfTest } from './langcmd'
 import { detect } from './lang/detect'
 import {
@@ -36,6 +37,7 @@ Usage:
   ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json]
   ultrai18n census     [--repo <dir>] [--json]
   ultrai18n sites      [--verdict <v>] [--surface <glob>] [--file <glob>] [--dup] [--json]
+                       [--audit] [--drift <inventory.json>]
   ultrai18n catalog    [--explain <file>] [--ecosystem <id>] [--rule <id>] [--json]
   ultrai18n lang       [--value "<text>"] [--test] [--json]
   ultrai18n adjudicate [--out <dir>] [--batch <n>]
@@ -58,6 +60,14 @@ Commands:
               reason. The denominator is \`git ls-files\`, not the walker, because
               the walker's own exclusions are what needs auditing. Exits 1 when
               any tracked path is unaccounted for (gate G1).
+
+  sites       Filtered views over the inventory. \`--audit\` is the odd one out
+              and the only one that gates: for every file whose extractor
+              recorded a claimRatio of 1.0 — asserting it accounted for every
+              byte — it asks whether any line holding text is covered by no
+              site. The oracle is a table of locators the extractors do not
+              share, because asking an extractor whether it found everything is
+              a tautology. Exits 1 on a contradiction.
 
   plurals     Every plural family, with the forms its own locale selects and the
               forms it actually has. Exits 1 when one is short — that is a wrong
@@ -125,7 +135,7 @@ const VALUE_FLAGS = new Set([
 const BOOL_FLAGS = new Set([
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
   'ci', 'hook', 'baseline', 'quiet', 'allow-dirty', 'no-git', 'backup',
-  'strict', 'help', 'no-ast', 'no-recover', 'propose', 'check',
+  'strict', 'help', 'no-ast', 'no-recover', 'propose', 'check', 'audit',
 ])
 
 /**
@@ -564,6 +574,23 @@ async function main(): Promise<void> {
     case 'sites': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+
+      // The one mode here that makes a claim which can be WRONG, so the only
+      // one that gates — the same reasoning `lang --test` already applies. A
+      // filter shows a view of the inventory and zero matches is a result; this
+      // asks whether a RECORDED claim of full coverage survives an oracle the
+      // extractors do not share, and a contradiction there is a defect in this
+      // engine rather than a fact about the repository.
+      if (p.flags.audit === true) {
+        const view = auditCoverage(inventory, repo)
+        if (json) {
+          process.stdout.write(JSON.stringify({ ...view, locators: locatorTable() }, null, 2) + '\n')
+        } else {
+          say(formatAudit(view))
+        }
+        if (!view.ok) process.exitCode = 1
+        return
+      }
 
       if (p.flags.drift !== undefined) {
         const previous = readJson<Inventory>(String(p.flags.drift), 'the previous inventory')

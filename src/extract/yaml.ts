@@ -23,6 +23,18 @@ export interface YamlExtractResult {
   complete: boolean
   /** Constructs the scanner knowingly skipped, for the census. */
   skipped: string[]
+  /**
+   * Byte spans of those constructs — read PAST rather than read.
+   *
+   * Recording the skip in prose and claiming its bytes anyway is a false claim
+   * of full coverage, and `sites --audit` found one on its first run: an issue
+   * form's `labels: [bug, triage]` is a flow collection this scanner does not
+   * enter, in a file reporting a claimRatio of 1.0. `scan` subtracts these and
+   * sweeps them, so what is in there lands in the inventory as `unclassified`
+   * and G2 refuses — listed, not claimed. Exactly what an inline `<script>`
+   * already gets from the markup scanner.
+   */
+  skippedSpans: Span[]
 }
 
 type Frame = { indent: number; type: 'map'; key: string | null } | { indent: number; type: 'seq'; index: number }
@@ -37,6 +49,7 @@ export function extractYaml(
   const sites: RawSite[] = []
   const keys = new Set<string>()
   const skipped: string[] = []
+  const skippedSpans: Span[] = []
   let claimed = 0
   let complete = true
 
@@ -185,14 +198,23 @@ export function extractYaml(
 
       const trimmedValue = valueText.trim()
       if (trimmedValue === '' || trimmedValue.startsWith('#')) continue
+      // A construct this scanner does not enter. Its bytes are recorded as
+      // UNREAD rather than counted as claimed, so `scan` can sweep them.
+      const skip = (what: string): void => {
+        skipped.push(`${file}:${li + 1}: ${what}`)
+        skippedSpans.push({
+          start: map.byteOf(lineStart + valueStart),
+          end: map.byteOf(lineStart + line.length),
+        })
+      }
       if (trimmedValue.startsWith('&') || trimmedValue.startsWith('*')) {
-        skipped.push(`${file}:${li + 1}: anchor or alias`)
+        skip('anchor or alias')
         continue
       }
       // Inline flow collections are left to the JSON lexer's shape; recording
       // the skip keeps the sweep honest about them.
       if (trimmedValue.startsWith('[') || trimmedValue.startsWith('{')) {
-        skipped.push(`${file}:${li + 1}: flow collection`)
+        skip('flow collection')
         continue
       }
 
@@ -211,7 +233,8 @@ export function extractYaml(
   }
 
   sites.sort((a, b) => a.span.start - b.span.start)
-  return { sites, keys, claimedBytes: claimed, complete, skipped }
+  const unread = skippedSpans.reduce((n, s) => n + (s.end - s.start), 0)
+  return { sites, keys, claimedBytes: claimed - unread, complete, skipped, skippedSpans }
 }
 
 interface Line {

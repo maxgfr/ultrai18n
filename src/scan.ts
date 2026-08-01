@@ -550,9 +550,27 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   }
 
   if (YAML_EXT.has(ext)) {
-    const { sites, keys, claimedBytes, complete } = extractYaml(file.rel, read.text, map)
+    const { sites, keys, claimedBytes, complete, skippedSpans } = extractYaml(file.rel, read.text, map)
     for (const k of keys) tokens.identifiers.add(k)
-    return { ...base, sites, extractor: 'yaml', bytesClaimed: claimedBytes, complete }
+    // A flow collection or an alias is a construct the scanner does not enter.
+    // It used to record the skip in prose and claim the bytes anyway, so a file
+    // holding one reported full coverage over a value that reached no site —
+    // the same false claim an inline `<script>` used to make, and the one
+    // `sites --audit` found first when it was pointed at this repository.
+    const residual = skippedSpans.length
+      ? sweepFile(file.rel, read.text, map, [...complement(mergeSpans(skippedSpans), read.bytes), ...sites.map((s) => s.span)], {
+          identifiers: tokens.identifiers,
+          extractor: 'yaml',
+          reason: 'a YAML flow collection or alias, which the indentation scanner does not enter; found by the residual sweep',
+        })
+      : []
+    return {
+      ...base,
+      sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+      extractor: 'yaml',
+      bytesClaimed: claimedBytes,
+      complete,
+    }
   }
 
   if (MARKDOWN_EXT.has(ext)) {
