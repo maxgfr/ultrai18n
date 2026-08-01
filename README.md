@@ -105,6 +105,32 @@ for 2, 3 and 4 right now, in production.
 
 ## Measuring it
 
+Three instruments, and the first one runs on **your** repository rather than on a benchmark:
+
+```sh
+ultrai18n scan  --repo . --to fr
+ultrai18n sites --repo . --audit
+```
+
+`sites --audit` takes every file whose extractor recorded a `claimRatio` of 1.0 — asserting it
+accounted for every byte — and asks whether any line holding text is covered by no site. It exits 1
+on a contradiction, which makes it the one mode of `sites` that gates.
+
+The oracle is a small table of per-format locators the extractors do not share, because asking an
+extractor whether it found everything is a tautology. Each row cites what it points at, and when a
+row is wrong the fix is a row. Run against two real repositories — 1,128 tracked files, 1,110 of
+them claiming to have read all of themselves — it returned 119 findings. **Six were the engine's and
+113 were the oracle's**, and both halves were worth having:
+
+- an inline code span that WRAPS a line desynchronised the markdown mask and ate the line below it;
+- a YAML flow collection was recorded as skipped and had its bytes claimed anyway;
+- `jsx_attribute` scanned its value for strings and pruned everything else, so
+  `empty={<p>Aucun projet pour le moment</p>}` — real UI copy — was silently absent from a file
+  reporting full coverage, with a clean parse and nothing swept.
+
+That last one is the case for the whole approach: no gate could have caught it, because nothing was
+dropped *without a reason* — it was dropped *with* one, by a branch that looked deliberate.
+
 `pnpm bench` runs a corpus of small repositories with hand-written ground truth, and its report is
 committed — so every change in what the tool finds arrives as a reviewable prose diff, whether or not
 it crossed a threshold.
@@ -134,11 +160,16 @@ The pipeline works end to end: `scan` → `plan` → `translate` → `apply` →
 `plurals`, `sync`, `sites`, `lang`, `adjudicate`, `glossary`, `orchestrate` and
 `init --ci --baseline`. Nothing is declared and unbuilt, and no flag is parsed and ignored.
 
-Recall is measured rather than asserted, and the instrument ships rather than living in a benchmark:
-`sites --audit` comes back clean on this repository across 201 files that claim to have read all of
-themselves. Every hole that measurement has found is closed — hard-wrapped markdown paragraphs, an
-inline `<style>` and `<script>` whose bytes were counted as read while their text reached nothing, a
-wrapped code span that ate the line below it, and a YAML flow collection claimed and never entered.
+Recall is measured rather than asserted, and the instrument ships rather than living in a benchmark.
+`sites --audit` comes back clean on two real repositories — 1,110 files that claim to have read all
+of themselves — and on this one. Every hole it has found is closed: hard-wrapped markdown
+paragraphs, an inline `<style>` and `<script>` whose bytes were counted as read while their text
+reached nothing, a wrapped code span that ate the line below it, a YAML flow collection claimed and
+never entered, and a JSX attribute expression whose nested elements and comments were unreachable.
+
+On those two repositories every single tracked file has a real reader — no path falls through to the
+residual sweep — spread across markdown, TypeScript, JSON, HTML, SQL, shell, YAML, CSS, Python and
+Dockerfiles.
 
 Readers: TypeScript, JavaScript, JSX and TSX; **Python and shell on the same AST tier**, so a
 docstring is the first statement of a body rather than a string that happens to come first; JSON,
@@ -160,6 +191,44 @@ On a fully French reference repository, `scan` finds 2956 text sites across 91 f
 them into what to translate, what is an identifier and must not be touched, and what it refuses to
 decide. Among the finds are four French comments in a stylesheet that two separate human translation
 passes both missed.
+
+## Handing it to agents
+
+The engine cannot spawn an agent and will not pretend to. What it does instead is make the hand-off
+exact, so the same run is reproducible whether a workflow tool, a person, or a shell loop drives it:
+
+```sh
+ultrai18n scan        --repo . --to fr        # 40k sites, 463 files, audit clean
+ultrai18n plan        --repo .                # 3747 groups — exits 1 on an open hazard
+ultrai18n orchestrate --repo .                # emits the workflow + contract for the READY phase
+ultrai18n translate   --repo . --backend subagent   # 468 batches + agents/translator.md
+```
+
+`orchestrate --list` is the part worth reading before dispatching anything. On a real repository it
+comes back with `translate` **blocked**:
+
+```
+READY adjudicate       3 items
+      translate      468 items   3 open hazard(s) — adjudicate them first
+```
+
+That ordering is the product, not a formality. A hazard is a text that is both a rendered label and
+a persisted value; both readings are correct and one of them destroys stored data. Letting 468
+translation agents run past three of those is precisely the failure this tool exists to prevent, so
+the phase refuses to be ready.
+
+Two things follow from that, and they are worth being blunt about:
+
+- **A subagent can translate everything the engine DECIDED** — the batches are complete, each is
+  eight short strings and a one-page contract, and a model never opens a source file.
+- **It cannot translate what the engine REFUSED**, and that pile is large: roughly 7,800 and 10,300
+  `needs-judgment` sites on the two repositories. Those do not block translation; they block
+  `check`. They are the price of not guessing, and no amount of better searching reduces them —
+  see `TODO.md` §2.
+
+An agent phase that WRITES files is verified rather than trusted: `plurals --apply` and `check`'s
+structural fold both re-scan and compare the result against what the agent said it did, because a
+return from those phases is a claim that an edit was made rather than a decision to fold in.
 
 ## License
 
