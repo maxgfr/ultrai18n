@@ -172,8 +172,28 @@ export interface ValueSplitRead {
   primitive: 'value-split'
   /** Literal, tried LONGEST FIRST so Polyglot's `||||` beats vue-i18n's `|`. */
   delimiters: string[]
-  /** Part count → the categories those positions mean. */
-  order: Record<number, Category[]>
+  /** Part count → the categories those positions mean. Omit when `partSelector` is set. */
+  order?: Record<number, Category[]>
+  /**
+   * Each part carries its OWN selector, so POSITION means nothing.
+   *
+   * Symfony writes `{0} Rien|]0,1] Un article|]1,Inf[ %count% articles`. Read
+   * positionally that is a three-part `zero|one|other` family and all three
+   * labels are wrong; read by selector it is `zero|one|other` for a reason.
+   * The distinction is invisible until a two-part string disagrees — `{0} …|
+   * ]1,Inf[ …` is `zero|other` by selector and `one|other` by position — which
+   * is why the corpus pins that pair specifically.
+   *
+   * A part whose selector is absent from `tokens` DISQUALIFIES the whole value
+   * rather than defaulting to a position. `]2,5[` has no CLDR category, and
+   * inventing one is exactly the guess a cited catalog exists to prevent.
+   */
+  partSelector?: {
+    /** Anchored at the start of a part; group 1 is the selector, the rest is the body. */
+    re: RegExp
+    /** Selector spelling → category. An absent spelling disqualifies the value. */
+    tokens: Record<string, Category>
+  }
   /**
    * A part must count something.
    *

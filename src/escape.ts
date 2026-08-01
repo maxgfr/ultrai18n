@@ -22,6 +22,11 @@ export type HostSyntax =
   | 'css-comment'
   | 'line-comment'
   | 'block-comment'
+  | 'po-string'
+  | 'toml-basic'
+  | 'toml-literal'
+  | 'ftl-pattern'
+  | 'dockerfile-value'
   | 'plain'
 
 export class UnknownSyntaxError extends Error {
@@ -63,6 +68,18 @@ export function syntaxFor(site: {
       return site.kind === 'comment' ? 'css-comment' : 'js-double'
     case 'text':
       return 'plain'
+    case 'po':
+      return site.kind === 'comment' ? 'line-comment' : 'po-string'
+    case 'toml':
+      if (site.kind === 'comment') return 'line-comment'
+      // A TOML literal string has no escape mechanism AT ALL, not even for its
+      // own delimiter, so the two quote styles are genuinely different syntaxes
+      // rather than one with a parameter.
+      return site.quote === "'" ? 'toml-literal' : 'toml-basic'
+    case 'ftl':
+      return site.kind === 'comment' ? 'line-comment' : 'ftl-pattern'
+    case 'dockerfile':
+      return site.kind === 'comment' ? 'line-comment' : 'dockerfile-value'
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site.extractor}"`)
   }
@@ -155,6 +172,23 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
     case 'line-comment':
       // A newline would move the remainder outside the comment.
       return text.replace(/\r?\n/g, ' ')
+    case 'po-string':
+      // C-style, as gettext defines it. `\n` matters: a PO string is written on
+      // one line and a real newline would end the string.
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    case 'toml-basic':
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    case 'toml-literal':
+      // Nothing is escapable here, so nothing is escaped. A value containing an
+      // apostrophe CANNOT be written into a literal string, and `unescapeFor`
+      // models that truncation so `apply`'s round-trip check refuses the write
+      // instead of silently cutting the sentence short.
+      return text
+    case 'ftl-pattern':
+      // `{` opens a placeable. Fluent's own literal-brace form is `{"{"}`.
+      return text.replace(/\{/g, '{"{"}')
+    case 'dockerfile-value':
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
     case 'plain':
       return text
   }
@@ -251,6 +285,23 @@ export function unescapeFor(syntax: HostSyntax, text: string, opts: EscapeOption
     case 'block-comment':
       return text.replace(/\*\\\//g, '*/')
     case 'line-comment':
+    case 'po-string':
+      // C-style, as gettext defines it. `\n` matters: a PO string is written on
+      // one line and a real newline would end the string.
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    case 'toml-basic':
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    case 'toml-literal':
+      // Nothing is escapable here, so nothing is escaped. A value containing an
+      // apostrophe CANNOT be written into a literal string, and `unescapeFor`
+      // models that truncation so `apply`'s round-trip check refuses the write
+      // instead of silently cutting the sentence short.
+      return text
+    case 'ftl-pattern':
+      // `{` opens a placeable. Fluent's own literal-brace form is `{"{"}`.
+      return text.replace(/\{/g, '{"{"}')
+    case 'dockerfile-value':
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ')
     case 'plain':
       return text
   }

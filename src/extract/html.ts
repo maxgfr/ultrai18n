@@ -10,6 +10,22 @@
 import type { Span } from '../types'
 import type { Container, RawSite } from './raw'
 import { OffsetMap } from '../vendor/text'
+import { pointer } from '../identity'
+
+/**
+ * Is this `.ts` file a Qt Linguist catalog rather than a TypeScript module?
+ *
+ * Anchored at the head of the file — an optional BOM, an optional XML
+ * declaration, any number of comments — so a TypeScript module that merely
+ * CONTAINS the string `"<TS version="` is never handed to the markup scanner.
+ * Sniffing on content is right here and nowhere else: this is the one extension
+ * two unrelated formats genuinely share.
+ */
+const QT_HEAD = /^﻿?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+TS\b|<TS[\s>])/i
+
+export function isQtTranslation(text: string): boolean {
+  return QT_HEAD.test(text.slice(0, 512))
+}
 
 /** Attributes whose value is shown to, or read to, a person. */
 const TEXT_ATTRS =
@@ -38,7 +54,22 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
   // resource `<item>` means nothing without the `quantity` that labels it and
   // the `<plurals name>` that owns it, and a bare document-order index cannot
   // express either.
-  const openStack: { tag: string; attrs: Record<string, string> }[] = []
+  const openStack: {
+    tag: string
+    attrs: Record<string, string>
+    /** plist only: the `<key>` most recently seen inside this `<dict>`. */
+    pendingKey?: string | null
+    /** plist `<array>` only: how many values have been emitted at this level. */
+    index?: number
+  }[] = []
+
+  // Decided by the first element and never re-decided. Everything guarded by it
+  // is ADDITIVE: an ordinary HTML, SVG, Vue, Svelte or Astro document takes
+  // exactly the path it took before, which is the property the regression test
+  // in `extract-text-formats` pins.
+  let docKind: 'markup' | 'plist' | 'qt' = 'markup'
+  let messageOrdinal = -1
+  let numerusOrdinal = 0
 
   const push = (
     path: string,
@@ -124,11 +155,28 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
         }
       }
       if (at !== -1) openStack.length = at
+      if (docKind === 'qt' && tag === 'numerusform') numerusOrdinal++
+    } else if (tag === '') {
+      // `<?xml …?>`, `<!DOCTYPE …>`, `<![CDATA[`. Not elements, and pushing a
+      // frame for one put every real root element at depth 1 — which silently
+      // disabled every check that asks "is this the document's first element?"
+      i = gt + 1
+      continue
     } else {
       identifiers.add(tag)
+      if (docKind === 'markup' && openStack.length === 0) {
+        if (tag === 'plist') docKind = 'plist'
+        else if (tag === 'ts') docKind = 'qt'
+      }
+      if (docKind === 'qt') {
+        if (tag === 'message') {
+          messageOrdinal++
+          numerusOrdinal = 0
+        }
+      }
       extractAttributes(tagBody, lt + 1, tag)
       const selfClosing = tagBody.trimEnd().endsWith('/')
-      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody) })
+      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody), pendingKey: null, index: 0 })
     }
 
     i = gt + 1
@@ -149,6 +197,29 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
     // <code>/<pre> it is not, whatever it looks like.
     if (OPAQUE_ELEMENTS.has(enclosing)) return
     const isSvgText = SVG_TEXT_ELEMENTS.has(enclosing)
+
+    // A plist dict is a MAP written as alternating <key>/<value> siblings, so
+    // the only honest path for it is the one JSON and YAML already use. The
+    // generic `string/text[7]` says where a value sits in the document and
+    // nothing about which key owns it — and which key owns it is exactly what
+    // an Apple plural is made of.
+    if (docKind === 'plist') {
+      const body = chunk.trim()
+      if (enclosing === 'key') {
+        const dict = openStack[openStack.length - 2]
+        if (dict) dict.pendingKey = body
+        const p = plistPointer(body)
+        // Emitted as a key, exactly as the JSON extractor emits one: the
+        // classifier decides a key structurally, long before any rule.
+        if (p) push(p, 'key', at, at + chunk.length, body, null, { isKey: true })
+        return
+      }
+      if (!/\p{L}{2,}/u.test(body)) return
+      const p = plistPointer()
+      if (p) push(p, 'prose-run', at, at + chunk.length, body, null, { isKey: false, element: enclosing })
+      return
+    }
+
     if (!isSvgText && !/\p{L}{2,}/u.test(chunk)) return
 
     const qualified = resourcePath()
@@ -199,8 +270,48 @@ export function extractHtml(file: string, text: string, map: OffsetMap): HtmlExt
    * the forms are the identity, and `item[3]` says nothing about which form it
    * is. This is also the only path shape the plural detector can read.
    */
+  /**
+   * `/task_count/tasks/one` — a JSON Pointer into a plist's dict nesting.
+   *
+   * Built from the `<key>` each enclosing `<dict>` last saw. Through `pointer()`
+   * so a `/` or `~` inside a key is escaped, which makes these paths comparable
+   * with the ones JSON and YAML produce rather than merely similar to them.
+   */
+  function plistPointer(forKey?: string): string | null {
+    const segments: (string | number)[] = []
+    for (let k = 0; k < openStack.length; k++) {
+      const frame = openStack[k]!
+      if (frame.tag === 'dict') {
+        const next = openStack[k + 1]
+        // The value currently being emitted sits under the dict's pending key.
+        if (frame.pendingKey && (next === undefined || next.tag !== 'key')) {
+          segments.push(frame.pendingKey)
+        }
+      } else if (frame.tag === 'array') {
+        segments.push(frame.index ?? 0)
+      }
+    }
+    if (forKey !== undefined) {
+      // The key site names itself, so its own segment is the key text.
+      const own = [...segments]
+      if (own[own.length - 1] !== forKey) own.push(forKey)
+      return pointer(own)
+    }
+    return segments.length ? pointer(segments) : null
+  }
+
   function resourcePath(): string | null {
     const top = openStack[openStack.length - 1]
+    // Qt gives a <message> no name attribute: its identity is its <source>
+    // string, which is arbitrary user prose and has no business inside an
+    // anchor. An ordinal renumbers if a message is inserted above — the same
+    // guarantee `p[n]` and `~sweep[n]` already make, and strictly better than
+    // the file-global `text[n]` it replaces, which gave every numerusform in
+    // the whole catalog one shared base and collapsed two messages into one
+    // four-form family.
+    if (docKind === 'qt' && top?.tag === 'numerusform') {
+      return `message[${Math.max(0, messageOrdinal)}]/numerusform[${numerusOrdinal}]`
+    }
     const parent = openStack[openStack.length - 2]
     if (!top || !parent) return null
     if (top.tag !== 'item') return null

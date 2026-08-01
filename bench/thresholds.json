@@ -17,6 +17,7 @@
     "cargo.package.description",
     "dart.pubspec.description",
     "docker.label",
+    "gettext.po-catalog",
     "github.issue-forms",
     "github.release-notes-body",
     "github.workflow-prose",
@@ -33,17 +34,7 @@
     "webext.manifest.text"
   ],
 
-  "neverExercisedRules": [
-    "cargo.package.description",
-    "python.pyproject.description",
-    "docker.label",
-    "html.title"
-  ],
+  "$neverExercisedWhy": "Empty, and it stays empty by ratchet. Four rules used to sit here because they were well-formed, cited, and unable to fire: the two TOML ones had no extractor, `docker.label` matched a key the prose reader never produced, and `html.title` described a shape the HTML extractor does not emit. Three got a reader; the fourth got a rule matching what was always there. A fifth dead rule fails the run, and so does a listed one that starts firing.",
 
-  "$neverExercisedWhy": {
-    "cargo.package.description": "A `pointer` matcher on `**/Cargo.toml`. There is no TOML extractor, so the file falls to the residual sweep and `classify` short-circuits on `tier === 'sweep'` before `matchRules` is called. Remedy: src/extract/toml.ts.",
-    "python.pyproject.description": "Same file format, same missing extractor.",
-    "docker.label": "A `keyName` matcher on `**/Dockerfile*`. Dockerfile is read by the prose extractor, whose sites carry `key = \"p[0]\"`, so the pattern never matches. Remedy: a Dockerfile extractor that emits LABEL keys, or a rule that matches the value instead.",
-    "html.title": "Matches `{kind: attr, element: title, attr: text}`, but the HTML extractor emits a document title as a `prose-run` at `title/text[0]`. The title IS found and translated — by the generic prose path — so this is a traceability gap, not a recall one."
-  }
+  "neverExercisedRules": []
 }

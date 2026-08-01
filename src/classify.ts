@@ -279,9 +279,10 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
       return {
         surface: ruled.emit.surface,
         verdict: 'do-not-translate',
-        // A third locale's bundle is data this run has no opinion about; the
-        // source's own bundle is the text everything else is measured against.
-        reason: fileLocale === opts.from ? 'source-locale-bundle' : 'code-token',
+        // Three cases, three names. The source's own bundle is the text
+        // everything else is measured against; a third locale's is copy this
+        // run has no opinion about.
+        reason: fileLocale === opts.from ? 'source-locale-bundle' : 'other-locale-bundle',
         confidence: 'high',
         rule: ruled.rule.id,
         skipDetection: true,

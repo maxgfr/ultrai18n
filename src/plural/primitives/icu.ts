@@ -6,9 +6,9 @@
 // it. `src/plural/icu.ts` is that parser, unchanged — this file only adapts it
 // to the dialect interface.
 //
-// A Fluent dialect would need a second module beside it, for the same reason.
-// That is the price of a genuinely new grammar, and it is the only place the
-// design charges one.
+// Fluent needed a second module beside it, for the same reason — see
+// `primitives/fluent.ts`. Two grammars, and the design charges for both; every
+// other arrangement it reads is a row.
 import type { Site } from '../../types'
 import type { GrammarRead, PluralDialect } from '../dialect/types'
 import { looksLikeIcu, scanIcu } from '../icu'
@@ -77,9 +77,8 @@ export function detectIcu(
 export function validateGrammar(read: unknown): string[] {
   const r = read as Partial<GrammarRead>
   if (!r || typeof r !== 'object') return ['read must be an object']
-  if (r.primitive === 'fluent') {
-    return ['the fluent grammar has no reader yet — a dialect cannot declare one into existence']
+  if (r.primitive !== 'icu' && r.primitive !== 'fluent') {
+    return [`unknown grammar ${String(r.primitive)}`]
   }
-  if (r.primitive !== 'icu') return [`unknown grammar ${String(r.primitive)}`]
   return []
 }

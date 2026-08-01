@@ -9,6 +9,7 @@ import type { Site } from '../../types'
 import { compileGlobs } from '../../vendor/glob'
 import type { PluralDialect, PrimitiveId } from '../dialect/types'
 import type { DetectedFamily } from '../shapes'
+import { detectFluent } from './fluent'
 import { detectIcu, validateGrammar } from './icu'
 import { detectPathPart, validatePathPart } from './path-part'
 import { detectValueSplit, validateValueSplit } from './value-split'
@@ -39,11 +40,9 @@ export const PRIMITIVES: Record<PrimitiveId, Primitive> = {
     detect: (sites, d, ctx) => detectIcu(sites, d as never, ctx),
     validate: validateGrammar,
   },
-  // Declared so a row naming it fails validation with a sentence rather than a
-  // crash. There is no Fluent reader, and a dialect cannot write one.
   fluent: {
     id: 'fluent',
-    detect: () => [],
+    detect: (sites, d, ctx) => detectFluent(sites, d as never, ctx),
     validate: validateGrammar,
   },
 }

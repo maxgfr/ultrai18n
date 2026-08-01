@@ -275,8 +275,47 @@ export const RULES: Rule[] = [
     ecosystem: 'web',
     title: 'Document title',
     docs: 'https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title',
-    when: { kind: 'attr', file: ['**/*.html', '**/*.htm'], element: /^title$/, attr: /^text$/ },
+    // Matches the path the extractor actually emits.
+    //
+    // This asked for `{kind: attr, element: title, attr: text}` and could
+    // therefore never fire: a `<title>` is a TEXT NODE, and the extractor emits
+    // it as a `prose-run` at `title/text[n]`. The title was always found and
+    // always translated by the generic prose path; what was missing was the
+    // citation.
+    //
+    // Fixing the extractor instead would have been a correctness bug, not just
+    // churn: `escape.ts` routes an `attr` site through the `html-attr` escaper,
+    // which writes `&quot;` for a double quote. A text node uses `html-text`,
+    // which leaves quotes alone. Emitting a title as an attr to satisfy a
+    // matcher would have started writing `&quot;` into document titles.
+    //
+    // `\d+` and not `0`: the index is a file-global counter, so a title
+    // preceded by any other text run is `title/text[3]`.
+    when: { kind: 'structural', file: ['**/*.html', '**/*.htm'], path: /^title\/text\[\d+\]$/ },
     emit: { surface: 'meta.head', verdict: 'translate', flags: ['seo'] },
+    notes:
+      'An <svg><title> inside an .html file also produces title/text[n] and is claimed here. Both verdicts are `translate`, so recall and verdict are right and only the surface label is off; qualifying the path with an svg ancestor would change SVG paths across the corpus and belongs in its own change.',
+  },
+
+  {
+    id: 'gettext.po-catalog',
+    ecosystem: 'i18n',
+    title: 'gettext message catalog',
+    docs: 'https://www.gnu.org/software/gettext/manual/html_node/PO-Files.html',
+    when: { kind: 'structural', file: ['**/*.po', '**/*.pot', ...NOT_VENDORED], path: /\/msgstr(\[\d+\])?$/ },
+    emit: { surface: 'i18n.message', verdict: 'translate' },
+    companions: [
+      {
+        // A `msgid` is not ordinary copy. It is the LOOKUP KEY every catalog in
+        // the repository indexes on, so rewriting one without rewriting every
+        // `.po` in lockstep breaks every lookup — while leaving it is equally
+        // defensible, because a source-language swap that keeps English msgids
+        // is exactly how most projects run gettext. Two correct answers, one of
+        // which breaks at runtime: the engine reports and refuses.
+        when: { kind: 'structural', file: ['**/*.po', '**/*.pot'], path: /\/(msgid|msgid_plural)$/ },
+        emit: { surface: 'i18n.message', verdict: 'needs-judgment', reason: 'dual-use' },
+      },
+    ],
   },
 
   // ------------------------------------------------------------------ i18n

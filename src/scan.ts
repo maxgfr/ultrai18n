@@ -16,6 +16,11 @@ import { extractMarkdown } from './extract/markdown'
 import { extractCss } from './extract/css'
 import { extractHtml } from './extract/html'
 import { extractText, isPlainText } from './extract/text'
+import { extractPo } from './extract/po'
+import { extractToml } from './extract/toml'
+import { extractFtl } from './extract/ftl'
+import { extractDockerfile, isDockerfile } from './extract/dockerfile'
+import { isQtTranslation } from './extract/html'
 import { sweepFile, merge as mergeSpans, complement } from './sweep'
 import { scanPaths, pathSites } from './paths'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
@@ -41,7 +46,15 @@ const MARKDOWN_EXT = new Set(['.md', '.mdx', '.markdown'])
 const CSS_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl'])
 // SVG is here on purpose: it is text, and <title>/<desc> carry the accessible
 // name of every icon in the interface.
-const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.vue', '.svelte', '.astro', '.ejs', '.hbs', '.handlebars', '.njk', '.erb', '.twig', '.liquid'])
+// `.stringsdict` is an XML plist, so the markup scanner reads it — but only
+// because that scanner now gives a plist dict a JSON Pointer. Registering the
+// extension alone would have produced `string/text[7]`, a document-order index
+// that says nothing about which `<key>` owns the value, which is exactly the
+// information an Apple plural is made of.
+const HTML_EXT = new Set(['.html', '.htm', '.xhtml', '.svg', '.xml', '.vue', '.svelte', '.astro', '.ejs', '.hbs', '.handlebars', '.njk', '.erb', '.twig', '.liquid', '.stringsdict'])
+const PO_EXT = new Set(['.po', '.pot'])
+const TOML_EXT = new Set(['.toml'])
+const FTL_EXT = new Set(['.ftl'])
 
 export interface ScanOptions {
   repo: string
@@ -152,7 +165,8 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   // What LOOKS like a plural and no dialect claimed. Reported on the inventory
   // so `plurals`, `dialects --propose` and the gate all read one list.
   const claimedSiteIds = new Set(plurals.flatMap((f) => f.sites))
-  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds)
+  const claimedBases = new Set(plurals.map((f) => f.anchor))
+  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds, claimedBases)
 
   return {
     schemaVersion: 1,
@@ -394,6 +408,35 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   const map = new OffsetMap(read.text)
   const ext = file.ext
 
+  // The one extension collision worth a content check.
+  //
+  // A Qt Linguist catalog and a TypeScript module genuinely share `.ts`, and
+  // handing XML to the TypeScript grammar reported nineteen unparseable regions
+  // and a `claimRatio` of 0 — a broken TypeScript module where there is a
+  // perfectly good translation catalog. Nothing was LOST (the degraded branch
+  // sweeps exactly the regions the grammar failed on, which is what it is for)
+  // but nothing was understood either. Extension routing stays right for
+  // everything else; this is the one case that earns a sniff.
+  if (ext === '.ts' && isQtTranslation(read.text)) {
+    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read.text, map)
+    for (const id of identifiers) tokens.identifiers.add(id)
+    return {
+      ...base,
+      sites,
+      extractor: 'html',
+      bytesClaimed: claimedBytes,
+      reason: 'Qt translation catalog: routed by content, because .ts is also TypeScript',
+    }
+  }
+
+  // A Dockerfile is not prose, and reading it as prose made every `RUN apt-get
+  // install …` a paragraph the classifier had to talk itself out of.
+  if (isDockerfile(file.rel)) {
+    const { sites, keys, claimedBytes } = extractDockerfile(file.rel, read.text, map)
+    for (const k of keys) tokens.identifiers.add(k)
+    return { ...base, sites, extractor: 'dockerfile', bytesClaimed: claimedBytes }
+  }
+
   if (!opts.noAst && AST_EXTENSIONS.has(ext)) {
     const parser = await parserForExt(ext)
     if (parser) {
@@ -459,6 +502,24 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   if (MARKDOWN_EXT.has(ext)) {
     const { sites, claimedBytes } = extractMarkdown(file.rel, read.text, map)
     return { ...base, sites, extractor: 'markdown', bytesClaimed: claimedBytes }
+  }
+
+  if (PO_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractPo(file.rel, read.text, map)
+    for (const k of keys) tokens.identifiers.add(k)
+    return { ...base, sites, extractor: 'po', bytesClaimed: claimedBytes, complete }
+  }
+
+  if (TOML_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractToml(file.rel, read.text, map)
+    for (const k of keys) tokens.identifiers.add(k)
+    return { ...base, sites, extractor: 'toml', bytesClaimed: claimedBytes, complete }
+  }
+
+  if (FTL_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractFtl(file.rel, read.text, map)
+    for (const k of keys) tokens.identifiers.add(k)
+    return { ...base, sites, extractor: 'ftl', bytesClaimed: claimedBytes, complete }
   }
 
   if (CSS_EXT.has(ext)) {

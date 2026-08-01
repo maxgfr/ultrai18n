@@ -1,1 +1,2 @@
 cart_items: '{0} Rien dans le panier|]0,1] Un article|]1,Inf[ %count% articles'
+apples: '{0} Aucune pomme|]1,Inf[ %count% pommes'

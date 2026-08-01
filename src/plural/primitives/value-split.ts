@@ -10,8 +10,9 @@
 // from a string whose runtime has no notion of `few` at all.
 import type { Site } from '../../types'
 import { isCategory } from '../cldr'
+import type { Category } from '../cldr'
 import type { PluralDialect, ValueSplitRead } from '../dialect/types'
-import type { DetectedFamily } from '../shapes'
+import type { DetectedFamily, PluralForm } from '../shapes'
 import { pathOf, type DetectContext } from './shared'
 
 /** The guard that keeps `"Save | Cancel"` out: a plural has to count something. */
@@ -36,10 +37,14 @@ export function detectValueSplit(
     if (!delimiter) continue
 
     const parts = site.value.split(delimiter).map((p) => (trim ? p.trim() : p))
-    const order = read.order[parts.length]
-    if (!order) continue
     if (parts.some((p) => !/\p{L}{2,}/u.test(p))) continue
     if (read.requiresCounting !== false && !parts.some((p) => COUNTS.test(p))) continue
+
+    // Each part names its own category, so its POSITION carries no information.
+    const forms = read.partSelector
+      ? bySelector(parts, read.partSelector, site.id)
+      : byPosition(parts, read.order?.[parts.length], site.id)
+    if (!forms) continue
 
     out.push({
       shape: dialect.shape,
@@ -49,12 +54,7 @@ export function detectValueSplit(
       write: dialect.write,
       file: site.file,
       base: pathOf(site),
-      forms: parts.map((value, i) => ({
-        category: order[i]!,
-        selector: `[${i}]`,
-        siteId: site.id,
-        value,
-      })),
+      forms,
       exact: [],
       sites: [site.id],
       ordinal: false,
@@ -62,6 +62,39 @@ export function detectValueSplit(
     })
   }
   return out
+}
+
+/** Categories from the parts' positions — vue-i18n, Polyglot. */
+function byPosition(parts: string[], order: Category[] | undefined, siteId: string): PluralForm[] | null {
+  if (!order) return null
+  return parts.map((value, i) => ({ category: order[i]!, selector: `[${i}]`, siteId, value }))
+}
+
+/**
+ * Categories from each part's own selector — Symfony intervals.
+ *
+ * Three refusals, and each one earns its place. A part with no selector means
+ * this is somebody else's arrangement that happens to contain a pipe. A
+ * selector this row cannot cite means an interval with no CLDR equivalent, and
+ * an unclaimed value surfaces through G7 for a human rather than being guessed
+ * at. Two parts resolving to one category means the reading is wrong, whatever
+ * the file says.
+ */
+function bySelector(
+  parts: string[],
+  spec: NonNullable<ValueSplitRead['partSelector']>,
+  siteId: string,
+): PluralForm[] | null {
+  const forms: PluralForm[] = []
+  for (const part of parts) {
+    const m = spec.re.exec(part)
+    if (!m || m[1] === undefined) return null
+    const category = spec.tokens[m[1]]
+    if (!category) return null
+    forms.push({ category, selector: m[1], siteId, value: part.slice(m[0].length) })
+  }
+  if (new Set(forms.map((f) => f.category)).size !== forms.length) return null
+  return forms
 }
 
 export function validateValueSplit(read: unknown): string[] {
@@ -72,12 +105,31 @@ export function validateValueSplit(read: unknown): string[] {
   for (const d of r.delimiters ?? []) {
     if (typeof d !== 'string' || d.length === 0) problems.push('a delimiter must be a non-empty string')
   }
-  if (!r.order || Object.keys(r.order).length === 0) {
-    problems.push('read.order must say what each part count means')
+  const hasOrder = r.order && Object.keys(r.order).length > 0
+  const hasSelector = r.partSelector !== undefined
+  if (!hasOrder && !hasSelector) {
+    problems.push('read needs `order` (categories by position) or `partSelector` (a selector on each part)')
+  }
+  if (hasOrder && hasSelector) {
+    // They answer the same question two ways, and a row carrying both leaves a
+    // reader unable to tell which one decided.
+    problems.push('read has both `order` and `partSelector`; a part is categorised by its position or by its own selector, not both')
   }
   for (const [n, cats] of Object.entries(r.order ?? {})) {
     if (cats.length !== Number(n)) problems.push(`order[${n}] lists ${cats.length} categories, not ${n}`)
     for (const c of cats) if (!isCategory(c)) problems.push(`order[${n}] contains ${c}, which is not a CLDR category`)
+  }
+  if (hasSelector) {
+    const spec = r.partSelector!
+    if (!(spec.re instanceof RegExp)) problems.push('read.partSelector.re must be a regular expression')
+    else if (!/\((?!\?)/.test(spec.re.source)) {
+      problems.push('read.partSelector.re must capture the selector in group 1')
+    }
+    const tokens = spec.tokens ?? {}
+    if (Object.keys(tokens).length === 0) problems.push('read.partSelector.tokens must map at least one selector')
+    for (const [spelling, c] of Object.entries(tokens)) {
+      if (!isCategory(c)) problems.push(`partSelector.tokens[${spelling}] is ${c}, which is not a CLDR category`)
+    }
   }
   return problems
 }

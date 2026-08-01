@@ -13,6 +13,7 @@
 // usually not even that.
 import type { Site } from '../types'
 import { isCategory, type Category } from './cldr'
+import type { FluentSelect } from './fluent'
 import type { IcuArgument } from './icu'
 import { DIALECTS } from './dialect/dialects'
 import type { PluralDialect, PrimitiveId, WriteSpec } from './dialect/types'
@@ -73,6 +74,8 @@ export interface DetectedFamily {
   ordinal: boolean
   /** inline-select only: the argument, so the skeleton can be rewritten. */
   icu?: { siteId: string; argument: IcuArgument }
+  /** The Fluent equivalent — kept apart because the two serializers differ. */
+  fluent?: { siteId: string; select: FluentSelect }
   /** value-split only: which delimiter matched, so `apply` rejoins with the same one. */
   delimiter?: string
 }

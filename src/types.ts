@@ -113,6 +113,15 @@ export type DoNotTranslateReason =
    * other catalogs are diffed against.
    */
   | 'source-locale-bundle'
+  /**
+   * A locale bundle in neither the source nor the target language.
+   *
+   * A German catalog during a fr→en run: copy, plainly, and none of this run's
+   * business. Named rather than folded into `code-token`, which would claim a
+   * German sentence is a token — the sort of small lie that makes a report stop
+   * being worth reading.
+   */
+  | 'other-locale-bundle'
   | 'interpolation'
   | 'explicitly-marked'
   | 'proper-noun'

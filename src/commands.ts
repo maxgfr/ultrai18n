@@ -11,6 +11,7 @@ import { plan as buildPlan, type Group, type Plan } from './plan'
 import {
   keyForCategory, scanIcu, serializeArgument, splice, type PluralFamily,
 } from './plural'
+import { scanFluentPattern, serializeSelect } from './plural/fluent'
 import {
   buildBatches, foldResults, runCliBackend, runApiBackend, parseResult, TRANSLATOR_CONTRACT,
   type Batch, type BatchResult,
@@ -431,10 +432,18 @@ function writeFamily(
     const siteId = family.sites[0]
     const site = siteId ? bySiteId.get(siteId) : undefined
     if (!site) return { translations: [], insertions: [] }
+    // The join is the FALLBACK, not the default. A grammar-backed family that
+    // reaches it gets its branches flattened into a `|`-separated string — for
+    // Fluent that means a valid select expression overwritten with
+    // `One unread message | { $count } unread messages`, which is not a
+    // degraded rendering but a corrupted file. Every `replace` primitive needs
+    // a serializer here before its row ships.
     const rebuilt =
       family.primitive === 'icu'
         ? rebuildIcu(site.value, family, forms, target)
-        : [...target].map((c) => forms[c] ?? '').join(family.join ?? ' | ')
+        : family.primitive === 'fluent'
+          ? rebuildFluent(site.value, family, forms, target)
+          : [...target].map((c) => forms[c] ?? '').join(family.join ?? ' | ')
     return rebuilt === null
       ? { translations: [], insertions: [] }
       : { translations: [{ id: site.id, text: rebuilt }], insertions: [] }
@@ -489,6 +498,42 @@ function rebuildIcu(
   return splice(value, [
     { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) },
   ])
+}
+
+/**
+ * Rebuild a Fluent select with the target's variants in place of the source's.
+ *
+ * The Fluent twin of `rebuildIcu`, and the reason `fluent.select-expression`
+ * may declare `write: replace` at all: en→ru turns two variants into four
+ * inside one value, and the only alternative to a serializer is a delimiter
+ * join that would destroy the syntax.
+ */
+function rebuildFluent(
+  value: string,
+  family: PluralFamily,
+  forms: Record<string, string>,
+  target: readonly string[],
+): string | null {
+  const scan = scanFluentPattern(value)
+  if (!scan.ok) return null
+  const at = /@(\d+)$/.exec(family.base)
+  const select = at
+    ? scan.selects.find((s) => s.start === Number(at[1]))
+    : scan.selects.find((s) => s.selectorKind !== 'reference')
+  if (!select) return null
+
+  const bodies: Record<string, string> = {}
+  // Numeric variant keys are exact matches nobody was asked to rewrite.
+  for (const variant of select.variants) {
+    if (variant.kind === 'number') bodies[variant.key] = variant.body
+  }
+  for (const category of target) {
+    if (forms[category] !== undefined) bodies[category] = forms[category]!
+  }
+
+  const exactKeys = select.variants.filter((v) => v.kind === 'number').map((v) => v.key)
+  const rebuilt = serializeSelect(select, bodies, [...exactKeys, ...target])
+  return value.slice(0, select.start) + rebuilt + value.slice(select.end)
 }
 
 // ---------------------------------------------------------------------------

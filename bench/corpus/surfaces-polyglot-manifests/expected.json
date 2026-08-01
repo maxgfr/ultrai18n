@@ -2,77 +2,101 @@
   "schemaVersion": 1,
   "case": "surfaces-polyglot-manifests",
   "title": "Package descriptions across ecosystems — and the three catalog rules that cannot fire",
-  "scan": { "from": "fr", "to": "en" },
-
+  "scan": {
+    "from": "fr",
+    "to": "en"
+  },
   "gates": {
     "G1": "pass",
-    "G2": "fail",
+    "G2": "pass",
     "G3": "any",
     "G4": "fail",
     "G5": "pass",
     "G6": "any",
     "G7": "pass"
   },
-
   "census": [
-    { "file": "composer.json", "bucket": "scanned", "extractor": "json", "why": "PHP's manifest, read by the JSON extractor and decided by a rule." },
-    { "file": "pubspec.yaml", "bucket": "scanned", "extractor": "yaml", "why": "Dart's, likewise." },
+    {
+      "file": "composer.json",
+      "bucket": "scanned",
+      "extractor": "json",
+      "why": "PHP's manifest, read by the JSON extractor and decided by a rule."
+    },
+    {
+      "file": "pubspec.yaml",
+      "bucket": "scanned",
+      "extractor": "yaml",
+      "why": "Dart's, likewise."
+    },
     {
       "file": "Cargo.toml",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .toml",
-      "why": "There is NO TOML extractor. The file falls to the residual sweep, and `classify` short-circuits on `tier === 'sweep'` before `matchRules` is ever called — so `cargo.package.description` can never fire, however well-formed it is. The description is still SURFACED, which is why G1 holds and G2 fails."
+      "extractor": "toml",
+      "why": "TOML, read as JSON Pointers so `cargo.package.description` fires with no change to the rule. The rule was never wrong; nothing had ever given it a document to match against."
     },
     {
       "file": "pyproject.toml",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .toml",
-      "why": "Same file format, same dead rule, different ecosystem."
+      "extractor": "toml",
+      "why": "The same reader, the same pointers, a second rule revived. One extractor, two rules — which is the argument for writing the reader rather than weakening the rules."
     },
     {
       "file": "Dockerfile",
       "bucket": "scanned",
-      "extractor": "text",
-      "why": "Read as prose, so its sites carry `path = p[n]` and `key = \"p[0]\"`. `docker.label` is a `keyName` matcher testing that key against `/^org\\.opencontainers\\.image\\./`, which never matches."
+      "extractor": "dockerfile",
+      "why": "No longer read as prose. A Dockerfile is instructions, and treating `RUN apt-get install -y build-essential` as a paragraph the classifier had to talk itself out of was a precision bug in its own right. Emitting `/LABEL/org.opencontainers.image.description` also gives `docker.label` the key it always matched on."
     }
   ],
-
   "expectations": [
     {
       "id": "composer.description",
       "file": "composer.json",
       "find": "Le noyau de l'atelier, en PHP",
-      "expect": { "verdict": "translate", "rule": "php.composer.description" },
+      "expect": {
+        "verdict": "translate",
+        "rule": "php.composer.description"
+      },
       "why": "Rendered on Packagist. Cited to a rule, so the verdict is traceable."
     },
     {
       "id": "pubspec.description",
       "file": "pubspec.yaml",
       "find": "L'atelier, sur mobile",
-      "expect": { "verdict": "translate", "rule": "dart.pubspec.description" },
+      "expect": {
+        "verdict": "translate",
+        "rule": "dart.pubspec.description"
+      },
       "why": "Rendered on pub.dev, and the field pub.dev scores a package on."
     },
     {
       "id": "cargo.description",
       "file": "Cargo.toml",
       "find": "Le noyau de l'atelier, en Rust",
-      "expect": { "verdict": "unclassified" },
-      "why": "SURFACED, not claimed. `cargo.package.description` exists, cites documentation, and is unreachable — there is no TOML extractor, so the site never carries a pointer for the rule to match. The honest report is that the bytes were found and not understood; a `translate` verdict here would be a claim the engine has no grounds for. The remedy is `src/extract/toml.ts`, not a rewritten rule."
+      "expect": {
+        "verdict": "translate",
+        "rule": "cargo.package.description"
+      },
+      "why": "Registry-visible copy, cited to the rule that was written for it and had never once fired."
     },
     {
       "id": "pyproject.description",
       "file": "pyproject.toml",
       "find": "L'atelier, en Python",
-      "expect": { "verdict": "unclassified" },
-      "why": "Same, for `python.pyproject.description`."
+      "expect": {
+        "verdict": "translate",
+        "rule": "python.pyproject.description"
+      },
+      "why": "The same field in the same format for a different ecosystem, and the second half of what one TOML reader bought."
     },
     {
       "id": "docker.label",
       "file": "Dockerfile",
       "find": "Un atelier de publication pour petites équipes",
-      "why": "The OCI description label. Found — the whole file is read as prose — but decided by no rule, because a prose site has no key for a `keyName` matcher to test. Recall holds; traceability does not."
+      "why": "An OCI image label. The rule matches on a KEY, and the prose extractor's key was `p[0]` — so the defect was never in the rule, and rewriting the rule to match `p[0]` would have claimed every line of every Dockerfile as translatable prose.",
+      "expect": {
+        "verdict": "translate",
+        "rule": "docker.label"
+      }
     },
     {
       "id": "composer.version-range",
@@ -82,9 +106,5 @@
       "why": "A version constraint one line from a field that must be translated."
     }
   ],
-
-  "knownGaps": [
-    "Three catalog rules — `cargo.package.description`, `python.pyproject.description`, `docker.label` — are well-formed, cite documentation, and cannot fire in any repository. `checkCatalog` validates a rule's SHAPE and never its reachability, so nothing in the engine says so. This case is why the benchmark carries a `neverExercisedRules` ratchet: the list may only shrink, and a fourth dead rule fails the run.",
-    "`html.title` is the fourth, recorded in surfaces-web-app rather than here."
-  ]
+  "knownGaps": []
 }

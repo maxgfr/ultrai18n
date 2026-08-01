@@ -9,14 +9,7 @@
   determinism             8/8                 ok
 ```
 
-## catalog coverage — 15 rule(s) exercised, 4 never
-
-```
-  cargo.package.description             allowlisted
-  docker.label                          allowlisted
-  html.title                            allowlisted
-  python.pyproject.description          allowlisted
-```
+## catalog coverage — 20 rule(s) exercised, 0 never
 
 ## by case
 
@@ -37,28 +30,22 @@
   Known gaps, gated by nothing:
   - `<string-array>` items are not read as a family and should not be — an array of weekday initials is calendar vocabulary, not a plural. They currently come back as ordinary translatable strings with no signal that reordering them breaks the calendar.
 
-### plural-unread-dialects — Arrangements the engine does not read — listed, never claimed
+### plural-unread-dialects — Six plural arrangements, each read by the format it belongs to
 
 ```
-  6/6 accounted   43 site(s)   6 tracked path(s)
-  G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 pass  G7 fail
+  6/6 accounted   37 site(s)   6 tracked path(s)
+  G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
 
   Known gaps, gated by nothing:
-  - The Symfony interval string in `src/locales/messages.en.yaml` is claimed by `vue-i18n.pipe-positional` as a three-part `zero|one|other` family. It is not one: `{0} …|]0,1] …|]1,Inf[ …` carries an explicit selector on each part, and reading them as positions mislabels all three. The `value-split` primitive has no `partSelector`, so a correct Symfony row cannot be written today — and adding an interval guard to the vue-i18n row would put Symfony knowledge inside somebody else's dialect, which is the coupling this design exists to remove.
-  - `.stringsdict` and `.ftl` produce no plural RESIDUAL, only `unclassified` sites. The suspicion signals look for a marker in a path or a token in the text, and the sweep fragments both formats below the level where either survives. Nothing is lost — G2 still refuses to pass — but G7 cannot say 'this looks like a plural', so the dialect worklist will not mention them.
-  - gettext's `Plural-Forms:` header is read by nothing. Even with a `.po` extractor, an index would map to a POSITION and never to a CLDR category, so such a family would be `cldr: false` and never measured for completeness. That is a smaller claim than the one made for i18next, and the true one.
+  - gettext's `nplurals=N` header is read verbatim and used by nothing. Comparing it against the number of `msgstr[n]` present would find a live rendering bug, and it is deliberately not done: reading half a header invites the reader to believe the whole thing is understood, and `plural=` is a C expression this engine will not evaluate.
 
 ### surfaces-polyglot-manifests — Package descriptions across ecosystems — and the three catalog rules that cannot fire
 
 ```
-  6/6 accounted   18 site(s)   5 tracked path(s)
-  G1 pass  G2 fail  G3 pass  G4 fail  G5 pass  G6 pass  G7 pass
+  6/6 accounted   24 site(s)   5 tracked path(s)
+  G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
-
-  Known gaps, gated by nothing:
-  - Three catalog rules — `cargo.package.description`, `python.pyproject.description`, `docker.label` — are well-formed, cite documentation, and cannot fire in any repository. `checkCatalog` validates a rule's SHAPE and never its reachability, so nothing in the engine says so. This case is why the benchmark carries a `neverExercisedRules` ratchet: the list may only shrink, and a fourth dead rule fails the run.
-  - `html.title` is the fourth, recorded in surfaces-web-app rather than here.
 
 ### surfaces-web-app — Where user-visible text hides in a web project: build configs, CI, store listings
 

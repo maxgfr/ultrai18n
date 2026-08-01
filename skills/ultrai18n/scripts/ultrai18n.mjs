@@ -17614,14 +17614,14 @@ function getScan(repo, opts = {}, walked) {
   const key = sessionKey(repo, opts);
   const hit = sessionGet(key);
   if (hit) {
-    const fresh = scanRepo(repo, { ...opts, cache: hit.cacheMap, precomputedWalk: walked });
-    if (fresh.contentUnchanged) {
-      if (fresh.cacheDirty) hit.cacheMap = toCacheMap(fresh);
-      if (hit.scan.commit !== fresh.commit) hit.scan.commit = fresh.commit;
+    const fresh2 = scanRepo(repo, { ...opts, cache: hit.cacheMap, precomputedWalk: walked });
+    if (fresh2.contentUnchanged) {
+      if (fresh2.cacheDirty) hit.cacheMap = toCacheMap(fresh2);
+      if (hit.scan.commit !== fresh2.commit) hit.scan.commit = fresh2.commit;
       return hit.scan;
     }
-    sessionPut({ key, scan: fresh, cacheMap: toCacheMap(fresh) });
-    return fresh;
+    sessionPut({ key, scan: fresh2, cacheMap: toCacheMap(fresh2) });
+    return fresh2;
   }
   const preloaded = preloadSession(repo, { ...opts, precomputedWalk: walked });
   if (preloaded) {
@@ -21609,6 +21609,10 @@ function site2(file, path, kind, startChar, endChar, value, quote, map, text) {
 }
 
 // src/extract/html.ts
+var QT_HEAD = /^﻿?\s*(?:<\?xml[^>]*\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+TS\b|<TS[\s>])/i;
+function isQtTranslation(text) {
+  return QT_HEAD.test(text.slice(0, 512));
+}
 var TEXT_ATTRS = /^(alt|title|placeholder|label|summary|abbr|download|aria-label|aria-description|aria-roledescription|aria-valuetext|aria-placeholder|srcdoc)$/i;
 var BOUND_PREFIX = /^(:|v-bind:|bind:|\[)/;
 var OPAQUE_ELEMENTS = /* @__PURE__ */ new Set(["script", "style", "template", "code", "pre", "svg:path"]);
@@ -21620,6 +21624,9 @@ function extractHtml(file, text, map) {
   let i2 = 0;
   const n = text.length;
   const openStack = [];
+  let docKind = "markup";
+  let messageOrdinal = -1;
+  let numerusOrdinal = 0;
   const push = (path, kind, startChar, endChar, value, quote, container, prefix, suffix) => {
     const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
     const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
@@ -21674,10 +21681,10 @@ function extractHtml(file, text, map) {
       break;
     }
     const tagBody = text.slice(lt + 1, gt);
-    const closing = tagBody.startsWith("/");
+    const closing2 = tagBody.startsWith("/");
     const nameMatch = /^\/?\s*([a-zA-Z][\w:-]*)/.exec(tagBody);
     const tag = nameMatch?.[1]?.toLowerCase() ?? "";
-    if (closing) {
+    if (closing2) {
       let at = -1;
       for (let k = openStack.length - 1; k >= 0; k--) {
         if (openStack[k].tag === tag) {
@@ -21686,14 +21693,28 @@ function extractHtml(file, text, map) {
         }
       }
       if (at !== -1) openStack.length = at;
+      if (docKind === "qt" && tag === "numerusform") numerusOrdinal++;
+    } else if (tag === "") {
+      i2 = gt + 1;
+      continue;
     } else {
       identifiers.add(tag);
+      if (docKind === "markup" && openStack.length === 0) {
+        if (tag === "plist") docKind = "plist";
+        else if (tag === "ts") docKind = "qt";
+      }
+      if (docKind === "qt") {
+        if (tag === "message") {
+          messageOrdinal++;
+          numerusOrdinal = 0;
+        }
+      }
       extractAttributes(tagBody, lt + 1, tag);
       const selfClosing = tagBody.trimEnd().endsWith("/");
-      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody) });
+      if (!selfClosing) openStack.push({ tag, attrs: allAttributes(tagBody), pendingKey: null, index: 0 });
     }
     i2 = gt + 1;
-    if (!closing && (tag === "script" || tag === "style")) {
+    if (!closing2 && (tag === "script" || tag === "style")) {
       const close = text.toLowerCase().indexOf(`</${tag}`, i2);
       i2 = close === -1 ? n : close;
       openStack.pop();
@@ -21704,6 +21725,20 @@ function extractHtml(file, text, map) {
     const enclosing = openStack[openStack.length - 1]?.tag ?? "";
     if (OPAQUE_ELEMENTS.has(enclosing)) return;
     const isSvgText = SVG_TEXT_ELEMENTS.has(enclosing);
+    if (docKind === "plist") {
+      const body2 = chunk.trim();
+      if (enclosing === "key") {
+        const dict = openStack[openStack.length - 2];
+        if (dict) dict.pendingKey = body2;
+        const p2 = plistPointer(body2);
+        if (p2) push(p2, "key", at, at + chunk.length, body2, null, { isKey: true });
+        return;
+      }
+      if (!new RegExp("\\p{L}{2,}", "u").test(body2)) return;
+      const p = plistPointer();
+      if (p) push(p, "prose-run", at, at + chunk.length, body2, null, { isKey: false, element: enclosing });
+      return;
+    }
     if (!isSvgText && !new RegExp("\\p{L}{2,}", "u").test(chunk)) return;
     const qualified = resourcePath();
     for (const match of chunk.matchAll(/\S[^\n]*\S|\S/g)) {
@@ -21732,8 +21767,31 @@ function extractHtml(file, text, map) {
     }
     return false;
   }
+  function plistPointer(forKey) {
+    const segments = [];
+    for (let k = 0; k < openStack.length; k++) {
+      const frame = openStack[k];
+      if (frame.tag === "dict") {
+        const next = openStack[k + 1];
+        if (frame.pendingKey && (next === void 0 || next.tag !== "key")) {
+          segments.push(frame.pendingKey);
+        }
+      } else if (frame.tag === "array") {
+        segments.push(frame.index ?? 0);
+      }
+    }
+    if (forKey !== void 0) {
+      const own = [...segments];
+      if (own[own.length - 1] !== forKey) own.push(forKey);
+      return pointer(own);
+    }
+    return segments.length ? pointer(segments) : null;
+  }
   function resourcePath() {
     const top = openStack[openStack.length - 1];
+    if (docKind === "qt" && top?.tag === "numerusform") {
+      return `message[${Math.max(0, messageOrdinal)}]/numerusform[${numerusOrdinal}]`;
+    }
     const parent = openStack[openStack.length - 2];
     if (!top || !parent) return null;
     if (top.tag !== "item") return null;
@@ -21805,7 +21863,6 @@ var PLAIN_TEXT_BASENAMES = /* @__PURE__ */ new Set([
   "INSTALL",
   "TODO",
   "CODEOWNERS",
-  "Dockerfile",
   "Makefile"
 ]);
 var PLAIN_TEXT_EXT = /* @__PURE__ */ new Set([".txt", ".text", ".rst", ".adoc", ".asciidoc"]);
@@ -21863,6 +21920,913 @@ function makeSite2(file, path, startChar, endChar, value, map) {
     tier: "structural",
     container: { isKey: false }
   };
+}
+
+// src/extract/po.ts
+var KEYWORD = /^(#~\s*)?(msgctxt|msgid_plural|msgid|msgstr(?:\[(\d+)\])?)\s*(.*)$/;
+function extractPo(file, text, map) {
+  const sites = [];
+  const keys = /* @__PURE__ */ new Set();
+  const fuzzy = [];
+  const obsolete = [];
+  let pluralForms = null;
+  let claimed = 0;
+  let complete = true;
+  const lines = splitLines2(text);
+  let pending = fresh();
+  const push = (kind, startChar, endChar, value, quote, leaf, container = { isKey: false }, prefix) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    pending.sites.push({
+      leaf,
+      site: {
+        file,
+        path: leaf,
+        kind,
+        span,
+        valueSpan,
+        raw: text.slice(startChar, endChar),
+        value,
+        quote,
+        escapes: /\\/.test(text.slice(startChar, endChar)),
+        holes: [],
+        line: s.line,
+        col: s.col,
+        endLine: e.line,
+        endCol: e.col,
+        extractor: "po",
+        tier: "structural",
+        container,
+        ...prefix !== void 0 ? { prefix, suffix: "", linePrefix: "" } : {}
+      }
+    });
+  };
+  const close = () => {
+    if (pending.sites.length) {
+      if (pending.msgid !== "") {
+        const base = entryBase(pending);
+        if (pending.fuzzy) fuzzy.push(base);
+        if (pending.obsolete) obsolete.push(base);
+        for (const { leaf, site: site3 } of pending.sites) {
+          site3.path = `${base}/${leaf}`;
+          if (pending.obsolete) {
+            site3.container = { ...site3.container, untranslatable: true };
+          }
+          if (pending.fuzzy && !site3.container.nearestComment) {
+            site3.container = { ...site3.container, nearestComment: "gettext flag: fuzzy" };
+          }
+          sites.push(site3);
+        }
+      }
+    }
+    pending = fresh();
+  };
+  for (let li = 0; li < lines.length; li++) {
+    const { text: line, start: start2 } = lines[li];
+    claimed += lineBytes(map, text, start2, line.length);
+    const body2 = line.trim();
+    if (body2 === "") {
+      close();
+      continue;
+    }
+    if (body2.startsWith("#~")) pending.obsolete = true;
+    if (body2.startsWith("#") && !body2.startsWith("#~")) {
+      if (body2.startsWith("#,")) {
+        if (/\bfuzzy\b/.test(body2)) pending.fuzzy = true;
+        continue;
+      }
+      if (body2.startsWith("#:") || body2.startsWith("#|")) continue;
+      const marker = /^#[.\s]?\s?/.exec(body2)[0];
+      const value = body2.slice(marker.length).trim();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+        const at = start2 + line.indexOf("#");
+        push(
+          "comment",
+          at,
+          at + body2.length,
+          value,
+          null,
+          `#comment[${pending.comments++}]`,
+          { isKey: false },
+          marker
+        );
+      }
+      continue;
+    }
+    const m = KEYWORD.exec(body2);
+    if (!m) continue;
+    const keyword = m[2];
+    const index = m[3];
+    const rest = m[4] ?? "";
+    const keywordAt = start2 + line.indexOf(keyword);
+    const run2 = readString2(lines, li, rest, start2 + line.length - rest.length);
+    if (!run2.terminated) complete = false;
+    const leaf = index !== void 0 ? `msgstr[${index}]` : keyword;
+    keys.add(leaf);
+    if (keyword === "msgctxt") pending.msgctxt = run2.value;
+    if (keyword === "msgid") pending.msgid = run2.value;
+    if (keyword === "msgid_plural") pending.plural = true;
+    if (keyword === "msgstr" && pending.msgid === "") {
+      const found = /^Plural-Forms:\s*(.*)$/m.exec(run2.value.replace(/\\n/g, "\n"));
+      if (found) pluralForms = found[1].trim();
+    }
+    if (run2.value !== "" || keyword !== "msgctxt") {
+      push(
+        keyword === "msgctxt" ? "key" : "scalar",
+        run2.start,
+        run2.end,
+        run2.value,
+        run2.multiline ? null : '"',
+        leaf,
+        // A `msgctxt` disambiguates two identical msgids; it is an identifier,
+        // not copy, and `classify` decides a key structurally before any rule.
+        keyword === "msgctxt" ? { isKey: true } : { isKey: false },
+        run2.multiline ? '"' : void 0
+      );
+      if (run2.multiline) {
+        const last = pending.sites[pending.sites.length - 1].site;
+        last.suffix = '"';
+      }
+    }
+  }
+  close();
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, keys, claimedBytes: claimed, complete, pluralForms, fuzzy, obsolete };
+}
+function fresh() {
+  return { sites: [], msgctxt: null, msgid: null, plural: false, fuzzy: false, obsolete: false, comments: 0 };
+}
+function entryBase(p) {
+  const id = (p.msgid ?? "").slice(0, 80);
+  const key = p.msgctxt ? `${p.msgctxt}${id}` : id;
+  return (p.obsolete ? "/~obsolete" : "") + pointer([key]);
+}
+function readString2(lines, from, first, firstAt) {
+  const parts2 = [];
+  let terminated = true;
+  let end = firstAt;
+  let multiline = false;
+  const take = (raw, at) => {
+    const trimmed = raw.trim();
+    if (!trimmed.startsWith('"')) return false;
+    const closing2 = closingQuote(trimmed);
+    if (closing2 < 0) {
+      terminated = false;
+      parts2.push(unescapePo(trimmed.slice(1)));
+      end = at + raw.length;
+      return true;
+    }
+    parts2.push(unescapePo(trimmed.slice(1, closing2)));
+    end = at + raw.indexOf('"') + closing2 + 1;
+    return true;
+  };
+  take(first, firstAt);
+  for (let i2 = from + 1; i2 < lines.length; i2++) {
+    const next = lines[i2];
+    const trimmed = next.text.trim().replace(/^#~\s*/, "");
+    if (!trimmed.startsWith('"')) break;
+    multiline = true;
+    take(trimmed, next.start + next.text.indexOf('"'));
+  }
+  return { value: parts2.join(""), start: firstAt + Math.max(0, first.indexOf('"')), end, multiline, terminated };
+}
+function closingQuote(s) {
+  for (let i2 = 1; i2 < s.length; i2++) {
+    if (s[i2] === "\\") {
+      i2++;
+      continue;
+    }
+    if (s[i2] === '"') return i2;
+  }
+  return -1;
+}
+function unescapePo(s) {
+  return s.replace(
+    /\\(.)/g,
+    (_, c2) => c2 === "n" ? "\n" : c2 === "t" ? "	" : c2 === "r" ? "\r" : c2
+  );
+}
+function splitLines2(text) {
+  const out2 = [];
+  let start2 = 0;
+  for (let i2 = 0; i2 <= text.length; i2++) {
+    if (i2 === text.length || text[i2] === "\n") {
+      out2.push({ text: text.slice(start2, i2).replace(/\r$/, ""), start: start2 });
+      start2 = i2 + 1;
+    }
+  }
+  return out2;
+}
+
+// src/extract/toml.ts
+var TABLE = /^\[(\[?)\s*([^\]]+?)\s*\]?\]$/;
+var KEY_VALUE = /^([A-Za-z0-9_.\-"']+)\s*=\s*(.*)$/;
+function extractToml(file, text, map) {
+  const sites = [];
+  const keys = /* @__PURE__ */ new Set();
+  const skipped = [];
+  let claimed = 0;
+  let complete = true;
+  let comments = 0;
+  let prefix = [];
+  const arrayCounts = /* @__PURE__ */ new Map();
+  const push = (kind, startChar, endChar, value, quote, path, container = { isKey: false }, prefixMarker) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    sites.push({
+      file,
+      path,
+      kind,
+      span,
+      valueSpan,
+      raw: text.slice(startChar, endChar),
+      value,
+      quote,
+      escapes: quote === '"' && /\\/.test(text.slice(startChar, endChar)),
+      holes: [],
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "toml",
+      tier: "structural",
+      container,
+      ...prefixMarker !== void 0 ? { prefix: prefixMarker, suffix: "", linePrefix: "" } : {}
+    });
+  };
+  const lines = splitLines3(text);
+  for (let li = 0; li < lines.length; li++) {
+    const { text: line, start: start2 } = lines[li];
+    claimed += lineBytes(map, text, start2, line.length);
+    const indent = /^[ \t]*/.exec(line)[0].length;
+    const body2 = line.slice(indent).trimEnd();
+    if (body2 === "") continue;
+    if (body2.startsWith("#")) {
+      const marker = /^#+\s?/.exec(body2)[0];
+      const value = body2.slice(marker.length).trim();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+        push("comment", start2 + indent, start2 + indent + body2.length, value, null, `#comment[${comments++}]`, { isKey: false }, marker);
+      }
+      continue;
+    }
+    const table = TABLE.exec(body2);
+    if (table) {
+      const isArray = table[1] === "[";
+      const path2 = splitDotted(table[2]);
+      if (isArray) {
+        const key = path2.join("\0");
+        const n = arrayCounts.get(key) ?? 0;
+        arrayCounts.set(key, n + 1);
+        prefix = [...path2, n];
+      } else {
+        prefix = path2;
+      }
+      for (const seg of path2) keys.add(String(seg));
+      continue;
+    }
+    const kv = KEY_VALUE.exec(body2);
+    if (!kv) {
+      continue;
+    }
+    const rawKey = kv[1];
+    const rest = kv[2] ?? "";
+    const path = [...prefix, ...splitDotted(rawKey)];
+    for (const seg of splitDotted(rawKey)) keys.add(String(seg));
+    const valueAt = start2 + line.length - rest.length;
+    if (rest.startsWith("[")) {
+      const arr = readArray(lines, li, rest, valueAt);
+      if (!arr.terminated) complete = false;
+      arr.items.forEach((item, i2) => {
+        push("scalar", item.start, item.end, item.value, item.quote, pointer([...path, i2]));
+      });
+      for (let k = li + 1; k <= arr.lastLine; k++) {
+        claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
+      }
+      li = arr.lastLine;
+      continue;
+    }
+    if (rest.startsWith("{")) {
+      for (const m of rest.matchAll(/([A-Za-z0-9_.\-]+)\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*')/g)) {
+        const at = valueAt + (m.index ?? 0) + m[0].length - m[2].length;
+        const lit = readLiteral(m[2]);
+        if (lit) push("scalar", at, at + m[2].length, lit.value, lit.quote, pointer([...path, m[1]]));
+      }
+      continue;
+    }
+    const multi = readMultiline(lines, li, rest, valueAt);
+    if (multi) {
+      if (!multi.terminated) complete = false;
+      push("scalar", multi.start, multi.end, multi.value, null, pointer(path), { isKey: false }, multi.opener);
+      const last = sites[sites.length - 1];
+      last.suffix = multi.opener;
+      for (let k = li + 1; k <= multi.lastLine; k++) {
+        claimed += lineBytes(map, text, lines[k].start, lines[k].text.length);
+      }
+      li = multi.lastLine;
+      continue;
+    }
+    const scalar = readLiteral(stripComment(rest));
+    if (!scalar) {
+      continue;
+    }
+    push("scalar", valueAt, valueAt + scalar.raw.length, scalar.value, scalar.quote, pointer(path));
+  }
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, keys, claimedBytes: claimed, complete, skipped };
+}
+function splitDotted(key) {
+  const out2 = [];
+  let cur = "";
+  let quote = null;
+  for (const ch of key) {
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      continue;
+    }
+    if (ch === ".") {
+      out2.push(cur.trim());
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) out2.push(cur.trim());
+  return out2;
+}
+function stripComment(s) {
+  let quote = null;
+  for (let i2 = 0; i2 < s.length; i2++) {
+    const ch = s[i2];
+    if (quote) {
+      if (ch === "\\") i2++;
+      else if (ch === quote) quote = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'") quote = ch;
+    else if (ch === "#") return s.slice(0, i2).trimEnd();
+  }
+  return s.trimEnd();
+}
+function readLiteral(s) {
+  const t = s.trim();
+  if (t.startsWith('"""') || t.startsWith("'''")) return null;
+  if (t.startsWith('"')) {
+    const end = closing(t, '"');
+    if (end < 0) return null;
+    const raw = t.slice(0, end + 1);
+    return { value: unescapeToml(raw.slice(1, -1)), quote: '"', raw };
+  }
+  if (t.startsWith("'")) {
+    const end = t.indexOf("'", 1);
+    if (end < 0) return null;
+    const raw = t.slice(0, end + 1);
+    return { value: raw.slice(1, -1), quote: "'", raw };
+  }
+  return null;
+}
+function closing(s, q) {
+  for (let i2 = 1; i2 < s.length; i2++) {
+    if (s[i2] === "\\") {
+      i2++;
+      continue;
+    }
+    if (s[i2] === q) return i2;
+  }
+  return -1;
+}
+function unescapeToml(s) {
+  return s.replace(/\\(u[0-9a-fA-F]{4}|U[0-9a-fA-F]{8}|.)/g, (_, c2) => {
+    if (c2[0] === "u" || c2[0] === "U") return String.fromCodePoint(parseInt(c2.slice(1), 16));
+    return c2 === "n" ? "\n" : c2 === "t" ? "	" : c2 === "r" ? "\r" : c2;
+  });
+}
+function readMultiline(lines, li, rest, at) {
+  const t = rest.trimStart();
+  const opener = t.startsWith('"""') ? '"""' : t.startsWith("'''") ? "'''" : null;
+  if (!opener) return null;
+  const startChar = at + (rest.length - t.length);
+  let body2 = t.slice(3);
+  const sameLine = body2.indexOf(opener);
+  if (sameLine >= 0) {
+    return {
+      value: body2.slice(0, sameLine),
+      start: startChar,
+      end: startChar + 3 + sameLine + 3,
+      lastLine: li,
+      opener,
+      terminated: true
+    };
+  }
+  const parts2 = [body2];
+  for (let k = li + 1; k < lines.length; k++) {
+    const line = lines[k];
+    const close = line.text.indexOf(opener);
+    if (close >= 0) {
+      parts2.push(line.text.slice(0, close));
+      return {
+        value: parts2.join("\n"),
+        start: startChar,
+        end: line.start + close + 3,
+        lastLine: k,
+        opener,
+        terminated: true
+      };
+    }
+    parts2.push(line.text);
+  }
+  return {
+    value: parts2.join("\n"),
+    start: startChar,
+    end: lines[lines.length - 1].start,
+    lastLine: lines.length - 1,
+    opener,
+    terminated: false
+  };
+}
+function readArray(lines, li, rest, at) {
+  const items = [];
+  let depth = 0;
+  let line = li;
+  let cursor = at;
+  let source = rest;
+  let terminated = false;
+  for (; line < lines.length; line++) {
+    if (line > li) {
+      source = lines[line].text;
+      cursor = lines[line].start;
+    }
+    for (const m of source.matchAll(/"(?:[^"\\]|\\.)*"|'[^']*'/g)) {
+      const lit = readLiteral(m[0]);
+      if (lit) {
+        items.push({
+          value: lit.value,
+          quote: lit.quote,
+          start: cursor + (m.index ?? 0),
+          end: cursor + (m.index ?? 0) + m[0].length
+        });
+      }
+    }
+    for (const ch of stripStrings(source)) {
+      if (ch === "[") depth++;
+      else if (ch === "]") depth--;
+    }
+    if (depth <= 0) {
+      terminated = true;
+      break;
+    }
+  }
+  return { items, firstLine: li, lastLine: Math.min(line, lines.length - 1), terminated };
+}
+function stripStrings(s) {
+  return s.replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, "");
+}
+function splitLines3(text) {
+  const out2 = [];
+  let start2 = 0;
+  for (let i2 = 0; i2 <= text.length; i2++) {
+    if (i2 === text.length || text[i2] === "\n") {
+      out2.push({ text: text.slice(start2, i2).replace(/\r$/, ""), start: start2 });
+      start2 = i2 + 1;
+    }
+  }
+  return out2;
+}
+
+// src/plural/fluent.ts
+function looksLikeFluentSelect(text) {
+  return text.includes("->") && /\*\s*\[/.test(text);
+}
+function scanFluentPattern(text) {
+  const selects = [];
+  const placeables = [];
+  let ok = true;
+  const walk3 = (from, to, depth) => {
+    for (let i2 = from; i2 < to; i2++) {
+      if (text[i2] !== "{") continue;
+      const close = matchBrace(text, i2, to);
+      if (close < 0) {
+        ok = false;
+        return;
+      }
+      const inner = text.slice(i2 + 1, close);
+      const arrow = topLevelArrow(inner);
+      if (arrow < 0) {
+        placeables.push(inner.trim());
+        i2 = close;
+        continue;
+      }
+      const selector = inner.slice(0, arrow).trim();
+      const variants = readVariants(text, i2 + 1 + arrow + 2, close, () => {
+        ok = false;
+      });
+      selects.push({
+        start: i2,
+        end: close + 1,
+        selector,
+        selectorKind: selectorKindOf(selector),
+        variants,
+        depth
+      });
+      for (const v of variants) walk3(v.start, v.end, depth + 1);
+      i2 = close;
+    }
+  };
+  walk3(0, text.length, 0);
+  return { selects, placeables, ok };
+}
+function serializeSelect(select, bodies, order, indent = "    ") {
+  const categories = order ?? select.variants.map((v) => v.key);
+  const existing = new Map(select.variants.map((v) => [v.key, v]));
+  const fallback = select.variants.find((v) => v.default)?.key ?? (categories.includes("other") ? "other" : categories[categories.length - 1]);
+  const lines = categories.map((key) => {
+    const body2 = bodies[key] ?? existing.get(key)?.body ?? bodies[fallback] ?? "";
+    const star = key === fallback ? "*" : " ";
+    return `${indent}${star}[${key}] ${body2.trim()}`;
+  });
+  return `{ ${select.selector} ->
+${lines.join("\n")}
+${indent.slice(0, -4)}}`;
+}
+var ID = /^(-?[A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*)$/;
+var ATTR = /^\s+\.([A-Za-z][A-Za-z0-9_-]*)\s*=\s*(.*)$/;
+function parseFluent(text) {
+  const entries = [];
+  const lines = splitLines4(text);
+  let ok = true;
+  for (let i2 = 0; i2 < lines.length; i2++) {
+    const { text: line, start: start2 } = lines[i2];
+    if (line.trim() === "") continue;
+    if (line.startsWith("#")) {
+      const level = /^#{1,3}/.exec(line)[0].length;
+      entries.push({
+        kind: "comment",
+        id: "",
+        start: start2,
+        end: start2 + line.length,
+        value: null,
+        attributes: [],
+        commentLevel: level
+      });
+      continue;
+    }
+    const m = ID.exec(line);
+    if (!m) {
+      if (!/^\s/.test(line)) {
+        ok = false;
+        entries.push({ kind: "junk", id: "", start: start2, end: start2 + line.length, value: null, attributes: [] });
+      }
+      continue;
+    }
+    const id = m[1];
+    const rest = m[2] ?? "";
+    const block = readBlock2(lines, i2, rest, start2 + line.length - rest.length);
+    const attributes = [];
+    let j = block.lastLine;
+    while (j + 1 < lines.length) {
+      const a = ATTR.exec(lines[j + 1].text);
+      if (!a) break;
+      const attrRest = a[2] ?? "";
+      const attrLine = lines[j + 1];
+      const attrBlock = readBlock2(lines, j + 1, attrRest, attrLine.start + attrLine.text.length - attrRest.length);
+      attributes.push({ name: a[1], start: attrBlock.start, end: attrBlock.end, text: attrBlock.text, indent: attrBlock.indent });
+      j = attrBlock.lastLine;
+    }
+    entries.push({
+      kind: id.startsWith("-") ? "term" : "message",
+      id,
+      start: start2,
+      end: lines[j].start + lines[j].text.length,
+      value: block.text.trim() === "" ? null : { start: block.start, end: block.end, text: block.text, indent: block.indent },
+      attributes
+    });
+    i2 = j;
+  }
+  return { entries, ok };
+}
+function readBlock2(lines, li, first, at) {
+  const parts2 = [first];
+  let last = li;
+  let indent = "";
+  let depth = braceDelta(first);
+  for (let k = li + 1; k < lines.length; k++) {
+    const line = lines[k].text;
+    if (ATTR.test(line) && depth <= 0) break;
+    if (depth <= 0 && (line.trim() === "" || !/^\s/.test(line))) break;
+    if (!indent && /^\s/.test(line)) indent = /^[ \t]*/.exec(line)[0];
+    parts2.push(line.trim());
+    depth += braceDelta(line);
+    last = k;
+  }
+  const end = lines[last].start + lines[last].text.length;
+  return { text: parts2.join("\n"), start: at, end, indent: indent || "    ", lastLine: last };
+}
+function braceDelta(s) {
+  let n = 0;
+  for (const ch of s) {
+    if (ch === "{") n++;
+    else if (ch === "}") n--;
+  }
+  return n;
+}
+function selectorKindOf(selector) {
+  if (selector.startsWith("$")) return "variable";
+  if (/^[A-Z][A-Z0-9_]*\s*\(/.test(selector)) return "function";
+  return "reference";
+}
+function topLevelArrow(inner) {
+  let depth = 0;
+  for (let i2 = 0; i2 < inner.length - 1; i2++) {
+    const ch = inner[i2];
+    if (ch === "{" || ch === "[") depth++;
+    else if (ch === "}" || ch === "]") depth--;
+    else if (depth === 0 && ch === "-" && inner[i2 + 1] === ">") return i2;
+  }
+  return -1;
+}
+function matchBrace(text, open, to) {
+  let depth = 0;
+  for (let i2 = open; i2 < to; i2++) {
+    if (text[i2] === "{") depth++;
+    else if (text[i2] === "}") {
+      depth--;
+      if (depth === 0) return i2;
+    }
+  }
+  return -1;
+}
+function readVariants(text, from, to, onError) {
+  const out2 = [];
+  let i2 = from;
+  while (i2 < to) {
+    const star = text.indexOf("*", i2);
+    const bracket = text.indexOf("[", i2);
+    if (bracket < 0 || bracket >= to) break;
+    const isDefault = star >= 0 && star < bracket && text.slice(star + 1, bracket).trim() === "";
+    const close = text.indexOf("]", bracket);
+    if (close < 0 || close >= to) {
+      onError();
+      break;
+    }
+    const key = text.slice(bracket + 1, close).trim();
+    let next = to;
+    for (let k = close + 1; k < to; k++) {
+      if (text[k] !== "[") continue;
+      const back = text.slice(close + 1, k);
+      if (braceDelta(back) !== 0) continue;
+      const starAt = back.lastIndexOf("*");
+      next = starAt >= 0 && back.slice(starAt + 1).trim() === "" ? close + 1 + starAt : k;
+      break;
+    }
+    out2.push({
+      selector: `${isDefault ? "*" : ""}[${key}]`,
+      key,
+      kind: /^\d+$/.test(key) ? "number" : "identifier",
+      default: isDefault,
+      start: close + 1,
+      end: next,
+      body: text.slice(close + 1, next).trim()
+    });
+    i2 = next;
+  }
+  return out2;
+}
+function splitLines4(text) {
+  const out2 = [];
+  let start2 = 0;
+  for (let i2 = 0; i2 <= text.length; i2++) {
+    if (i2 === text.length || text[i2] === "\n") {
+      out2.push({ text: text.slice(start2, i2).replace(/\r$/, ""), start: start2 });
+      start2 = i2 + 1;
+    }
+  }
+  return out2;
+}
+
+// src/extract/ftl.ts
+function extractFtl(file, text, map) {
+  const sites = [];
+  const keys = /* @__PURE__ */ new Set();
+  const skipped = [];
+  let claimed = 0;
+  let comments = 0;
+  const { entries, ok } = parseFluent(text);
+  const push = (kind, startChar, endChar, value, path, container = { isKey: false }, prefix, linePrefix) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    sites.push({
+      file,
+      path,
+      kind,
+      span,
+      valueSpan: span,
+      raw: text.slice(startChar, endChar),
+      value,
+      quote: null,
+      escapes: false,
+      // Deliberately empty. A placeable is not a `Hole`: `apply` splices a hole
+      // back as `${expr}`, which is JavaScript template syntax, and a Fluent
+      // `{ $userName }` written that way would render as literal `${$userName}`.
+      // Placeables ride inside the value and the validators check them there.
+      holes: [],
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "ftl",
+      tier: "structural",
+      container,
+      ...prefix !== void 0 ? { prefix, suffix: "", linePrefix: linePrefix ?? "" } : {}
+    });
+  };
+  for (const entry of entries) {
+    if (entry.kind === "junk") {
+      skipped.push(`junk at line ${map.lineColOf(entry.start).line}`);
+      continue;
+    }
+    claimed += byteSpan2(map, text, entry.start, entry.end);
+    if (entry.kind === "comment") {
+      const raw = text.slice(entry.start, entry.end);
+      const marker = /^#{1,3}\s?/.exec(raw)?.[0] ?? "# ";
+      const value = raw.slice(marker.length).trim();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+        push("comment", entry.start, entry.end, value, `#comment[${comments++}]`, { isKey: false }, marker);
+      }
+      continue;
+    }
+    keys.add(entry.id);
+    if (entry.value) {
+      push("scalar", entry.value.start, entry.value.end, entry.value.text, pointer([entry.id]), {
+        isKey: false
+      }, void 0, entry.value.indent);
+    }
+    for (const attr of entry.attributes) {
+      keys.add(attr.name);
+      push("scalar", attr.start, attr.end, attr.text, pointer([entry.id, `.${attr.name}`]), {
+        isKey: false
+      }, void 0, attr.indent);
+    }
+  }
+  claimed += blankBytes(map, text, entries);
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, keys, claimedBytes: claimed, complete: ok, skipped };
+}
+function byteSpan2(map, text, start2, end) {
+  return lineBytes(map, text, start2, Math.max(0, end - start2 - 1));
+}
+function blankBytes(map, text, entries) {
+  const covered = entries.filter((e) => e.kind !== "junk").map((e) => [e.start, e.end]).sort((a, b) => a[0] - b[0]);
+  let total = 0;
+  let cursor = 0;
+  for (const [start2, end] of covered) {
+    if (start2 > cursor) total += map.byteOf(start2) - map.byteOf(cursor);
+    cursor = Math.max(cursor, end);
+  }
+  if (cursor < text.length) total += map.byteOf(text.length) - map.byteOf(cursor);
+  return total;
+}
+
+// src/extract/dockerfile.ts
+function isDockerfile(rel2) {
+  const name2 = rel2.split("/").pop() ?? "";
+  return name2 === "Dockerfile" || name2 === "Containerfile" || name2.startsWith("Dockerfile.") || name2.toLowerCase().endsWith(".dockerfile");
+}
+var TEXTUAL = /^(LABEL|ENV|ARG)\b/i;
+function extractDockerfile(file, text, map) {
+  const sites = [];
+  const keys = /* @__PURE__ */ new Set();
+  let claimed = 0;
+  let comments = 0;
+  const push = (kind, startChar, endChar, value, quote, path, container = { isKey: false }, prefix, suffix) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const valueSpan = quote ? { start: map.byteOf(startChar + 1), end: map.byteOf(endChar - 1) } : span;
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    sites.push({
+      file,
+      path,
+      kind,
+      span,
+      valueSpan,
+      raw: text.slice(startChar, endChar),
+      value,
+      quote,
+      escapes: quote === '"' && /\\/.test(text.slice(startChar, endChar)),
+      holes: [],
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "dockerfile",
+      tier: "structural",
+      container,
+      ...prefix !== void 0 ? { prefix, suffix: suffix ?? "", linePrefix: "" } : {}
+    });
+  };
+  const lines = splitLines5(text);
+  for (let li = 0; li < lines.length; li++) {
+    const { text: line, start: start2 } = lines[li];
+    claimed += lineBytes(map, text, start2, line.length);
+    const body2 = line.trim();
+    if (body2 === "") continue;
+    if (body2.startsWith("#")) {
+      if (/^#\s*[a-z]+\s*=/.test(body2)) continue;
+      const marker = /^#+\s?/.exec(body2)[0];
+      const value = body2.slice(marker.length).trim();
+      if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+        const at = start2 + line.indexOf("#");
+        push("comment", at, at + body2.length, value, null, `#comment[${comments++}]`, { isKey: false }, marker);
+      }
+      continue;
+    }
+    const instruction = /^([A-Za-z]+)\b/.exec(body2)?.[1]?.toUpperCase();
+    if (!instruction || !TEXTUAL.test(body2)) {
+      continue;
+    }
+    let last = li;
+    while (lines[last].text.trimEnd().endsWith("\\") && last + 1 < lines.length) {
+      last++;
+      claimed += lineBytes(map, text, lines[last].start, lines[last].text.length);
+    }
+    const from = start2;
+    const to = lines[last].start + lines[last].text.length;
+    const region = text.slice(from, to);
+    let found = 0;
+    for (const m of region.matchAll(/([A-Za-z0-9_.\-]+)=("(?:[^"\\]|\\.)*"|'[^']*'|[^\s\\]+)/g)) {
+      const key = m[1];
+      const rawValue = m[2];
+      keys.add(key);
+      found++;
+      const at = from + (m.index ?? 0) + m[0].length - rawValue.length;
+      const quoted = rawValue.startsWith('"') || rawValue.startsWith("'");
+      const value = quoted ? unquote2(rawValue) : rawValue;
+      if (!new RegExp("\\p{L}{2,}", "u").test(value)) continue;
+      push(
+        "scalar",
+        at,
+        at + rawValue.length,
+        value,
+        quoted ? rawValue[0] : null,
+        pointer([instruction, key]),
+        { isKey: false, attrName: key },
+        // An unquoted value gets quotes on write, because a translation with a
+        // space in it is not a legal bare Dockerfile value.
+        quoted ? void 0 : '"',
+        quoted ? void 0 : '"'
+      );
+    }
+    if (found === 0) {
+      const legacy = /^(LABEL|ENV|ARG)\s+([A-Za-z0-9_.\-]+)\s+(.+)$/i.exec(region.trim());
+      if (legacy) {
+        const key = legacy[2];
+        const rawValue = legacy[3].trim();
+        keys.add(key);
+        const at = from + region.lastIndexOf(rawValue);
+        const quoted = rawValue.startsWith('"') || rawValue.startsWith("'");
+        const value = quoted ? unquote2(rawValue) : rawValue;
+        if (new RegExp("\\p{L}{2,}", "u").test(value)) {
+          push(
+            "scalar",
+            at,
+            at + rawValue.length,
+            value,
+            quoted ? rawValue[0] : null,
+            pointer([instruction, key]),
+            { isKey: false, attrName: key },
+            quoted ? void 0 : '"',
+            quoted ? void 0 : '"'
+          );
+        }
+      }
+    }
+    li = last;
+  }
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, keys, claimedBytes: claimed };
+}
+function unquote2(s) {
+  const body2 = s.slice(1, -1);
+  return s[0] === '"' ? body2.replace(/\\(.)/g, (_, c2) => c2 === "n" ? "\n" : c2) : body2;
+}
+function splitLines5(text) {
+  const out2 = [];
+  let start2 = 0;
+  for (let i2 = 0; i2 <= text.length; i2++) {
+    if (i2 === text.length || text[i2] === "\n") {
+      out2.push({ text: text.slice(start2, i2).replace(/\r$/, ""), start: start2 });
+      start2 = i2 + 1;
+    }
+  }
+  return out2;
 }
 
 // src/sweep.ts
@@ -23521,8 +24485,45 @@ var RULES17 = [
     ecosystem: "web",
     title: "Document title",
     docs: "https://developer.mozilla.org/en-US/docs/Web/HTML/Element/title",
-    when: { kind: "attr", file: ["**/*.html", "**/*.htm"], element: /^title$/, attr: /^text$/ },
-    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"] }
+    // Matches the path the extractor actually emits.
+    //
+    // This asked for `{kind: attr, element: title, attr: text}` and could
+    // therefore never fire: a `<title>` is a TEXT NODE, and the extractor emits
+    // it as a `prose-run` at `title/text[n]`. The title was always found and
+    // always translated by the generic prose path; what was missing was the
+    // citation.
+    //
+    // Fixing the extractor instead would have been a correctness bug, not just
+    // churn: `escape.ts` routes an `attr` site through the `html-attr` escaper,
+    // which writes `&quot;` for a double quote. A text node uses `html-text`,
+    // which leaves quotes alone. Emitting a title as an attr to satisfy a
+    // matcher would have started writing `&quot;` into document titles.
+    //
+    // `\d+` and not `0`: the index is a file-global counter, so a title
+    // preceded by any other text run is `title/text[3]`.
+    when: { kind: "structural", file: ["**/*.html", "**/*.htm"], path: /^title\/text\[\d+\]$/ },
+    emit: { surface: "meta.head", verdict: "translate", flags: ["seo"] },
+    notes: "An <svg><title> inside an .html file also produces title/text[n] and is claimed here. Both verdicts are `translate`, so recall and verdict are right and only the surface label is off; qualifying the path with an svg ancestor would change SVG paths across the corpus and belongs in its own change."
+  },
+  {
+    id: "gettext.po-catalog",
+    ecosystem: "i18n",
+    title: "gettext message catalog",
+    docs: "https://www.gnu.org/software/gettext/manual/html_node/PO-Files.html",
+    when: { kind: "structural", file: ["**/*.po", "**/*.pot", ...NOT_VENDORED], path: /\/msgstr(\[\d+\])?$/ },
+    emit: { surface: "i18n.message", verdict: "translate" },
+    companions: [
+      {
+        // A `msgid` is not ordinary copy. It is the LOOKUP KEY every catalog in
+        // the repository indexes on, so rewriting one without rewriting every
+        // `.po` in lockstep breaks every lookup — while leaving it is equally
+        // defensible, because a source-language swap that keeps English msgids
+        // is exactly how most projects run gettext. Two correct answers, one of
+        // which breaks at runtime: the engine reports and refuses.
+        when: { kind: "structural", file: ["**/*.po", "**/*.pot"], path: /\/(msgid|msgid_plural)$/ },
+        emit: { surface: "i18n.message", verdict: "needs-judgment", reason: "dual-use" }
+      }
+    ]
   },
   // ------------------------------------------------------------------ i18n
   {
@@ -23781,9 +24782,10 @@ function decide(raw, opts, rules, fileLocale2) {
       return {
         surface: ruled.emit.surface,
         verdict: "do-not-translate",
-        // A third locale's bundle is data this run has no opinion about; the
-        // source's own bundle is the text everything else is measured against.
-        reason: fileLocale2 === opts.from ? "source-locale-bundle" : "code-token",
+        // Three cases, three names. The source's own bundle is the text
+        // everything else is measured against; a third locale's is copy this
+        // run has no opinion about.
+        reason: fileLocale2 === opts.from ? "source-locale-bundle" : "other-locale-bundle",
         confidence: "high",
         rule: ruled.rule.id,
         skipDetection: true
@@ -23972,7 +24974,7 @@ function sortCategories(cats) {
   const seen = new Set(cats);
   return CATEGORIES.filter((c2) => seen.has(c2));
 }
-var TABLE = {
+var TABLE2 = {
   // The detector's fourteen profiles.
   en: ["one", "other"],
   fr: ["one", "many", "other"],
@@ -24018,7 +25020,7 @@ var TABLE = {
   nb: ["one", "other"],
   no: ["one", "other"]
 };
-var TABLE_LOCALES = Object.keys(TABLE).sort();
+var TABLE_LOCALES = Object.keys(TABLE2).sort();
 var tier = null;
 function probe() {
   try {
@@ -24049,7 +25051,7 @@ function categoriesFor(locale) {
     } catch {
     }
   }
-  const fromTable = TABLE[lang];
+  const fromTable = TABLE2[lang];
   return fromTable ? [...fromTable] : null;
 }
 function ordinalCategoriesFor(locale) {
@@ -24082,6 +25084,24 @@ var KEY_SUFFIX_TOKENS = {
   plural: "other"
 };
 var INSERTABLE_BUNDLES = ["**/*.json", "**/*.jsonc", "**/*.json5", "**/*.arb", "**/*.yml", "**/*.yaml"];
+var POSITIONAL_ORDER = {
+  1: ["other"],
+  2: ["one", "other"],
+  3: ["one", "few", "other"],
+  4: ["one", "few", "many", "other"],
+  5: ["one", "two", "few", "many", "other"],
+  6: ["zero", "one", "two", "few", "many", "other"]
+};
+var SYMFONY_INTERVALS = {
+  "{0}": "zero",
+  "{1}": "one",
+  "]-Inf,0[": "zero",
+  "[0,1]": "one",
+  "]0,1]": "one",
+  "[1,Inf[": "other",
+  "]1,Inf[": "other",
+  "[2,Inf[": "other"
+};
 var DIALECTS = [
   {
     id: "icu.plural-argument",
@@ -24135,7 +25155,13 @@ var DIALECTS = [
     docs: "https://www.i18next.com/translation-function/plurals",
     primitive: "path-part",
     precedence: 30,
-    where: { bundleOnly: true },
+    // Excluded from the formats that have a dialect of their own, because the
+    // suffix rule is a coincidence in them rather than an arrangement: gettext
+    // writes `msgid_plural`, and cutting that on `_` yields a base of `msgid`
+    // and a token of `plural` — a perfectly-shaped i18next family made entirely
+    // out of a keyword. A precedence cannot fix it: this row and the gettext
+    // row claim DIFFERENT sites in the same file, so neither shadows the other.
+    where: { bundleOnly: true, file: ["!**/*.po", "!**/*.pot", "!**/*.ftl", "!**/*.stringsdict"] },
     // Catalog strength, not `declared`, and deliberately: this arrangement is
     // shared by i18next, Rails, Symfony and a great deal of hand-rolled code, so
     // demanding a named dependency would refuse the hand-rolled majority. What a
@@ -24262,9 +25288,215 @@ var DIALECTS = [
     shape: "delimited",
     declaredBy: "shipped",
     notes: "Polyglot uses `||||` and a `smart_count` interpolation. Positional like vue-i18n, so the target keeps the source arity."
+  },
+  {
+    id: "fluent.select-expression",
+    ecosystem: "fluent",
+    title: "Fluent select expression on a number",
+    docs: "https://projectfluent.org/fluent/guide/selectors.html",
+    primitive: "fluent",
+    // Ahead of everything: a `.ftl` value is read by its own grammar or not at
+    // all, and no path- or delimiter-based row should get a look at one.
+    precedence: 15,
+    where: { file: ["**/*.ftl"] },
+    // `{ $n -> [one] … *[other] }` is a syntactic construct, not a convention.
+    evidence: { mode: "intrinsic" },
+    read: { primitive: "fluent", ordinals: false },
+    write: { mode: "replace" },
+    cldr: true,
+    shape: "inline-select",
+    declaredBy: "shipped",
+    notes: 'The one arrangement that genuinely costs a parser: Fluent selects by GRAMMAR, with nesting, a mandatory default variant and two kinds of variant key, and no table can express "parse this". `replace` is earned \u2014 en\u2192ru turns two variants into four inside a single value, which no delimiter join can do. `ordinals: false` because Fluent has no ordinal concept to read.'
+  },
+  {
+    id: "apple.stringsdict-variants",
+    ecosystem: "apple",
+    title: "Plural variants in a .stringsdict variable dictionary",
+    docs: "https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPInternational/StringsdictFileFormat/StringsdictFileFormat.html",
+    primitive: "path-part",
+    // Beside its String Catalog sibling, and AHEAD of Rails at 40 — which is
+    // the entire reason the row exists. With plist pointers in place,
+    // `rails.sibling-object` would already read `/task_count/tasks/one`
+    // correctly, but only while `bundleOnly` passes, and `bundleOnly` passes
+    // here only because the path happens to contain `en.lproj`. A
+    // `.stringsdict` sitting at `Resources/Localizable.stringsdict` would be
+    // missed entirely. Intrinsic evidence and a citation beat a coincidence.
+    precedence: 26,
+    where: { file: ["**/*.stringsdict"] },
+    evidence: { mode: "intrinsic" },
+    read: {
+      primitive: "path-part",
+      split: { kind: "path-regex", re: /^(.*)\/(zero|one|two|few|many|other)$/ },
+      tokens: CLDR_TOKENS,
+      minForms: 2
+    },
+    write: {
+      mode: "code-edit",
+      blocked: "a new form here is a new <key>/<string> pair inside the variable's <dict>, and insertion writes a JSON or YAML sibling rather than XML"
+    },
+    // Foundation resolves these variants with the CLDR plural rules, so
+    // `missing` and `extra` are meaningful — the difference from gettext and Qt.
+    cldr: true,
+    shape: "sibling-object",
+    declaredBy: "shipped",
+    notes: "The archived URL is the one documenting the FILE FORMAT this row reads \u2014 NSStringLocalizedFormatKey, NSStringFormatSpecTypeKey, NSStringPluralRuleType. The modern equivalent is https://developer.apple.com/documentation/xcode/localizing-strings-that-contain-plurals. Readable only because the markup extractor gives a plist dict a JSON Pointer; a document-order text index carries no key and no row could have used one."
+  },
+  {
+    id: "qt.numerusform",
+    ecosystem: "qt",
+    title: "Positional <numerusform> in a Qt Linguist catalog",
+    docs: "https://doc.qt.io/qt-6/i18n-source-translation.html",
+    primitive: "path-part",
+    precedence: 28,
+    where: { file: ["**/*.ts"], path: /^message\[\d+\]\/numerusform\[\d+\]$/ },
+    evidence: { mode: "intrinsic" },
+    read: {
+      primitive: "path-part",
+      split: { kind: "path-regex", re: /^(message\[\d+\])\/numerusform\[(\d+)\]$/ },
+      order: POSITIONAL_ORDER,
+      selectorTemplate: "<numerusform>#{token}"
+    },
+    write: {
+      mode: "insert",
+      keyTemplate: "numerusform[{category}]",
+      blocked: "a new <numerusform> element is a markup edit rather than a sibling key"
+    },
+    // The index is a position resolved by the target language's rule inside
+    // Qt's own runtime, never a CLDR category.
+    cldr: false,
+    shape: "other",
+    declaredBy: "shipped",
+    notes: "Reachable only because `.ts` is sniffed for `<!DOCTYPE TS>` before the extension routes it to the TypeScript grammar. Anchored on the enclosing <message>, not on a document-order text index, so a second message is a second family rather than four forms of one. `insert` never actually inserts: `cldr: false` makes the target keep the source arity, so every form already exists and is replaced at its own byte offset."
+  },
+  {
+    id: "gettext.msgstr-index",
+    ecosystem: "gettext",
+    title: "Indexed msgstr in a gettext catalog",
+    docs: "https://www.gnu.org/software/gettext/manual/html_node/Plural-forms.html",
+    primitive: "path-part",
+    // Documentation rather than arbitration: no other shipped row can match
+    // `…/msgstr[n]` — i18next cuts on `_` or `.`, Rails needs the leaf to BE a
+    // category — but saying where it sits costs nothing and saves the next
+    // reader the check.
+    precedence: 35,
+    where: { file: ["**/*.po", "**/*.pot"] },
+    evidence: { mode: "intrinsic" },
+    read: {
+      primitive: "path-part",
+      split: { kind: "path-regex", re: /^(.*)\/msgstr\[(\d+)\]$/ },
+      order: POSITIONAL_ORDER,
+      selectorTemplate: "msgstr[{token}]"
+    },
+    write: {
+      mode: "insert",
+      keyTemplate: "msgstr[{category}]",
+      blocked: "a new form here is a new `msgstr[n]` line whose index is decided by this catalog's own `Plural-Forms:` header \u2014 a C expression this engine does not evaluate"
+    },
+    cldr: false,
+    shape: "other",
+    declaredBy: "shipped",
+    notes: '`Plural-Forms:` is a C expression this engine does NOT evaluate. An index is a POSITION \u2014 index 1 of a three-form Polish catalog is "the second form", never `few` \u2014 so this family is `cldr: false` and is never measured for completeness. That is a smaller claim than the one made for i18next, and it is the true one.'
+  },
+  {
+    id: "symfony.interval",
+    ecosystem: "symfony",
+    title: "Explicit interval selector on each pipe-separated part",
+    docs: "https://symfony.com/doc/4.4/components/translation/usage.html#pluralization",
+    primitive: "value-split",
+    // Ahead of `vue-i18n.pipe-positional` at 50, which is the whole point:
+    // both read a pipe, and only one of them reads the selectors. Positional
+    // would call `{0} …|]0,1] …|]1,Inf[ …` a zero|one|other family by counting
+    // parts, and be wrong about all three.
+    precedence: 45,
+    where: { bundleOnly: true },
+    // `catalog`, not `declared`. An explicit interval at the head of every part
+    // cannot occur by accident, and `partSelector` is itself the evidence: it
+    // requires EVERY part to carry a citable selector before it claims
+    // anything. `prefer` supplies precedence and a citation without demanding
+    // permission, exactly as the i18next row does.
+    evidence: {
+      mode: "catalog",
+      prefer: { dependency: ["symfony/translation", "symfony/framework-bundle"] }
+    },
+    read: {
+      primitive: "value-split",
+      delimiters: ["|"],
+      partSelector: { re: /^(\{[^}]*\}|[[\]][^[\]]*[[\]])\s*/, tokens: SYMFONY_INTERVALS },
+      requiresCounting: true
+    },
+    write: {
+      mode: "code-edit",
+      blocked: "each part carries its own interval selector, and rejoining translated parts with a bare pipe would drop them \u2014 the forms go to the structural worklist with their selectors intact"
+    },
+    // Intervals answer to Symfony's own matcher, not to CLDR.
+    cldr: false,
+    shape: "delimited",
+    declaredBy: "shipped",
+    notes: "Symfony's legacy interval format. The interval knowledge lives HERE rather than as a guard inside the vue-i18n row, because putting one runtime's spelling inside another's dialect is the coupling this design exists to remove."
   }
 ];
 var DIALECTS_BY_ID = new Map(DIALECTS.map((d) => [d.id, d]));
+
+// src/plural/primitives/shared.ts
+function pathOf(site3) {
+  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
+}
+function dedupe(forms) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const form of forms) byCategory.set(form.category, form);
+  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
+}
+
+// src/plural/primitives/fluent.ts
+function detectFluent(sites, dialect, ctx) {
+  const out2 = [];
+  for (const site3 of sites) {
+    if (site3.kind === "key") continue;
+    if (!ctx.applies(dialect, site3)) continue;
+    if (!looksLikeFluentSelect(site3.value)) continue;
+    const scan3 = scanFluentPattern(site3.value);
+    if (!scan3.ok) continue;
+    for (const select of scan3.selects) {
+      if (select.selectorKind === "reference") continue;
+      const forms = [];
+      const exact = [];
+      for (const variant of select.variants) {
+        if (variant.kind === "number") {
+          exact.push({ selector: variant.selector, value: variant.body });
+          continue;
+        }
+        if (!isCategory(variant.key)) continue;
+        forms.push({
+          category: variant.key,
+          selector: variant.selector,
+          siteId: site3.id,
+          value: variant.body,
+          branch: { start: variant.start, end: variant.end }
+        });
+      }
+      if (forms.length < 2) continue;
+      out2.push({
+        shape: dialect.shape,
+        dialect: dialect.id,
+        primitive: "fluent",
+        cldr: dialect.cldr,
+        write: dialect.write,
+        file: site3.file,
+        // A nested select needs its offset in the base, or two plurals in one
+        // pattern would collide on the same anchor.
+        base: `${pathOf(site3)}${select.depth > 0 ? `@${select.start}` : ""}`,
+        forms,
+        exact,
+        sites: [site3.id],
+        // Fluent has no ordinal selector at all, so this is never true — stated
+        // by the row's `ordinals: false` rather than assumed here.
+        ordinal: false,
+        fluent: { siteId: site3.id, select }
+      });
+    }
+  }
+  return out2;
+}
 
 // src/plural/icu.ts
 var ARG_TYPES = /* @__PURE__ */ new Set(["plural", "selectordinal", "select"]);
@@ -24287,7 +25519,7 @@ function scanIcu(text) {
         i2++;
         continue;
       }
-      const close = matchBrace(text, i2);
+      const close = matchBrace2(text, i2);
       if (close === -1 || close > to) {
         ok = false;
         return;
@@ -24338,7 +25570,7 @@ function parseBranches(text, from, to) {
     if (!selector) break;
     while (i2 < to && /\s/.test(text[i2])) i2++;
     if (text[i2] !== "{") break;
-    const close = matchBrace(text, i2);
+    const close = matchBrace2(text, i2);
     if (close === -1 || close >= to) break;
     branches.push({
       selector,
@@ -24351,7 +25583,7 @@ function parseBranches(text, from, to) {
   }
   return { offset, branches };
 }
-function matchBrace(text, open) {
+function matchBrace2(text, open) {
   let depth = 0;
   let i2 = open;
   while (i2 < text.length) {
@@ -24419,16 +25651,6 @@ function splice(text, edits) {
   return out2;
 }
 
-// src/plural/primitives/shared.ts
-function pathOf(site3) {
-  return site3.siteKey.slice(site3.siteKey.indexOf("#") + 1);
-}
-function dedupe(forms) {
-  const byCategory = /* @__PURE__ */ new Map();
-  for (const form of forms) byCategory.set(form.category, form);
-  return sortCategories(byCategory.keys()).map((c2) => byCategory.get(c2));
-}
-
 // src/plural/primitives/icu.ts
 function detectIcu(sites, dialect, ctx) {
   const out2 = [];
@@ -24480,10 +25702,9 @@ function detectIcu(sites, dialect, ctx) {
 function validateGrammar(read2) {
   const r = read2;
   if (!r || typeof r !== "object") return ["read must be an object"];
-  if (r.primitive === "fluent") {
-    return ["the fluent grammar has no reader yet \u2014 a dialect cannot declare one into existence"];
+  if (r.primitive !== "icu" && r.primitive !== "fluent") {
+    return [`unknown grammar ${String(r.primitive)}`];
   }
-  if (r.primitive !== "icu") return [`unknown grammar ${String(r.primitive)}`];
   return [];
 }
 
@@ -24621,10 +25842,10 @@ function detectValueSplit(sites, dialect, ctx) {
     const delimiter = delimiters.find((d) => site3.value.includes(d));
     if (!delimiter) continue;
     const parts2 = site3.value.split(delimiter).map((p) => trim ? p.trim() : p);
-    const order = read2.order[parts2.length];
-    if (!order) continue;
     if (parts2.some((p) => !new RegExp("\\p{L}{2,}", "u").test(p))) continue;
     if (read2.requiresCounting !== false && !parts2.some((p) => COUNTS.test(p))) continue;
+    const forms = read2.partSelector ? bySelector(parts2, read2.partSelector, site3.id) : byPosition(parts2, read2.order?.[parts2.length], site3.id);
+    if (!forms) continue;
     out2.push({
       shape: dialect.shape,
       dialect: dialect.id,
@@ -24633,12 +25854,7 @@ function detectValueSplit(sites, dialect, ctx) {
       write: dialect.write,
       file: site3.file,
       base: pathOf(site3),
-      forms: parts2.map((value, i2) => ({
-        category: order[i2],
-        selector: `[${i2}]`,
-        siteId: site3.id,
-        value
-      })),
+      forms,
       exact: [],
       sites: [site3.id],
       ordinal: false,
@@ -24646,6 +25862,22 @@ function detectValueSplit(sites, dialect, ctx) {
     });
   }
   return out2;
+}
+function byPosition(parts2, order, siteId2) {
+  if (!order) return null;
+  return parts2.map((value, i2) => ({ category: order[i2], selector: `[${i2}]`, siteId: siteId2, value }));
+}
+function bySelector(parts2, spec, siteId2) {
+  const forms = [];
+  for (const part of parts2) {
+    const m = spec.re.exec(part);
+    if (!m || m[1] === void 0) return null;
+    const category = spec.tokens[m[1]];
+    if (!category) return null;
+    forms.push({ category, selector: m[1], siteId: siteId2, value: part.slice(m[0].length) });
+  }
+  if (new Set(forms.map((f) => f.category)).size !== forms.length) return null;
+  return forms;
 }
 function validateValueSplit(read2) {
   const problems = [];
@@ -24655,12 +25887,29 @@ function validateValueSplit(read2) {
   for (const d of r.delimiters ?? []) {
     if (typeof d !== "string" || d.length === 0) problems.push("a delimiter must be a non-empty string");
   }
-  if (!r.order || Object.keys(r.order).length === 0) {
-    problems.push("read.order must say what each part count means");
+  const hasOrder = r.order && Object.keys(r.order).length > 0;
+  const hasSelector = r.partSelector !== void 0;
+  if (!hasOrder && !hasSelector) {
+    problems.push("read needs `order` (categories by position) or `partSelector` (a selector on each part)");
+  }
+  if (hasOrder && hasSelector) {
+    problems.push("read has both `order` and `partSelector`; a part is categorised by its position or by its own selector, not both");
   }
   for (const [n, cats] of Object.entries(r.order ?? {})) {
     if (cats.length !== Number(n)) problems.push(`order[${n}] lists ${cats.length} categories, not ${n}`);
     for (const c2 of cats) if (!isCategory(c2)) problems.push(`order[${n}] contains ${c2}, which is not a CLDR category`);
+  }
+  if (hasSelector) {
+    const spec = r.partSelector;
+    if (!(spec.re instanceof RegExp)) problems.push("read.partSelector.re must be a regular expression");
+    else if (!/\((?!\?)/.test(spec.re.source)) {
+      problems.push("read.partSelector.re must capture the selector in group 1");
+    }
+    const tokens = spec.tokens ?? {};
+    if (Object.keys(tokens).length === 0) problems.push("read.partSelector.tokens must map at least one selector");
+    for (const [spelling, c2] of Object.entries(tokens)) {
+      if (!isCategory(c2)) problems.push(`partSelector.tokens[${spelling}] is ${c2}, which is not a CLDR category`);
+    }
   }
   return problems;
 }
@@ -24682,11 +25931,9 @@ var PRIMITIVES = {
     detect: (sites, d, ctx) => detectIcu(sites, d, ctx),
     validate: validateGrammar
   },
-  // Declared so a row naming it fails validation with a sentence rather than a
-  // crash. There is no Fluent reader, and a dialect cannot write one.
   fluent: {
     id: "fluent",
-    detect: () => [],
+    detect: (sites, d, ctx) => detectFluent(sites, d, ctx),
     validate: validateGrammar
   }
 };
@@ -24804,6 +26051,15 @@ function syntaxFor(site3) {
       return site3.kind === "comment" ? "css-comment" : "js-double";
     case "text":
       return "plain";
+    case "po":
+      return site3.kind === "comment" ? "line-comment" : "po-string";
+    case "toml":
+      if (site3.kind === "comment") return "line-comment";
+      return site3.quote === "'" ? "toml-literal" : "toml-basic";
+    case "ftl":
+      return site3.kind === "comment" ? "line-comment" : "ftl-pattern";
+    case "dockerfile":
+      return site3.kind === "comment" ? "line-comment" : "dockerfile-value";
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
   }
@@ -24843,6 +26099,16 @@ function escapeRaw(syntax, text, opts) {
       return text.replace(/\*\//g, "*\\/");
     case "line-comment":
       return text.replace(/\r?\n/g, " ");
+    case "po-string":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    case "toml-basic":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    case "toml-literal":
+      return text;
+    case "ftl-pattern":
+      return text.replace(/\{/g, '{"{"}');
+    case "dockerfile-value":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
     case "plain":
       return text;
   }
@@ -24905,6 +26171,16 @@ function unescapeFor(syntax, text, opts = {}) {
     case "block-comment":
       return text.replace(/\*\\\//g, "*/");
     case "line-comment":
+    case "po-string":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    case "toml-basic":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    case "toml-literal":
+      return text;
+    case "ftl-pattern":
+      return text.replace(/\{/g, '{"{"}');
+    case "dockerfile-value":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\r?\n/g, " ");
     case "plain":
       return text;
   }
@@ -25600,8 +26876,16 @@ function leafOf(path) {
   const cut = path.lastIndexOf("/");
   return cut === -1 ? path : path.slice(cut + 1);
 }
-function unclaimedSuspicions(suspicions, claimedSiteIds) {
-  return suspicions.filter((s) => !claimedSiteIds.has(s.siteId));
+function unclaimedSuspicions(suspicions, claimedSiteIds, claimedBases = /* @__PURE__ */ new Set()) {
+  return suspicions.filter((s) => {
+    if (claimedSiteIds.has(s.siteId)) return false;
+    if (claimedBases.size === 0) return true;
+    const anchor2 = `${s.file}#${s.path}`;
+    for (const base of claimedBases) {
+      if (anchor2 === base || anchor2.startsWith(`${base}/`)) return false;
+    }
+    return true;
+  });
 }
 
 // src/scan.ts
@@ -25609,7 +26893,10 @@ var JSON_EXT = /* @__PURE__ */ new Set([".json", ".jsonc", ".json5", ".webmanife
 var YAML_EXT = /* @__PURE__ */ new Set([".yml", ".yaml"]);
 var MARKDOWN_EXT2 = /* @__PURE__ */ new Set([".md", ".mdx", ".markdown"]);
 var CSS_EXT = /* @__PURE__ */ new Set([".css", ".scss", ".sass", ".less", ".styl"]);
-var HTML_EXT = /* @__PURE__ */ new Set([".html", ".htm", ".xhtml", ".svg", ".xml", ".vue", ".svelte", ".astro", ".ejs", ".hbs", ".handlebars", ".njk", ".erb", ".twig", ".liquid"]);
+var HTML_EXT = /* @__PURE__ */ new Set([".html", ".htm", ".xhtml", ".svg", ".xml", ".vue", ".svelte", ".astro", ".ejs", ".hbs", ".handlebars", ".njk", ".erb", ".twig", ".liquid", ".stringsdict"]);
+var PO_EXT = /* @__PURE__ */ new Set([".po", ".pot"]);
+var TOML_EXT = /* @__PURE__ */ new Set([".toml"]);
+var FTL_EXT = /* @__PURE__ */ new Set([".ftl"]);
 async function scan2(opts) {
   const { repo } = opts;
   const to = opts.to ?? "en";
@@ -25663,7 +26950,8 @@ async function scan2(opts) {
     ...opts.pluralSidecar !== void 0 ? { sidecarPath: opts.pluralSidecar } : {}
   });
   const claimedSiteIds = new Set(plurals.flatMap((f) => f.sites));
-  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds);
+  const claimedBases = new Set(plurals.map((f) => f.anchor));
+  const pluralResidual = unclaimedSuspicions(suspectPlurals(sites), claimedSiteIds, claimedBases);
   return {
     schemaVersion: 1,
     repo,
@@ -25811,6 +27099,22 @@ async function extractFile(file, tokens, opts) {
   if (read2.text === "") return { ...base, extractor: "empty", bytesClaimed: 0 };
   const map = new OffsetMap(read2.text);
   const ext = file.ext;
+  if (ext === ".ts" && isQtTranslation(read2.text)) {
+    const { sites, claimedBytes, identifiers } = extractHtml(file.rel, read2.text, map);
+    for (const id of identifiers) tokens.identifiers.add(id);
+    return {
+      ...base,
+      sites,
+      extractor: "html",
+      bytesClaimed: claimedBytes,
+      reason: "Qt translation catalog: routed by content, because .ts is also TypeScript"
+    };
+  }
+  if (isDockerfile(file.rel)) {
+    const { sites, keys, claimedBytes } = extractDockerfile(file.rel, read2.text, map);
+    for (const k of keys) tokens.identifiers.add(k);
+    return { ...base, sites, extractor: "dockerfile", bytesClaimed: claimedBytes };
+  }
   if (!opts.noAst && AST_EXTENSIONS.has(ext)) {
     const parser2 = await parserForExt(ext);
     if (parser2) {
@@ -25865,6 +27169,21 @@ async function extractFile(file, tokens, opts) {
   if (MARKDOWN_EXT2.has(ext)) {
     const { sites, claimedBytes } = extractMarkdown2(file.rel, read2.text, map);
     return { ...base, sites, extractor: "markdown", bytesClaimed: claimedBytes };
+  }
+  if (PO_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractPo(file.rel, read2.text, map);
+    for (const k of keys) tokens.identifiers.add(k);
+    return { ...base, sites, extractor: "po", bytesClaimed: claimedBytes, complete };
+  }
+  if (TOML_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractToml(file.rel, read2.text, map);
+    for (const k of keys) tokens.identifiers.add(k);
+    return { ...base, sites, extractor: "toml", bytesClaimed: claimedBytes, complete };
+  }
+  if (FTL_EXT.has(ext)) {
+    const { sites, keys, claimedBytes, complete } = extractFtl(file.rel, read2.text, map);
+    for (const k of keys) tokens.identifiers.add(k);
+    return { ...base, sites, extractor: "ftl", bytesClaimed: claimedBytes, complete };
   }
   if (CSS_EXT.has(ext)) {
     const { sites, claimedBytes, identifiers } = extractCss(file.rel, read2.text, map);
@@ -27608,7 +28927,7 @@ function writeFamily(family, forms, bySiteId) {
     const siteId2 = family.sites[0];
     const site3 = siteId2 ? bySiteId.get(siteId2) : void 0;
     if (!site3) return { translations: [], insertions: [] };
-    const rebuilt = family.primitive === "icu" ? rebuildIcu(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(family.join ?? " | ");
+    const rebuilt = family.primitive === "icu" ? rebuildIcu(site3.value, family, forms, target) : family.primitive === "fluent" ? rebuildFluent(site3.value, family, forms, target) : [...target].map((c2) => forms[c2] ?? "").join(family.join ?? " | ");
     return rebuilt === null ? { translations: [], insertions: [] } : { translations: [{ id: site3.id, text: rebuilt }], insertions: [] };
   }
   const byCategory = new Map(family.forms.map((f) => [f.category, f]));
@@ -27647,6 +28966,23 @@ function rebuildIcu(value, family, forms, target) {
     { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) }
   ]);
 }
+function rebuildFluent(value, family, forms, target) {
+  const scan3 = scanFluentPattern(value);
+  if (!scan3.ok) return null;
+  const at = /@(\d+)$/.exec(family.base);
+  const select = at ? scan3.selects.find((s) => s.start === Number(at[1])) : scan3.selects.find((s) => s.selectorKind !== "reference");
+  if (!select) return null;
+  const bodies = {};
+  for (const variant of select.variants) {
+    if (variant.kind === "number") bodies[variant.key] = variant.body;
+  }
+  for (const category of target) {
+    if (forms[category] !== void 0) bodies[category] = forms[category];
+  }
+  const exactKeys = select.variants.filter((v) => v.kind === "number").map((v) => v.key);
+  const rebuilt = serializeSelect(select, bodies, [...exactKeys, ...target]);
+  return value.slice(0, select.start) + rebuilt + value.slice(select.end);
+}
 function cmdApply(repo, out2, write, recover) {
   const dirs = runDir(out2);
   const inventory = readJson2(dirs.inventory, "inventory.json");
@@ -27677,6 +29013,7 @@ var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "numeric-or-symbolic",
   "already-target-language",
   "source-locale-bundle",
+  "other-locale-bundle",
   "interpolation",
   "explicitly-marked",
   "proper-noun",
@@ -27838,7 +29175,7 @@ function gateCoherence(inv, repo) {
   }
   const byDup = /* @__PURE__ */ new Map();
   for (const site3 of inv.sites) {
-    if (site3.verdict !== "translate" && site3.reason !== "already-target-language" && site3.reason !== "source-locale-bundle") {
+    if (site3.verdict !== "translate" && site3.reason !== "already-target-language" && site3.reason !== "source-locale-bundle" && site3.reason !== "other-locale-bundle") {
       continue;
     }
     const list = byDup.get(site3.dupKey);

@@ -1,40 +1,38 @@
 {
   "schemaVersion": 1,
   "case": "plural-unread-dialects",
-  "title": "Arrangements the engine does not read — listed, never claimed",
-  "scan": { "from": "en", "to": "ru" },
-
+  "title": "Six plural arrangements, each read by the format it belongs to",
+  "scan": {
+    "from": "en",
+    "to": "ru"
+  },
   "gates": {
     "G1": "pass",
-    "G2": "fail",
+    "G2": "pass",
     "G3": "any",
     "G4": "any",
     "G5": "pass",
     "G6": "any",
-    "G7": "fail"
+    "G7": "pass"
   },
-
   "census": [
     {
       "file": "locale/fr/LC_MESSAGES/app.po",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .po",
-      "why": "gettext is the format most worth reading and the one least readable. Without `src/extract/po.ts` the file yields `~sweep[n]` prose runs with no structure at all, so no dialect can claim what was never parsed — a row would be inert no matter how well written."
+      "extractor": "po",
+      "why": "gettext, read end to end. `claimRatio` of 1.0 is the point and not a detail: `sweep` only calls an oracle hit a CONFIRMED miss when the ratio is 1 under a measured extractor, so a format read this way can contradict the engine, while one left to the residual sweep can only ever produce candidates."
     },
     {
       "file": "l10n/en/app.ftl",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .ftl",
-      "why": "Fluent's selector syntax is a GRAMMAR, not a separator, so it needs a parser beside `icu.ts` rather than a data row. It is also the one format whose catalog rule already lists it — `**/*.ftl` is in `i18n.message-bundles` — and cannot fire, because `classify` short-circuits on sweep sites before `matchRules`."
+      "extractor": "ftl",
+      "why": "Fluent, and the only arrangement in the corpus that genuinely costs a parser. Its selector is a grammar with nesting, a mandatory default variant and two kinds of variant key; no table of separators reads one. Two grammars ship in this engine and every other arrangement is a data row, which is the shape of the claim the design makes."
     },
     {
       "file": "en.lproj/Localizable.stringsdict",
       "bucket": "scanned",
-      "extractor": "residual-sweep",
-      "reason": "no extractor for .stringsdict",
-      "why": "An XML plist, and `.stringsdict` is not routed to the markup extractor. Registering the extension would give it a structural path and make it a data row, exactly as `.xcstrings` became one."
+      "extractor": "html",
+      "why": "An XML plist, read by the markup extractor — but only because that extractor now gives a plist dict a JSON Pointer. Registering the extension alone would have produced `string/text[7]`, a document-order index carrying no key, and which key owns a value is exactly what an Apple plural is made of."
     },
     {
       "file": "Localizable.xcstrings",
@@ -45,75 +43,147 @@
     {
       "file": "translations/app_fr.ts",
       "bucket": "scanned",
-      "extractor": "ts-ast",
-      "degraded": true,
-      "why": "The nastiest path in the corpus. Qt translation files use `.ts`, which this engine routes to the TypeScript grammar — so a parser is handed XML, reports unparseable regions, and the file goes down the degraded branch with `claimRatio` at 0. Nothing is lost: the sweep covers exactly the regions the grammar failed on, which is what that branch exists for."
+      "extractor": "html",
+      "why": "The nastiest path in the corpus, and now the tidiest result. `.ts` is TypeScript and it is also Qt Linguist; the file used to go to the TypeScript grammar, report nineteen unparseable regions and land on `claimRatio` 0 — a broken module where there is a perfectly good catalog. Sniffed for `<!DOCTYPE TS>` before the extension decides, which is the one collision worth a content check.",
+      "reason": "Qt translation catalog"
     }
   ],
-
   "expectations": [
     {
       "id": "gettext.msgid-plural",
       "file": "locale/fr/LC_MESSAGES/app.po",
       "find": "msgid_plural \"%d unread messages\"",
-      "expect": { "verdict": "unclassified" },
-      "why": "LISTED, not claimed. If this ever reads `translate`, somebody wrote a `.po` extractor and this expectation must be rewritten deliberately rather than updated in passing."
+      "expect": {
+        "verdict": "needs-judgment",
+        "reason": "dual-use",
+        "rule": "gettext.po-catalog"
+      },
+      "why": "A msgid is simultaneously the source copy and the LOOKUP KEY every catalog in the repository indexes on. Rewrite it without rewriting every `.po` in lockstep and every lookup breaks; leave it and a source-language swap keeps English msgids, which is how most projects run gettext. Two correct answers, one of which fails at runtime — so the engine reports and refuses rather than choosing."
     },
     {
       "id": "gettext.msgstr-indexed",
       "file": "locale/fr/LC_MESSAGES/app.po",
       "find": "msgstr[1] \"%d messages non lus\"",
-      "expect": { "verdict": "unclassified" },
-      "why": "The indexed form. Its number is a POSITION whose meaning lives in the `Plural-Forms:` header — a C expression the engine does not and will not evaluate."
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "other-locale-bundle",
+        "rule": "gettext.po-catalog"
+      },
+      "why": "The indexed form, in a French catalog during an en→ru run: copy, plainly, and none of this run's business. `other-locale-bundle` and not `code-token` — calling a French sentence a token is the sort of small lie that makes a report stop being worth reading. Its number is a POSITION, which is what the family below records."
     },
     {
       "id": "fluent.selector",
       "file": "l10n/en/app.ftl",
       "find": "[one] One unread message",
-      "expect": { "verdict": "unclassified" },
-      "why": "Surfaced by the sweep, so G2 refuses to pass and the file cannot be silently skipped. That is the whole guarantee available here."
+      "expect": {
+        "verdict": "translate",
+        "rule": "i18n.message-bundles"
+      },
+      "why": "The rule TODO §1 recorded as unable to fire. `**/*.ftl` was in its globs all along; what blocked it was that `classify` short-circuits on sweep sites before `matchRules` ever runs, so a format with no extractor can never reach a rule that names it. Giving Fluent a reader is what switched the rule on — no rule was edited."
     },
     {
       "id": "stringsdict.form",
       "file": "en.lproj/Localizable.stringsdict",
       "find": "<string>%d tasks remaining</string>",
-      "expect": { "verdict": "unclassified" },
-      "why": "Apple's plural dictionary, surfaced and not understood."
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "A form inside the variable dictionary, addressed as `/task_count/tasks/other` rather than as the eighth text run in the document."
     },
     {
       "id": "qt.numerusform",
       "file": "translations/app_fr.ts",
       "find": "<numerusform>%n tâches restantes</numerusform>",
-      "expect": { "verdict": "unclassified" },
-      "why": "Reached through the degraded AST branch: the TypeScript grammar failed on this region, and the sweep covered exactly what it failed on. Being accounted for at all is the claim."
+      "expect": {
+        "verdict": "needs-judgment",
+        "reason": "ambiguous-role"
+      },
+      "why": "French text during an en→ru run, so the detector refuses — correctly, and that refusal is unrelated to the arrangement. What matters here is that the site EXISTS, at `message[0]/numerusform[1]`, where before it was a fragment swept out of a file the grammar had choked on."
     },
     {
       "id": "xcstrings.one",
       "file": "Localizable.xcstrings",
       "find": "\"value\" : \"One task remaining\"",
-      "expect": { "verdict": "translate" },
+      "expect": {
+        "verdict": "translate"
+      },
       "why": "CLAIMED, unlike everything else in this case, because `.xcstrings` is registered as JSON and a data row reads the resulting path. One line in an extension set and one row in a catalog."
     }
   ],
-
   "plurals": [
     {
       "anchor": "Localizable.xcstrings#/strings/task_count/localizations/en/variations/plural",
       "dialect": "apple.xcstrings-variations",
-      "categories": ["one", "other"],
+      "categories": [
+        "one",
+        "other"
+      ],
       "writeMode": "code-edit",
-      "why": "A String Catalog family, read by a row rather than by a detector. `code-edit` because a new form is a nested `stringUnit` object and insertion writes a scalar sibling."
+      "why": "The original counter-example: registering one extension turned an unreadable file into a data row. It is now one of six rather than the only one."
     },
     {
-      "anchor": "l10n/en/app.ftl#~sweep[0]",
-      "expect": "absent",
-      "why": "No Fluent grammar, so no family. Asserting the ABSENCE matters: a dialect that started claiming sweep runs would be reading prose fragments as forms."
+      "anchor": "en.lproj/Localizable.stringsdict#/task_count/tasks",
+      "dialect": "apple.stringsdict-variants",
+      "categories": [
+        "one",
+        "other"
+      ],
+      "writeMode": "code-edit",
+      "why": "Claimed at precedence 26, not by `rails.sibling-object` at 40 — and the difference is the whole reason the row exists. The Rails row would read `/task_count/tasks/one` correctly, but only while `bundleOnly` passes, and here it passes only because the path happens to contain `en.lproj`. A `.stringsdict` at `Resources/` would be missed entirely. Intrinsic evidence and an Apple citation beat a coincidence."
+    },
+    {
+      "anchor": "l10n/en/app.ftl#/unread-count",
+      "dialect": "fluent.select-expression",
+      "categories": [
+        "one",
+        "other"
+      ],
+      "writeMode": "replace",
+      "why": "`replace` is earned rather than convenient: en→ru turns two variants into four inside a single value, which no delimiter join can do. It also has to be earned in code — a `replace` family with no serializer falls through to a `|`-join, and for Fluent that overwrites valid syntax with prose."
+    },
+    {
+      "anchor": "locale/fr/LC_MESSAGES/app.po#/one unread message",
+      "dialect": "gettext.msgstr-index",
+      "categories": [
+        "one",
+        "other"
+      ],
+      "writeMode": "insert",
+      "why": "`cldr: false`, so the index is a POSITION and the family is never measured for completeness — index 1 of a three-form Polish catalog is 'the second form', never `few`. That also makes `insert` safe: with the target keeping the source's arity, every form already exists and is replaced at its own byte offset, so nothing is ever inserted."
+    },
+    {
+      "anchor": "translations/app_fr.ts#message[0]",
+      "dialect": "qt.numerusform",
+      "categories": [
+        "one",
+        "other"
+      ],
+      "writeMode": "insert",
+      "why": "Anchored on the enclosing <message>, not on a document-order text index. That is what makes a second message a second family rather than four forms of one — the failure a flat `numerusform/text[n]` path would have produced silently."
+    },
+    {
+      "anchor": "src/locales/messages.en.yaml#/cart_items",
+      "dialect": "symfony.interval",
+      "categories": [
+        "zero",
+        "one",
+        "other"
+      ],
+      "writeMode": "code-edit",
+      "why": "Was claimed by `vue-i18n.pipe-positional` as three positional forms. Same categories, different dialect, and the difference is not cosmetic: positional says 'first, second, third' while `{0}`, `]0,1]` and `]1,Inf[` say zero, one, other for a reason each part states. The interval knowledge lives in the Symfony row rather than as a guard inside vue-i18n's, because one runtime's spelling inside another's dialect is the coupling this design exists to remove."
+    },
+    {
+      "anchor": "src/locales/messages.en.yaml#/apples",
+      "dialect": "symfony.interval",
+      "categories": [
+        "zero",
+        "other"
+      ],
+      "writeMode": "code-edit",
+      "why": "The pair where the two readings DISAGREE, and therefore the one that proves `partSelector` is real. Two parts: read positionally they are one|other, because that is what two positions mean; read by their own selectors `{0}` and `]1,Inf[` they are zero|other. `cart_items` above happens to agree with the positional answer, so on its own it could never have shown the difference."
     }
   ],
-
   "knownGaps": [
-    "The Symfony interval string in `src/locales/messages.en.yaml` is claimed by `vue-i18n.pipe-positional` as a three-part `zero|one|other` family. It is not one: `{0} …|]0,1] …|]1,Inf[ …` carries an explicit selector on each part, and reading them as positions mislabels all three. The `value-split` primitive has no `partSelector`, so a correct Symfony row cannot be written today — and adding an interval guard to the vue-i18n row would put Symfony knowledge inside somebody else's dialect, which is the coupling this design exists to remove.",
-    "`.stringsdict` and `.ftl` produce no plural RESIDUAL, only `unclassified` sites. The suspicion signals look for a marker in a path or a token in the text, and the sweep fragments both formats below the level where either survives. Nothing is lost — G2 still refuses to pass — but G7 cannot say 'this looks like a plural', so the dialect worklist will not mention them.",
-    "gettext's `Plural-Forms:` header is read by nothing. Even with a `.po` extractor, an index would map to a POSITION and never to a CLDR category, so such a family would be `cldr: false` and never measured for completeness. That is a smaller claim than the one made for i18next, and the true one."
+    "gettext's `nplurals=N` header is read verbatim and used by nothing. Comparing it against the number of `msgstr[n]` present would find a live rendering bug, and it is deliberately not done: reading half a header invites the reader to believe the whole thing is understood, and `plural=` is a C expression this engine will not evaluate."
   ]
 }

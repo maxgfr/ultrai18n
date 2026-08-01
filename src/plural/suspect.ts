@@ -176,6 +176,28 @@ function leafOf(path: string): string {
  * a place the engine looked, saw something plural-shaped, and could not account
  * for.
  */
-export function unclaimedSuspicions(suspicions: Suspicion[], claimedSiteIds: Set<string>): Suspicion[] {
-  return suspicions.filter((s) => !claimedSiteIds.has(s.siteId))
+export function unclaimedSuspicions(
+  suspicions: Suspicion[],
+  claimedSiteIds: Set<string>,
+  /**
+   * `file#base` of every family a dialect claimed.
+   *
+   * Needed because a marker is not a form. `msgid_plural` in a `.po` file and
+   * `NSStringFormatSpecTypeKey` in a `.stringsdict` are how those formats SAY
+   * "a plural lives here" — they are never among the family's forms, so they
+   * are never in `claimedSiteIds`, and they kept G7 red on a file the engine
+   * had just read completely. A suspicion sitting under a base a dialect
+   * claimed is part of the construct that was claimed.
+   */
+  claimedBases: Set<string> = new Set(),
+): Suspicion[] {
+  return suspicions.filter((s) => {
+    if (claimedSiteIds.has(s.siteId)) return false
+    if (claimedBases.size === 0) return true
+    const anchor = `${s.file}#${s.path}`
+    for (const base of claimedBases) {
+      if (anchor === base || anchor.startsWith(`${base}/`)) return false
+    }
+    return true
+  })
 }

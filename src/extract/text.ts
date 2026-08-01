@@ -13,10 +13,16 @@ export interface TextExtractResult {
   claimedBytes: number
 }
 
-/** Extensionless files worth reading as prose. */
+/**
+ * Extensionless files worth reading as prose.
+ *
+ * `Dockerfile` is deliberately absent: it has its own extractor now, and
+ * leaving the name here as well would make routing ORDER the only thing
+ * deciding which reader wins — a trap for whoever moves a branch next.
+ */
 export const PLAIN_TEXT_BASENAMES = new Set([
   'LICENSE', 'LICENCE', 'COPYING', 'NOTICE', 'AUTHORS', 'CONTRIBUTORS',
-  'CHANGELOG', 'README', 'INSTALL', 'TODO', 'CODEOWNERS', 'Dockerfile', 'Makefile',
+  'CHANGELOG', 'README', 'INSTALL', 'TODO', 'CODEOWNERS', 'Makefile',
 ])
 
 export const PLAIN_TEXT_EXT = new Set(['.txt', '.text', '.rst', '.adoc', '.asciidoc'])
