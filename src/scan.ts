@@ -21,6 +21,7 @@ import { scanPaths, pathSites } from './paths'
 import { emptyTokenIndex, type RawSite, type TokenIndex } from './extract/raw'
 import { prepareGrammars, parserForExt, AST_EXTENSIONS, grammarStatus } from './ast/parse'
 import { classify } from './classify'
+import { harmoniseBranches } from './consistency'
 import { detect } from './lang/detect'
 import { matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
@@ -90,11 +91,18 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   // Pass 2 — classify against the now-complete indexes.
   const from = opts.from === 'auto' || opts.from === undefined ? inferSourceLanguage(results, to) : opts.from
   const sites: Site[] = []
+  const pairs: { raw: RawSite; site: Site }[] = []
   for (const result of results) {
     for (const raw of result.sites) {
-      sites.push(classify(raw, { from, to, tokens, fileLocale }))
+      const site = classify(raw, { from, to, tokens, fileLocale })
+      sites.push(site)
+      pairs.push({ raw, site })
     }
   }
+  // Two arms of one `switch` or ternary are one editorial decision, and the
+  // detector answers them independently. Runs here, on the classified sites,
+  // because the disagreement is only visible once both have a verdict.
+  const harmonised = harmoniseBranches(pairs)
   sites.sort((a, b) =>
     a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start,
   )
@@ -151,6 +159,20 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
     advisories: [
       ...advisoriesFor(results, sites),
       ...pluralAdvisories(plurals),
+      ...(harmonised.lifted
+        ? [
+            {
+              id: 'branch-sibling',
+              file: null,
+              message:
+                `${harmonised.lifted} site(s) across ${harmonised.groups} branching construct(s) were refused by ` +
+                `the language detector while a sibling arm of the same \`switch\` or ternary was accepted. They ` +
+                `carry the sibling's verdict and the \`branch-sibling\` flag, at medium confidence — inherited, ` +
+                `not measured. Filter on that flag to review the pass itself.`,
+              sites: [],
+            },
+          ]
+        : []),
       ...(collisions
         ? [
             {

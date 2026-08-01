@@ -20606,7 +20606,7 @@ function classifyStringContainer(node) {
     container.moduleSpecifier = true;
     return container;
   }
-  if (parent.type === "pair" && parent.child(0) === node) container.isKey = true;
+  if (parent.type === "pair" && parent.child(0)?.id === node.id) container.isKey = true;
   if (parent.type === "pair") {
     const obj = parent.parent;
     if (obj) container.siblingKeys = objectKeys(obj);
@@ -20617,6 +20617,11 @@ function classifyStringContainer(node) {
   }
   if (parent.type === "switch_case") container.compared = true;
   if (parent.type === "literal_type" || parent.type === "union_type" || node.parent?.parent?.type === "union_type") {
+    container.enumMember = true;
+  }
+  const branch = enclosingBranch(node);
+  if (branch) container.branchGroup = branch;
+  if (parent.type === "enum_assignment" && parent.child(0)?.id !== node.id) {
     container.enumMember = true;
   }
   const tagged = parent.type === "tagged_template_expression" || parent.type === "call_expression" && parent.child(0)?.id !== node.id;
@@ -20680,6 +20685,24 @@ function recordTokens(node, value, container, index, file) {
   if (container.enumMember || inAsConstArray(node)) addToken(index.enums, value, at);
   if (container.compared) addToken(index.compared, value, at);
   if (container.persisted) addToken(index.persisted, value, at);
+}
+var FUNCTION_LIKE = /* @__PURE__ */ new Set([
+  "function_declaration",
+  "generator_function_declaration",
+  "function_expression",
+  "arrow_function",
+  "method_definition"
+]);
+function enclosingBranch(node) {
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (cur.type === "switch_statement" || cur.type === "ternary_expression") {
+      return anchorPath(cur);
+    }
+    if (FUNCTION_LIKE.has(cur.type) || cur.type === "class_declaration" || cur.type === "program") {
+      return void 0;
+    }
+  }
+  return void 0;
 }
 function inAsConstArray(node) {
   const array = node.parent;
@@ -20815,6 +20838,34 @@ function pathSegment(node, child) {
       return node.childForFieldName?.("name")?.text ?? null;
     case "export_statement":
       return node.text.startsWith("export default") ? "default" : null;
+    // `enum Channel { Email = 'email' }`. Without this both members anchor at
+    // `Channel` and collide into `Channel` + `Channel~2` — and a `~n` suffix is
+    // the documented last resort, not the normal way to address an enum.
+    case "enum_assignment":
+      return node.childForFieldName?.("name")?.text ?? node.child(0)?.text ?? null;
+    // The branching constructs, named rather than numbered.
+    //
+    // Every arm of a `switch` and both sides of a ternary used to collapse onto
+    // the anchor of the statement holding them: four strings, one path, three
+    // `~n` collisions. A collision is REPORTED as a defect, and these are not
+    // one — they are four addressable positions nobody had spelled out. The
+    // ordinal branch in `anchorPath` cannot do this, because it fires only when
+    // nothing below had a name, so a second anonymous container never gets one.
+    case "switch_case":
+    case "switch_default": {
+      const value = node.childForFieldName?.("value");
+      if (!value) return "case[default]";
+      if (child && child.id === value.id) return null;
+      return `case[${value.type === "string" ? decodeString(value).value : value.text}]`;
+    }
+    case "ternary_expression": {
+      if (!child) return null;
+      const consequence = node.childForFieldName?.("consequence");
+      const alternative = node.childForFieldName?.("alternative");
+      if (consequence && child.id === consequence.id) return "?then";
+      if (alternative && child.id === alternative.id) return "?else";
+      return null;
+    }
     case "pair": {
       const key = node.child(0);
       if (!key) return null;
@@ -23580,7 +23631,9 @@ var STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/;
 var STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/;
 var CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/;
 var URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i;
-var SLUG_SHAPE = /^[a-z0-9]+([:._\-/][a-z0-9]+)+$/;
+var SLUG_SHAPE = /^[a-z0-9]+([:._+\-/][a-z0-9]+)+$/;
+var MEDIA_TYPE = /^(application|audio|font|example|image|message|model|multipart|text|video)\/[a-z0-9][a-z0-9!#$&^_.+-]*(\s*;.*)?$/i;
+var LOCALE_TAG = /^([a-z]{2,3})(?=-)(?:-([A-Z][a-z]{3}))?(?:-([A-Z]{2}|\d{3}))?$/;
 var ARIA_VOCAB = /^(aria-(live|current|pressed|sort|haspopup|autocomplete|relevant|orientation|expanded|hidden|checked|modal|busy|atomic|disabled|selected|multiline|readonly|required|invalid))$/;
 var ARIA_TEXT = /^(aria-(label|description|roledescription|valuetext|placeholder|details))$/;
 var TEXT_ATTRS2 = /^(alt|title|placeholder|label|summary|abbr|download|content|srcdoc)$/;
@@ -23725,7 +23778,9 @@ function decide(raw, opts, rules, fileLocale2) {
       return {
         surface: ruled.emit.surface,
         verdict: "do-not-translate",
-        reason: "already-target-language",
+        // A third locale's bundle is data this run has no opinion about; the
+        // source's own bundle is the text everything else is measured against.
+        reason: fileLocale2 === opts.from ? "source-locale-bundle" : "code-token",
         confidence: "high",
         rule: ruled.rule.id,
         skipDetection: true
@@ -23757,6 +23812,9 @@ function decide(raw, opts, rules, fileLocale2) {
   if (c2.attrName && ARIA_VOCAB.test(c2.attrName)) {
     return { surface: "token.api-contract", verdict: "do-not-translate", reason: "aria-vocabulary", confidence: "high", skipDetection: true };
   }
+  if (MEDIA_TYPE.test(value)) {
+    return { surface: "token.api-contract", verdict: "do-not-translate", reason: "interop-format", confidence: "high", skipDetection: true };
+  }
   if (URL_SHAPE.test(value) || SLUG_SHAPE.test(value) && !value.includes(" ")) {
     return { surface: "token.url-slug", verdict: "do-not-translate", reason: "url-or-slug", confidence: "medium", skipDetection: true };
   }
@@ -23780,6 +23838,13 @@ function decide(raw, opts, rules, fileLocale2) {
   }
   if (isCalendarSymbol(raw) || isDatePattern(value)) {
     return { surface: "ui.string-literal", verdict: "needs-judgment", reason: "symbol-set", confidence: "high" };
+  }
+  const tag = LOCALE_TAG.exec(value);
+  if (tag && opts.from) {
+    if (tag[1] === opts.from) {
+      return { surface: "locale.declaration", verdict: "locale-marker", confidence: "high", skipDetection: true };
+    }
+    return { surface: "locale.declaration", verdict: "do-not-translate", reason: "code-token", confidence: "medium", skipDetection: true };
   }
   const surface = surfaceFor(raw);
   const lang = detect(value, opts.from ? { candidates: candidatesFor(opts.from, opts.to) } : {});
@@ -23857,6 +23922,41 @@ function surfaceFor(raw) {
 function candidatesFor(from, to) {
   const set = /* @__PURE__ */ new Set([from, to, "en"]);
   return [...set];
+}
+
+// src/consistency.ts
+var DETECTOR_REASONS = /* @__PURE__ */ new Set(["no-rule", "ambiguous-role", "short-string"]);
+function harmoniseBranches(pairs) {
+  const groups = /* @__PURE__ */ new Map();
+  for (const pair of pairs) {
+    const group = pair.raw.container.branchGroup;
+    if (!group) continue;
+    const key = `${pair.raw.file}\0${group}`;
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(pair);
+    else groups.set(key, [pair]);
+  }
+  let lifted = 0;
+  let disagreeing = 0;
+  for (const bucket of groups.values()) {
+    if (bucket.length < 2) continue;
+    if (!bucket.some(({ site: site3 }) => site3.verdict === "translate")) continue;
+    const candidates = bucket.filter(
+      ({ site: site3 }) => site3.verdict === "needs-judgment" && site3.reason !== null && DETECTOR_REASONS.has(site3.reason) && // Still require words. A sibling being copy says nothing about a
+      // stray `'--'` in the other arm.
+      new RegExp("\\p{L}{2,}", "u").test(site3.value)
+    );
+    if (candidates.length === 0) continue;
+    disagreeing++;
+    for (const { site: site3 } of candidates) {
+      site3.verdict = "translate";
+      site3.reason = null;
+      site3.confidence = "medium";
+      if (!site3.flags.includes("branch-sibling")) site3.flags.push("branch-sibling");
+      lifted++;
+    }
+  }
+  return { lifted, groups: disagreeing };
 }
 
 // src/plural/cldr.ts
@@ -25522,11 +25622,15 @@ async function scan2(opts) {
   for (const result of results) collisions += disambiguatePaths(result.sites);
   const from = opts.from === "auto" || opts.from === void 0 ? inferSourceLanguage(results, to) : opts.from;
   const sites = [];
+  const pairs = [];
   for (const result of results) {
     for (const raw of result.sites) {
-      sites.push(classify2(raw, { from, to, tokens, fileLocale }));
+      const site3 = classify2(raw, { from, to, tokens, fileLocale });
+      sites.push(site3);
+      pairs.push({ raw, site: site3 });
     }
   }
+  const harmonised = harmoniseBranches(pairs);
   sites.sort(
     (a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.span.start - b.span.start
   );
@@ -25567,6 +25671,14 @@ async function scan2(opts) {
     advisories: [
       ...advisoriesFor(results, sites),
       ...pluralAdvisories(plurals),
+      ...harmonised.lifted ? [
+        {
+          id: "branch-sibling",
+          file: null,
+          message: `${harmonised.lifted} site(s) across ${harmonised.groups} branching construct(s) were refused by the language detector while a sibling arm of the same \`switch\` or ternary was accepted. They carry the sibling's verdict and the \`branch-sibling\` flag, at medium confidence \u2014 inherited, not measured. Filter on that flag to review the pass itself.`,
+          sites: []
+        }
+      ] : [],
       ...collisions ? [
         {
           id: "anchor-collision",
@@ -27537,6 +27649,7 @@ var EXCEPTION_REASONS = /* @__PURE__ */ new Set([
   "code-token",
   "numeric-or-symbolic",
   "already-target-language",
+  "source-locale-bundle",
   "interpolation",
   "explicitly-marked",
   "proper-noun",
@@ -27698,7 +27811,9 @@ function gateCoherence(inv, repo) {
   }
   const byDup = /* @__PURE__ */ new Map();
   for (const site3 of inv.sites) {
-    if (site3.verdict !== "translate" && site3.reason !== "already-target-language") continue;
+    if (site3.verdict !== "translate" && site3.reason !== "already-target-language" && site3.reason !== "source-locale-bundle") {
+      continue;
+    }
     const list = byDup.get(site3.dupKey);
     if (list) list.push(site3);
     else byDup.set(site3.dupKey, [site3]);

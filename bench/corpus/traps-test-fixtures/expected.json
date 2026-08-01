@@ -176,11 +176,21 @@
       "id": "i18n.value",
       "file": "src/locales/fr/common.json",
       "find": "Votre panier est vide",
-      "why": "The phrase that key points at. It is what should move, in a different file from the key that must not — which is the whole shape of the mistake."
+      "why": "The phrase that key points at, in the SOURCE locale's bundle. Left alone, and now for a reason that says so: a bundle's locale is its path, so the target gets `locales/en/` rather than this file being rewritten in place — rewriting it would delete the source every other catalog is diffed against. It used to report `already-target-language` on a fr→en run, which is the opposite of the situation and the one thing about this file that is not so.",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "source-locale-bundle"
+      }
+    },
+    {
+      "id": "ternary.arm-copy",
+      "file": "src/Toolbar.tsx",
+      "find": "'Enregistrement en cours'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "The other branch of the ternary whose `'Toutes les modifications sont enregistrées'` was already pinned as copy. Two halves of one expression are one editorial decision, and they used to get two answers because `Enregistrement` scored below the detector's confidence floor. Pinned in both corpora — here in a ternary, in traps-persistence in a switch — because the defect was the construct, not the file."
     }
   ],
-  "knownGaps": [
-    "The values in `src/locales/fr/common.json` come back do-not-translate/already-target-language on a fr→en run. The bundle is in the SOURCE language, so under `swap` it is exactly what should be rewritten; the reason given is the opposite of the situation. Asserted only as accounted-for here, because pinning the verdict would pin the confusion.",
-    "`'Enregistrement en cours'` lands on needs-judgment/no-rule while its ternary sibling `'Toutes les modifications sont enregistrées'` comes back translate. Same expression, two answers — the same inconsistency traps-persistence records in a switch."
-  ]
+  "knownGaps": []
 }

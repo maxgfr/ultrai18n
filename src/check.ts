@@ -36,6 +36,7 @@ const EXCEPTION_REASONS = new Set([
   'identifier', 'module-specifier', 'enum-member', 'persisted-value', 'api-contract',
   'interop-format', 'url-or-slug', 'style-token', 'aria-vocabulary', 'test-fixture',
   'vendored-legal', 'code-token', 'numeric-or-symbolic', 'already-target-language',
+  'source-locale-bundle',
   'interpolation', 'explicitly-marked', 'proper-noun', 'escaping-fixture',
   'genuinely-source-language',
   // For G7: a site that looks plural-shaped and genuinely is not.
@@ -286,7 +287,16 @@ function gateCoherence(inv: Inventory, repo: string): Gate {
   // other, and neither site is individually wrong.
   const byDup = new Map<string, Site[]>()
   for (const site of inv.sites) {
-    if (site.verdict !== 'translate' && site.reason !== 'already-target-language') continue
+    // Locale bundles are in scope on both sides: a string held in the source
+    // bundle and in the target bundle is the same copy in two languages, which
+    // is exactly what this check is looking for.
+    if (
+      site.verdict !== 'translate' &&
+      site.reason !== 'already-target-language' &&
+      site.reason !== 'source-locale-bundle'
+    ) {
+      continue
+    }
     const list = byDup.get(site.dupKey)
     if (list) list.push(site)
     else byDup.set(site.dupKey, [site])

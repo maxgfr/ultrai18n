@@ -1,7 +1,7 @@
-# ultrai18n bench — 8 case(s), 80 expectation(s)
+# ultrai18n bench — 8 case(s), 84 expectation(s)
 
 ```
-  accounting coverage     80/80       1.000   ok
+  accounting coverage     84/84       1.000   ok
   expectation mismatches  0                   ok
   trap violations         0                   ok
   census mismatches       0                   ok
@@ -78,34 +78,25 @@
 ### traps-interop — Formats other tools depend on, and text the licence forbids rewriting
 
 ```
-  9/9 accounted   25 site(s)   5 tracked path(s)
-  G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
+  11/11 accounted   25 site(s)   5 tracked path(s)
+  G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 fail  G7 pass
 ```
 
   Known gaps, gated by nothing:
-  - `'Content-Type'`, `'Accept-Language'` and `'XMLHttpRequest'` come back needs-judgment/ambiguous-role rather than as the API contract they are. Refused, so nothing breaks — but by a generic hesitation rather than by recognising an HTTP header, so a longer header name in the same object would read as copy.
-  - `'fr-FR'` lands on needs-judgment/ambiguous-role. It is a locale marker in a header map, which is the one thing in this file that SHOULD be retargeted rather than left alone; the engine sees neither.
+  - `'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four.
 
 ### traps-persistence — Values that leave the process: translating one corrupts data, and no gate would catch it
 
 ```
-  14/14 accounted   45 site(s)   4 tracked path(s)
+  15/15 accounted   45 site(s)   4 tracked path(s)
   G1 pass  G2 pass  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
-
-  Known gaps, gated by nothing:
-  - `'Synchronisation en cours'` comes back needs-judgment/no-rule while `'Réinitialisation demandée'`, its sibling in the same switch, comes back translate. Same position, same shape, two answers. Not asserted either way here: pinning the inconsistent pair would make it look decided.
-  - `'email'` and `'push'` — the Channel enum VALUES — land on needs-judgment/short-string rather than enum-member, so they are refused for the right outcome by the wrong reason. Only their brevity saves them; a longer enum value in the same position reads as copy.
 
 ### traps-test-fixtures — Strings that exist to be compared, not read: assertions, ARIA, class names, date patterns, keys
 
 ```
-  13/13 accounted   48 site(s)   6 tracked path(s)
+  14/14 accounted   48 site(s)   6 tracked path(s)
   G1 pass  G2 fail  G3 fail  G4 fail  G5 pass  G6 pass  G7 pass
 ```
-
-  Known gaps, gated by nothing:
-  - The values in `src/locales/fr/common.json` come back do-not-translate/already-target-language on a fr→en run. The bundle is in the SOURCE language, so under `swap` it is exactly what should be rewritten; the reason given is the opposite of the situation. Asserted only as accounted-for here, because pinning the verdict would pin the confusion.
-  - `'Enregistrement en cours'` lands on needs-judgment/no-rule while its ternary sibling `'Toutes les modifications sont enregistrées'` comes back translate. Same expression, two answers — the same inconsistency traps-persistence records in a switch.
 
 Every floor held.

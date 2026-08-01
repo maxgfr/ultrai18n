@@ -102,6 +102,17 @@ export type DoNotTranslateReason =
   | 'code-token'
   | 'numeric-or-symbolic'
   | 'already-target-language'
+  /**
+   * A locale bundle written in the SOURCE language.
+   *
+   * Not the same thing as `already-target-language`, and reporting it as one
+   * inverted the situation: `locales/fr/common.json` on a fr→en run is the
+   * source of truth, not a finished translation. It is left alone because a
+   * bundle's locale is its PATH — the target gets `locales/en/`, which is
+   * `sync`'s job — and rewriting it in place would delete the source text the
+   * other catalogs are diffed against.
+   */
+  | 'source-locale-bundle'
   | 'interpolation'
   | 'explicitly-marked'
   | 'proper-noun'

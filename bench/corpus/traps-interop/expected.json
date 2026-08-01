@@ -12,7 +12,7 @@
     "G3": "fail",
     "G4": "fail",
     "G5": "pass",
-    "G6": "pass",
+    "G6": "fail",
     "G7": "pass"
   },
   "census": [
@@ -113,10 +113,31 @@
       "file": "src/http.ts",
       "find": "'application/json'",
       "expect": {
-        "verdict": "do-not-translate"
+        "verdict": "do-not-translate",
+        "reason": "interop-format"
       },
       "mustNotClaim": true,
-      "why": "Negotiated with a server. The header NAME beside it is equally untouchable, and equally English-looking."
+      "why": "Negotiated with a server. `interop-format` rather than `url-or-slug`: the reason is the claim, and the claim is that another program parses this."
+    },
+    {
+      "id": "http.header-name",
+      "file": "src/http.ts",
+      "find": "'Content-Type':",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "identifier"
+      },
+      "mustNotClaim": true,
+      "why": "A quoted object key, and therefore an identifier — decided by position, not by a list of known header names. It used to reach the language detector and come back `ambiguous-role`, because the key test compared tree-sitter node references instead of node ids and every quoted key in every TypeScript file was silently unflagged. A key that happens to read like prose was one confidence point away from being rewritten."
+    },
+    {
+      "id": "http.locale-marker",
+      "file": "src/http.ts",
+      "find": "'fr-FR'",
+      "expect": {
+        "verdict": "locale-marker"
+      },
+      "why": "The one value in this file that must CHANGE, and the only one. Not translated — retargeted: `fr-FR` in a build shipping English is a live bug, and G6 now reports it as `locale-drift` rather than leaving it in the refusal pile. Only the source language's own tag is retargeted; a `de-DE` in a list of supported locales is protected instead, because rewriting it would invent a change nobody asked for."
     },
     {
       "id": "http.column-names",
@@ -136,7 +157,6 @@
     }
   ],
   "knownGaps": [
-    "`'Content-Type'`, `'Accept-Language'` and `'XMLHttpRequest'` come back needs-judgment/ambiguous-role rather than as the API contract they are. Refused, so nothing breaks — but by a generic hesitation rather than by recognising an HTTP header, so a longer header name in the same object would read as copy.",
-    "`'fr-FR'` lands on needs-judgment/ambiguous-role. It is a locale marker in a header map, which is the one thing in this file that SHOULD be retargeted rather than left alone; the engine sees neither."
+    "`'XMLHttpRequest'` still lands on needs-judgment/ambiguous-role. Its two neighbours are now decided — the header names as identifiers, `fr-FR` as a locale marker — and this one is left because a lone capitalised token genuinely is ambiguous: nothing structural separates a protocol constant from a product name, and refusing is the right outcome. What changed is that it is now the ONLY refusal in the object rather than one of four."
   ]
 }

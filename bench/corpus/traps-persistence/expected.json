@@ -54,7 +54,11 @@
       "file": "src/protocol.ts",
       "find": "Email = 'email'",
       "mustNotClaim": true,
-      "why": "An enum's VALUE is the wire format; only its name is for people. The two sit one token apart and look alike."
+      "why": "An enum's VALUE is the wire format; only its name is for people. Pinned as `enum-member` rather than merely unclaimed: it used to land on `short-string`, which is the right outcome for the wrong reason — only its brevity saved it, and a member spelled `'invitation envoyée'` in the same position reads as copy and would be translated, invalidating every value already persisted under it.",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "enum-member"
+      }
     },
     {
       "id": "storage.key",
@@ -85,7 +89,11 @@
       "file": "src/protocol.ts",
       "find": "'application/vnd.atelier+json'",
       "mustNotClaim": true,
-      "why": "A media type. It is negotiated with a server that has never heard of French."
+      "why": "A media type this service defines and other services parse. Pinned as `interop-format` — the reason IS the claim, and the claim is that another program reads this. It used to come back `short-string`, because a `+` was missing from the slug separator class, so a structured suffix fell through to the language detector while a plain `application/json` in the neighbouring file was protected as a slug.",
+      "expect": {
+        "verdict": "do-not-translate",
+        "reason": "interop-format"
+      }
     },
     {
       "id": "gql.template",
@@ -153,10 +161,16 @@
       "find": "\"^3.23.8\"",
       "mustNotClaim": true,
       "why": "A dependency range, one line from a field that must be translated. The companion matchers in the same rule are what keep them apart."
+    },
+    {
+      "id": "switch.arm-copy",
+      "file": "src/protocol.ts",
+      "find": "'Synchronisation en cours'",
+      "expect": {
+        "verdict": "translate"
+      },
+      "why": "Copy, and its sibling arm `'Réinitialisation demandée'` is copy too. It used to come back `needs-judgment/no-rule` while the sibling came back `translate` — same construct, same shape, two answers — because `Synchronisation` is a near cognate and scored below the detector's 0.7 floor. A refusal claims the engine could not tell; here it plainly could, because it told for the arm beside it. The site now carries the `branch-sibling` flag at medium confidence: inherited, not measured, and filterable so the pass itself can be reviewed."
     }
   ],
-  "knownGaps": [
-    "`'Synchronisation en cours'` comes back needs-judgment/no-rule while `'Réinitialisation demandée'`, its sibling in the same switch, comes back translate. Same position, same shape, two answers. Not asserted either way here: pinning the inconsistent pair would make it look decided.",
-    "`'email'` and `'push'` — the Channel enum VALUES — land on needs-judgment/short-string rather than enum-member, so they are refused for the right outcome by the wrong reason. Only their brevity saves them; a longer enum value in the same position reads as copy."
-  ]
+  "knownGaps": []
 }

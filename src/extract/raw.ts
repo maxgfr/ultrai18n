@@ -109,6 +109,19 @@ export interface Container {
    * this a `css` block reads as an ordinary translatable template literal.
    */
   tag?: string
+  /**
+   * The anchor of the nearest `switch` or ternary holding this literal.
+   *
+   * Two arms of one construct are one editorial decision. Left to itself the
+   * detector answers them independently, and on near-cognates like
+   * `Synchronisation` it answers one of them below its own confidence floor —
+   * so `'Synchronisation en cours'` came back `no-rule` while its sibling
+   * `'Réinitialisation demandée'` came back `translate`. This is the grouping
+   * key that lets the engine notice the pair, and it is deliberately the
+   * construct's identity rather than a path prefix: a path prefix would also
+   * group unrelated strings that merely share a function.
+   */
+  branchGroup?: string
 }
 
 /** Cross-reference indexes, built repo-wide before classification. */

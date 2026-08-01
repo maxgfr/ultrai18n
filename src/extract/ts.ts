@@ -444,7 +444,14 @@ function classifyStringContainer(node: Node): Container {
   // An object key. Not interesting in itself, but emitting it proves the
   // extractor LOOKED at this span rather than stopping — which is what makes
   // the census's claimRatio a real measurement.
-  if (parent.type === 'pair' && parent.child(0) === node) container.isKey = true
+  //
+  // Compared by id, never by reference: `child(0)` allocates a fresh wrapper
+  // every call, so `===` is false even for the node it just returned. The
+  // reference form silently left every quoted key in every TypeScript file
+  // unflagged, and the cascade then handed `'Content-Type'` to the language
+  // detector — where a key that happens to read like prose comes back
+  // `translate` and the object's contract is rewritten.
+  if (parent.type === 'pair' && parent.child(0)?.id === node.id) container.isKey = true
 
   if (parent.type === 'pair') {
     const obj = parent.parent
@@ -464,6 +471,20 @@ function classifyStringContainer(node: Node): Container {
     parent.type === 'union_type' ||
     node.parent?.parent?.type === 'union_type'
   ) {
+    container.enumMember = true
+  }
+
+  const branch = enclosingBranch(node)
+  if (branch) container.branchGroup = branch
+
+  // The value side of `enum Channel { Email = 'email' }`.
+  //
+  // A declared enum is not the `as const` case above: there is nothing to
+  // disambiguate, because the author wrote `enum`. Leaving it unflagged meant
+  // only brevity protected it — `'email'` survived as `short-string`, while a
+  // member spelled `'invitation envoyée'` reads as copy and gets translated,
+  // which invalidates every value already persisted under it.
+  if (parent.type === 'enum_assignment' && parent.child(0)?.id !== node.id) {
     container.enumMember = true
   }
 
@@ -570,6 +591,41 @@ function recordTokens(
  * would silently protect every `as const` label array — and would run before
  * the calendar-vocabulary check, which is exactly the case that needs it least.
  */
+/**
+ * A function boundary, for the branch walk.
+ *
+ * A callback written inside a `switch` arm is not another arm of that switch —
+ * `case 'a': return items.map(i => 'Label')` shares nothing editorially with
+ * `case 'b'`'s return value — so the walk stops rather than grouping them.
+ */
+const FUNCTION_LIKE = new Set([
+  'function_declaration',
+  'generator_function_declaration',
+  'function_expression',
+  'arrow_function',
+  'method_definition',
+])
+
+/**
+ * The nearest branching construct holding this literal, as an anchor.
+ *
+ * Bounded at the enclosing function or module so a `switch` five frames up in
+ * an unrelated outer scope never groups anything. Returns the construct's own
+ * anchor, which is stable across insertions for the same reason every other
+ * anchor is: it counts named siblings, never lines.
+ */
+function enclosingBranch(node: Node): string | undefined {
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (cur.type === 'switch_statement' || cur.type === 'ternary_expression') {
+      return anchorPath(cur)
+    }
+    if (FUNCTION_LIKE.has(cur.type) || cur.type === 'class_declaration' || cur.type === 'program') {
+      return undefined
+    }
+  }
+  return undefined
+}
+
 function inAsConstArray(node: Node): boolean {
   const array = node.parent
   if (!array || array.type !== 'array') return false
@@ -749,6 +805,36 @@ function pathSegment(node: Node, child: Node | null): string | null {
       return node.childForFieldName?.('name')?.text ?? null
     case 'export_statement':
       return node.text.startsWith('export default') ? 'default' : null
+    // `enum Channel { Email = 'email' }`. Without this both members anchor at
+    // `Channel` and collide into `Channel` + `Channel~2` — and a `~n` suffix is
+    // the documented last resort, not the normal way to address an enum.
+    case 'enum_assignment':
+      return node.childForFieldName?.('name')?.text ?? node.child(0)?.text ?? null
+    // The branching constructs, named rather than numbered.
+    //
+    // Every arm of a `switch` and both sides of a ternary used to collapse onto
+    // the anchor of the statement holding them: four strings, one path, three
+    // `~n` collisions. A collision is REPORTED as a defect, and these are not
+    // one — they are four addressable positions nobody had spelled out. The
+    // ordinal branch in `anchorPath` cannot do this, because it fires only when
+    // nothing below had a name, so a second anonymous container never gets one.
+    case 'switch_case':
+    case 'switch_default': {
+      const value = node.childForFieldName?.('value')
+      if (!value) return 'case[default]'
+      // The selector, not the body: `case 'sync':` is `case[sync]` whichever
+      // statements follow it.
+      if (child && child.id === value.id) return null
+      return `case[${value.type === 'string' ? decodeString(value).value : value.text}]`
+    }
+    case 'ternary_expression': {
+      if (!child) return null
+      const consequence = node.childForFieldName?.('consequence')
+      const alternative = node.childForFieldName?.('alternative')
+      if (consequence && child.id === consequence.id) return '?then'
+      if (alternative && child.id === alternative.id) return '?else'
+      return null
+    }
     case 'pair': {
       const key = node.child(0)
       if (!key) return null

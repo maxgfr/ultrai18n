@@ -33,7 +33,36 @@ const STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.(
 /** Template tags whose body is a wire-format document: field names, not copy. */
 const CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/
 const URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i
-const SLUG_SHAPE = /^[a-z0-9]+([:._\-/][a-z0-9]+)+$/
+/**
+ * A dotted, dashed or slashed lowercase token.
+ *
+ * `+` belongs in the separator class because a structured media-type suffix is
+ * written with one. Without it `application/json` read as a slug and
+ * `application/vnd.atelier+json` — the same thing in the same file — fell
+ * through twelve steps to the language detector and came back as a refusal.
+ */
+const SLUG_SHAPE = /^[a-z0-9]+([:._+\-/][a-z0-9]+)+$/
+/**
+ * An IANA media type: `application/json`, `text/csv; charset=utf-8`.
+ *
+ * Recognised as an interop format rather than as a slug, because the reason is
+ * the point — another program parses this, and `interop-format` is the label
+ * that says so. Matching the slug shape would give the right verdict for the
+ * wrong stated reason, which is the defect this replaces.
+ */
+const MEDIA_TYPE =
+  /^(application|audio|font|example|image|message|model|multipart|text|video)\/[a-z0-9][a-z0-9!#$&^_.+-]*(\s*;.*)?$/i
+/**
+ * A BCP-47 tag carrying a script or region: `fr-FR`, `zh-Hant`, `es-419`.
+ *
+ * The subtag is REQUIRED, and that is the whole safety of this pattern. A bare
+ * `[a-z]{2,3}` matches `nom`, `les`, `oui` and `the` as readily as it matches
+ * `fr`, so shape alone cannot tell a language code from a short word — and this
+ * is the one rule that decides whether a value gets REWRITTEN. A bare `lang:
+ * "fr"` is not lost by the narrowing: it lives in a manifest, and four catalog
+ * rules already claim it by pointer, which is evidence rather than shape.
+ */
+const LOCALE_TAG = /^([a-z]{2,3})(?=-)(?:-([A-Z][a-z]{3}))?(?:-([A-Z]{2}|\d{3}))?$/
 const ARIA_VOCAB = /^(aria-(live|current|pressed|sort|haspopup|autocomplete|relevant|orientation|expanded|hidden|checked|modal|busy|atomic|disabled|selected|multiline|readonly|required|invalid))$/
 const ARIA_TEXT = /^(aria-(label|description|roledescription|valuetext|placeholder|details))$/
 const TEXT_ATTRS = /^(alt|title|placeholder|label|summary|abbr|download|content|srcdoc)$/
@@ -235,12 +264,24 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   // 6 — catalog rules.
   const ruled = matches.find((m) => !m.emit.hard)
   if (ruled) {
-    // A locale bundle already in its own language is correct as it stands.
+    // A locale bundle answers to the locale its own PATH declares.
+    //
+    // The verdict here is right and stays: the TARGET locale's bundle is where
+    // translations are written, and every other bundle is left alone, because a
+    // bundle's locale is its path and rewriting `locales/fr/` in place would
+    // destroy the source the other catalogs are diffed against.
+    //
+    // What was wrong is what the engine SAID. One reason covered every bundle
+    // that was not the target's, so `locales/fr/common.json` on a fr→en run —
+    // the source of truth — was reported as `already-target-language`, which is
+    // the opposite of the situation and the one thing about it that is not so.
     if (fileLocale && fileLocale !== opts.to && ruled.emit.verdict === 'translate') {
       return {
         surface: ruled.emit.surface,
         verdict: 'do-not-translate',
-        reason: 'already-target-language',
+        // A third locale's bundle is data this run has no opinion about; the
+        // source's own bundle is the text everything else is measured against.
+        reason: fileLocale === opts.from ? 'source-locale-bundle' : 'code-token',
         confidence: 'high',
         rule: ruled.rule.id,
         skipDetection: true,
@@ -276,6 +317,14 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   }
   if (c.attrName && ARIA_VOCAB.test(c.attrName)) {
     return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'aria-vocabulary', confidence: 'high', skipDetection: true }
+  }
+  // A media type is a wire format another program parses, and saying that is
+  // the point. Matching it as a slug gave the right verdict for the wrong
+  // stated reason — and only for the plain ones: `application/json` read as a
+  // slug while `application/vnd.atelier+json`, the same thing in the same file,
+  // fell through to the language detector and came back as a refusal.
+  if (MEDIA_TYPE.test(value)) {
+    return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'interop-format', confidence: 'high', skipDetection: true }
   }
   if (URL_SHAPE.test(value) || (SLUG_SHAPE.test(value) && !value.includes(' '))) {
     return { surface: 'token.url-slug', verdict: 'do-not-translate', reason: 'url-or-slug', confidence: 'medium', skipDetection: true }
@@ -334,6 +383,26 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
   // the field letters into another language and break every date on the site.
   if (isCalendarSymbol(raw) || isDatePattern(value)) {
     return { surface: 'ui.string-literal', verdict: 'needs-judgment', reason: 'symbol-set', confidence: 'high' }
+  }
+
+  // 11b — a locale tag, which is RETARGETED rather than translated.
+  //
+  // `'fr-FR'` in an `Accept-Language` header on a fr→en swap is the one value
+  // in that file that genuinely has to change, and it used to read as
+  // `ambiguous-role` — refused, so nothing broke, but by a generic hesitation
+  // rather than by recognising what it is. Until now `locale-marker` was
+  // reachable only through four catalog rules on manifest files, so a tag
+  // sitting in ordinary code was invisible to the one verdict built for it.
+  //
+  // Only the SOURCE language's own tag is retargeted. A `'de-DE'` in a list of
+  // supported locales is data, and rewriting it would invent a change nobody
+  // asked for — so every other well-formed tag is protected instead.
+  const tag = LOCALE_TAG.exec(value)
+  if (tag && opts.from) {
+    if (tag[1] === opts.from) {
+      return { surface: 'locale.declaration', verdict: 'locale-marker', confidence: 'high', skipDetection: true }
+    }
+    return { surface: 'locale.declaration', verdict: 'do-not-translate', reason: 'code-token', confidence: 'medium', skipDetection: true }
   }
 
   const surface = surfaceFor(raw)
