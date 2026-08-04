@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { extractTs } from '../src/extract/ts'
+import { commentShape, extractTs } from '../src/extract/ts'
 import { prepareGrammars, parserForExt } from '../src/ast/parse'
 import { OffsetMap } from '../src/vendor/text'
 import type { RawSite } from '../src/extract/raw'
@@ -268,5 +268,46 @@ describe('token indexes', () => {
     expect(tokens.enums.has('done')).toBe(true)
     expect(tokens.compared.has('done')).toBe(true)
     expect(tokens.persisted.has('k:1')).toBe(true)
+  })
+})
+
+/**
+ * A blank line inside a JSDoc block is written as ` *`, without the trailing
+ * space of the ` * ` gutter — editors and formatters strip trailing
+ * whitespace. `commentShape` matched the gutter with `startsWith`, so those
+ * lines fell through to `l.trim()` and the asterisk became part of the body
+ * text. Applying a translation then wrote it back as ` * *`, once per blank
+ * line, across every documented file in the repository.
+ */
+describe('block comment gutters', () => {
+  it('treats a bare-asterisk line as a blank line, not as text', () => {
+    const shape = commentShape('/**\n * First paragraph.\n *\n * Second paragraph.\n */')
+
+    expect(shape.body).toBe('First paragraph.\n\nSecond paragraph.')
+    expect(shape.linePrefix).toBe(' * ')
+  })
+
+  it('round-trips a block with blank lines through its own shape', () => {
+    const raw = '/**\n * One.\n *\n * Two.\n */'
+    const shape = commentShape(raw)
+
+    const rebuilt =
+      shape.prefix +
+      shape.body
+        .split('\n')
+        .map((line, index) => (index === 0 ? line : shape.linePrefix + line))
+        .join('\n') +
+      shape.suffix
+
+    // Trailing whitespace on the blank line is the one difference a formatter
+    // would remove anyway; no stray asterisk may appear.
+    expect(rebuilt.replace(/[ \t]+$/gm, '')).toBe(raw)
+    expect(rebuilt).not.toContain('* *')
+  })
+
+  it('still keeps a line that genuinely starts with an asterisk', () => {
+    const shape = commentShape('/**\n * Note:\n * * a bullet\n */')
+
+    expect(shape.body).toBe('Note:\n* a bullet')
   })
 })
