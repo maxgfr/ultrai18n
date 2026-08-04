@@ -370,8 +370,18 @@ export function commentShape(raw: string): {
     // Multi-line: detect the ` * ` gutter from the second line, which is where
     // it is unambiguous.
     const gutter = /^(\s*\*+ ?)/.exec(lines[1] ?? '')?.[1] ?? ''
+    // A blank line inside a block is written without the gutter's trailing
+    // space — editors and formatters strip trailing whitespace — so ` *` does
+    // not start with ` * ` and would fall through to `l.trim()`, turning the
+    // asterisk itself into body text. Writing that back produces ` * *`.
+    const bareGutter = gutter.replace(/\s+$/, '')
     const body = lines
-      .map((l, i) => (i === 0 ? l.trim() : l.startsWith(gutter) ? l.slice(gutter.length) : l.trim()))
+      .map((l, i) => {
+        if (i === 0) return l.trim()
+        if (l.startsWith(gutter)) return l.slice(gutter.length)
+        if (bareGutter !== '' && l.trimEnd() === bareGutter) return ''
+        return l.trim()
+      })
       .join('\n')
       .replace(/^\n+|\n+$/g, '')
     return {
