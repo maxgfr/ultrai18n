@@ -20561,7 +20561,13 @@ function commentShape(raw) {
       };
     }
     const gutter = /^(\s*\*+ ?)/.exec(lines[1] ?? "")?.[1] ?? "";
-    const body2 = lines.map((l, i2) => i2 === 0 ? l.trim() : l.startsWith(gutter) ? l.slice(gutter.length) : l.trim()).join("\n").replace(/^\n+|\n+$/g, "");
+    const bareGutter = gutter.replace(/\s+$/, "");
+    const body2 = lines.map((l, i2) => {
+      if (i2 === 0) return l.trim();
+      if (l.startsWith(gutter)) return l.slice(gutter.length);
+      if (bareGutter !== "" && l.trimEnd() === bareGutter) return "";
+      return l.trim();
+    }).join("\n").replace(/^\n+|\n+$/g, "");
     return {
       prefix: openMatch[1] + "\n" + gutter,
       suffix: "\n" + gutter.replace(/\*+ ?$/, "") + "*/",
