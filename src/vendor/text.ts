@@ -1,4 +1,4 @@
-// Forked from `readText()` in @maxgfr/codeindex v2.22.1 (MIT) — ULTRAI18N
+// Forked from `readText()` in @maxgfr/codeindex v2.27.1 (MIT) — ULTRAI18N
 // delta #3. See ./README.md.
 //
 // Upstream's `readText()` returns "" for an unreadable file, a binary file and

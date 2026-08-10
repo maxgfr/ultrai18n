@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@maxgfr/codeindex':
-        specifier: 2.22.1
-        version: 2.22.1
+        specifier: 2.27.1
+        version: 2.27.1
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -336,8 +336,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maxgfr/codeindex@2.22.1':
-    resolution: {integrity: sha512-WstpbWc4FqPDZ0+WaVYJ0cdrAYVsVc1zLOem/8bMdMCuGcsKHTHpaIrmZEXeFnegjBVwRI5LNdpUKMWwB/1vzQ==}
+  '@maxgfr/codeindex@2.27.1':
+    resolution: {integrity: sha512-qd4KZF8arkUeUy1tq2UhEBQm8E9pH9VRo6g/ruui6wdY296o9C/2zwE+0Zdcilg77IgeJtM7jb84ecBA0HRqWg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1027,7 +1027,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@maxgfr/codeindex@2.22.1': {}
+  '@maxgfr/codeindex@2.27.1': {}
 
   '@rollup/rollup-android-arm-eabi@4.62.3':
     optional: true

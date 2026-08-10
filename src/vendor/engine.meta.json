@@ -1,7 +1,7 @@
 {
-  "tag": "v2.22.1",
-  "engineVersion": "2.22.1",
-  "syncedAt": "2026-08-10T15:44:35.608Z",
+  "tag": "v2.27.1",
+  "engineVersion": "2.27.1",
+  "syncedAt": "2026-08-10T15:45:45.323Z",
   "base": {
     "src/walk.ts": "5a4cc46298cc0e75a1ad1f09f18d0d5ab28331bec137433137dfc3b8937ed7d6",
     "src/ignore.ts": "383cd3f88abd6d5d0f17fc49bb2b6824f4f74c2d34aa1ba8b63e8d4372adcea9",
@@ -9,10 +9,10 @@
     "src/util.ts": "559416d3e3efb13765eeea17b0804250f022b6f3020788d595b19c4b138119f5"
   },
   "vendored": {
-    "glob.ts": "b9dc049bad84593c7ca0fe5dedc41812fa70bb042355fe3a5fb8a879a7f7c790",
-    "ignore.ts": "f723a8a0b4a984700233609acf5101d776c61da15043affba1b0d86b0e894848",
-    "text.ts": "e4b67e9b982f670af60082fcb797cfde864bc33a0ba0d7010b10c0629d22cb8f",
-    "util.ts": "d5bbc78f5ea0239ceaffd87d3d2627a28561a0ab692bb44616678b2f1dbc74c6",
-    "walk.ts": "d9a4972d46b94a37c6d8a394a0113e89cae62228399711492faecabe00cefa3b"
+    "glob.ts": "345ae09cc341754fc266d36ab00786fa9bb3c9af01263188ef5f39ef5e4528ee",
+    "ignore.ts": "91222c33e000bf6d1c827d01b604b8094aa0cc49816fa53f915f21e036d74bc4",
+    "text.ts": "a4661535a17a38d063f67bc6e6f8c897940548bbc3f1d54892ae85140db4aa0a",
+    "util.ts": "291996081c4afcb7ebf231339c19cce5113df58eee52914efac98437aec4b286",
+    "walk.ts": "59ce8dc7ed78dd6dddb0062bdba619226dc07aeb17355460466b05efc0a06c95"
   }
 }

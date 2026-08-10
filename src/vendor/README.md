@@ -1,7 +1,7 @@
 # Vendored from codeindex
 
 `walk.ts`, `ignore.ts`, `glob.ts`, `util.ts` and `text.ts` are forked from
-[`@maxgfr/codeindex`](https://github.com/maxgfr/codeindex) v2.22.1 (MIT, same author).
+[`@maxgfr/codeindex`](https://github.com/maxgfr/codeindex) v2.27.1 (MIT, same author).
 
 They are here rather than as a dependency because the shipped engine must be a single
 zero-dependency `.mjs` that runs with no install step.
