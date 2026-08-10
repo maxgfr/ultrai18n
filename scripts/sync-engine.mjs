@@ -19,6 +19,7 @@
 //   node scripts/sync-engine.mjs --ref v2.27.1   # re-pin to a release tag
 //   node scripts/sync-engine.mjs --check         # offline consistency gate (CI)
 //   node scripts/sync-engine.mjs --accept        # re-record a deliberate local edit
+//   node scripts/sync-engine.mjs --list          # what is pinned, for the workflow
 //
 // Running --ref against the tag ALREADY pinned is the audit: it re-fetches the
 // base and fails if upstream's bytes at that tag have changed under us.
@@ -50,7 +51,32 @@ const VENDORED = BASE.flatMap((b) => b.derived).sort()
 const STAMPED = [...VENDORED.map((f) => join('src', 'vendor', f)), join('src', 'vendor', 'README.md')]
 
 const PKG = '@maxgfr/codeindex'
+const REPO = 'maxgfr/codeindex'
 const SEMVER = /\bv(\d+\.\d+\.\d+)\b/g
+
+// The oldest codeindex release this repo's source is written against. Bump it in
+// the same commit that starts depending on something a newer release added.
+//
+// Why this exists, in the words of the sibling repos that had it first: --check
+// re-hashes the vendored bytes against the pin, so it catches a TAMPERED vendor
+// but not a STALE one. A repo pinned three releases back passes cleanly — and
+// because tsup INLINES the package into the shipped bundle, it then ships the
+// old behaviour with every test green, measuring the wrong code.
+const MIN_REF = 'v2.27.1'
+
+// Numeric per component: "v1.10.0" is NEWER than "v1.9.0", which a string
+// compare gets backwards, and backwards here silently disarms the gate at
+// exactly the release where it starts to matter.
+function cmpTag(a, b) {
+  const parts = (t) =>
+    String(t)
+      .replace(/^v/, '')
+      .split('.')
+      .map((n) => Number.parseInt(n, 10) || 0)
+  const [x, y] = [parts(a), parts(b)]
+  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]
+  return 0
+}
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex')
 const read = (abs) => readFileSync(abs, 'utf8')
@@ -63,10 +89,22 @@ const args = process.argv.slice(2)
 const mode = args[0]
 if (mode === '--check') check()
 else if (mode === '--accept') accept()
-else if (mode === '--ref') await repin()
+else if (mode === '--list') list()
+else if (mode === '--ref' || mode === '--engine') await repin()
 else {
-  process.stderr.write('usage: sync-engine.mjs --ref <tag> [--base-reviewed] | --check | --accept\n')
+  process.stderr.write('usage: sync-engine.mjs [--engine codeindex] --ref <tag> [--base-reviewed] | --check | --accept | --list\n')
   process.exit(2)
+}
+
+// ---------------------------------------------------------------------------
+// --list: `<name> <repo> <pinned-tag>`, one line per engine. The daily re-pin
+// workflow reads this instead of carrying its own copy of what is pinned where,
+// so the automation cannot drift from the thing it is watching. One line here,
+// several in the repos that vendor two engines — same contract either way.
+
+function list() {
+  const meta = readMeta({ optional: true })
+  process.stdout.write(`codeindex ${REPO} ${meta?.tag ?? '-'}\n`)
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +137,15 @@ function check() {
   //    repo is describing an upstream it is not using.
   if (meta.tag !== `v${meta.engineVersion}`) errors.push(`engine.meta.json: tag ${meta.tag} does not match engineVersion ${meta.engineVersion}`)
   for (const rel of STAMPED) errors.push(...stampErrors(rel, meta.engineVersion))
+
+  // 3. The pin is not older than what the source needs. A tampered vendor is
+  //    caught above by its hash; a stale one would sail through it.
+  if (cmpTag(meta.tag, MIN_REF) < 0) {
+    errors.push(
+      `STALE pin — vendored ${meta.tag}, but this repo's source needs at least ${MIN_REF}. ` +
+        `Run: node scripts/sync-engine.mjs --ref ${MIN_REF}   (or newer)`,
+    )
+  }
 
   const dep = JSON.parse(read(join(root, 'package.json'))).devDependencies?.[PKG]
   if (dep !== meta.engineVersion) {
@@ -146,7 +193,15 @@ function accept() {
 // --ref <tag>: fetch the fork base at a tag, gate it, and move the pin.
 
 async function repin() {
-  const ref = args[1]
+  // `--engine codeindex` is accepted and ignored: this repo vendors one engine,
+  // but the fleet's re-pin workflow passes the name it read from --list, and a
+  // script that rejected it would be a script the shared workflow cannot drive.
+  const engineIdx = args.indexOf('--engine')
+  if (engineIdx !== -1 && args[engineIdx + 1] !== 'codeindex') {
+    fail(`unknown engine "${args[engineIdx + 1] ?? ''}" — this repo vendors codeindex only`)
+  }
+  const refIdx = args.indexOf('--ref')
+  const ref = refIdx === -1 ? undefined : args[refIdx + 1]
   if (!ref || !/^v\d+\.\d+\.\d+$/.test(ref)) fail(`--ref expects a release tag like v2.27.1, got ${JSON.stringify(ref)}`)
   const version = ref.slice(1)
   const baseReviewed = args.includes('--base-reviewed')
@@ -194,7 +249,7 @@ async function repin() {
 }
 
 async function fetchUpstream(ref, remote) {
-  const url = `https://raw.githubusercontent.com/maxgfr/codeindex/${ref}/${remote}`
+  const url = `https://raw.githubusercontent.com/${REPO}/${ref}/${remote}`
   const res = await fetch(url)
   if (!res.ok) fail(`${url} -> HTTP ${res.status}`)
   return Buffer.from(await res.arrayBuffer())
