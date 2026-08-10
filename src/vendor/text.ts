@@ -1,4 +1,5 @@
-// ULTRAI18N delta #3 — see ./README.md.
+// Forked from `readText()` in @maxgfr/codeindex v2.22.1 (MIT) — ULTRAI18N
+// delta #3. See ./README.md.
 //
 // Upstream's `readText()` returns "" for an unreadable file, a binary file and
 // a genuinely empty file alike. The census has to tell those apart: "scanned,

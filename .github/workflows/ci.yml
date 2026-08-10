@@ -22,6 +22,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+
+      # src/vendor/ is a FORK of four codeindex sources, and the package it was
+      # forked from is inlined into the shipped bundle. One pin covers both, and
+      # this is where a fork edited without being recorded, a stale version stamp
+      # or a caret creeping back onto the dependency stops.
+      - name: The codeindex pin holds
+        run: pnpm check:engine
+
       - run: pnpm typecheck
       - run: pnpm build
 

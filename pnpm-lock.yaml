@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@maxgfr/codeindex':
-        specifier: ^2.22.1
+        specifier: 2.22.1
         version: 2.22.1
       '@types/node':
         specifier: ^22.10.2
