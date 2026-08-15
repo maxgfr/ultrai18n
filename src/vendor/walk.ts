@@ -1,4 +1,4 @@
-// Vendored from @maxgfr/codeindex v2.27.1 (MIT), with four marked divergences.
+// Vendored from @maxgfr/codeindex v2.28.0 (MIT), with four marked divergences.
 // See ./README.md.
 import { readdirSync, statSync, lstatSync, readFileSync, realpathSync, type Dirent } from 'node:fs'
 import { join, relative, sep, extname } from 'node:path'
