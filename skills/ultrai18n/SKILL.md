@@ -1,6 +1,6 @@
 ---
 name: ultrai18n
-description: "Use when a repository's LANGUAGE must change and the result has to be provable, not hoped for — a full source-language swap, an i18n extraction, a locale-catalog sync, or a read-only audit. Triggers: 'translate this repo', 'change the language of the project', 'switch from French to English', 'find all hardcoded strings', 'extract strings to i18n', 'which locale keys are missing', 'did we miss any text', 'audit this repo for untranslated strings', 'translate my .po files', 'is my Russian catalog missing plural forms'. Asking an AI to 'translate this repo' silently misses package.json descriptions, manifests inlined in a bundler config, issue templates, release notes nested in workflow YAML, and screenshots; it also translates persisted enum values and breaks every user's stored data. ultrai18n is a deterministic zero-dep engine (node scripts/ultrai18n.mjs, no keys) that inventories every text site with byte offsets, classifies it against a documented surface catalog, and gates the result: check REFUSES to pass while any site is unclassified, unadjudicated, or still in the source language. The engine decides the token/identifier surfaces; YOU adjudicate the calls it refuses — a text that is both a rendered label and a persisted enum is reported, never guessed. Models only ever receive {id: text} and return {id: translation}, and the engine writes by byte offset, so translating costs the text and not the codebase. Not a translation API and not a linter: for prose you already have, translate it yourself."
+description: "Use when a repository's language must change and the result must be provable: translate a repo, switch its source language, extract hardcoded strings to i18n, synchronize locale catalogs, find missing keys or plural forms, translate PO files, or audit for untranslated text. The install-free engine inventories text sites with byte offsets, distinguishes rendered copy from identifiers and persisted values, and refuses to pass while sites remain unclassified, unadjudicated, or in the source language. The agent adjudicates ambiguous sites; translation models receive only id-to-text batches. Not for translating standalone prose."
 license: MIT
 metadata:
   version: 0.0.0
@@ -262,8 +262,8 @@ provider row carries all three, so pointing at an OpenAI-compatible gateway is o
 
 Backends: `--translator '<command>'` (batch JSON on stdin, result JSON on stdout — ollama, a Python
 script, anything), `--backend api` (direct HTTP on `fetch`, key from the environment), and
-`--backend manual`. `--backend subagent` writes the batches and the agent contract and hands over,
-because the engine cannot spawn a Claude Code agent and will not pretend to.
+`--backend manual`. `--backend subagent` writes the batches and the agent contract for the host's
+native subagent capability (including Codex or Claude Code); the engine itself never pretends it can spawn an agent.
 
 Paths are a surface too: a filename written in the source language is found, its referrers are
 resolved, and it is **reported rather than renamed** — a rename that misses one referrer is a broken
