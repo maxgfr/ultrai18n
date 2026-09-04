@@ -96,6 +96,79 @@ describe('walk', () => {
   })
 })
 
+// Two behaviours adopted wholesale from upstream at the v2.28.4 re-pin. They
+// change WHICH paths the walk reports, so they are pinned here rather than
+// trusted to the upstream tests, which assert them against a different return
+// shape (an `excluded` counter, not named skips).
+describe('repository boundaries', () => {
+  let nested: string
+
+  beforeAll(() => {
+    nested = mkdtempSync(join(tmpdir(), 'ultrai18n-nested-'))
+    spawnSync('git', ['init', '-q'], { cwd: nested })
+    writeFileSync(join(nested, 'own.ts'), 'export const own = 1\n')
+
+    // A vendored clone (a `.git` DIRECTORY).
+    mkdirSync(join(nested, 'vendored/.git'), { recursive: true })
+    writeFileSync(join(nested, 'vendored/copy.ts'), 'export const dup = 1\n')
+
+    // A linked worktree or submodule (a `.git` FILE holding a gitdir pointer).
+    mkdirSync(join(nested, 'linked'), { recursive: true })
+    writeFileSync(join(nested, 'linked/.git'), 'gitdir: ../.git/worktrees/linked\n')
+    writeFileSync(join(nested, 'linked/copy.ts'), 'export const dup = 2\n')
+
+    // A directory that merely CARRIES the name — not a repository marker, so
+    // the walk must go on reading it.
+    mkdirSync(join(nested, 'notrepo'), { recursive: true })
+    writeFileSync(join(nested, 'notrepo/.git'), 'this is not a gitfile\n')
+    writeFileSync(join(nested, 'notrepo/real.ts'), 'export const real = 1\n')
+
+    writeFileSync(join(nested, '.git/info/exclude'), 'locally-excluded.ts\n')
+    writeFileSync(join(nested, 'locally-excluded.ts'), 'export const x = 1\n')
+  })
+
+  afterAll(() => rmSync(nested, { recursive: true, force: true }))
+
+  it('stops at a nested repository and names the boundary', () => {
+    // Walking one indexes another repo's sources under this repo's paths: a
+    // checkout with four linked worktrees used to report five copies of itself.
+    const { files, skippedDirs } = walk(nested)
+    const rels = files.map((f) => f.rel)
+    expect(rels).not.toContain('vendored/copy.ts')
+    expect(rels).not.toContain('linked/copy.ts')
+
+    // In skippedDirs, not skipped: a submodule is tracked as a gitlink at the
+    // DIRECTORY's own path, and the census attributes it — and anything under
+    // it — through that directory.
+    const byRel = Object.fromEntries(skippedDirs.map((d) => [d.rel, d.reason]))
+    expect(byRel.vendored).toBe('nested-repo')
+    expect(byRel.linked).toBe('nested-repo')
+  })
+
+  it('keeps reading a directory whose `.git` is not a repository marker', () => {
+    // The boundary triggers on a VALID marker, never on the name alone: a
+    // truncated write or an unrelated file called `.git` would otherwise drop a
+    // whole subtree from the census with nothing to show for it.
+    const rels = relsOf(walk(nested))
+    expect(rels).toContain('notrepo/real.ts')
+    expect(rels).not.toContain('notrepo/.git')
+  })
+
+  it('honours .git/info/exclude, which git honours and .gitignore does not carry', () => {
+    // The census denominator is `git ls-files`, so an ignore file git obeys and
+    // this walk did not made a path present-but-unread for a reason that does
+    // not exist.
+    const { files, skipped } = walk(nested)
+    expect(files.map((f) => f.rel)).not.toContain('locally-excluded.ts')
+    expect(skipped.find((s) => s.rel === 'locally-excluded.ts')?.reason).toBe('gitignored')
+  })
+
+  it('never lists the root repository own .git entry', () => {
+    const rels = relsOf(walk(nested))
+    expect(rels.some((r) => r === '.git' || r.startsWith('.git/'))).toBe(false)
+  })
+})
+
 describe('gitignore parity with git check-ignore', () => {
   // The recall claim rests on the walker not silently dropping files, so the
   // ignore semantics are tested against git itself rather than against our

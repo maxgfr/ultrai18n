@@ -1,7 +1,7 @@
 # Vendored from codeindex
 
 `walk.ts`, `ignore.ts`, `glob.ts`, `util.ts` and `text.ts` are forked from
-[`@maxgfr/codeindex`](https://github.com/maxgfr/codeindex) v2.28.0 (MIT, same author).
+[`@maxgfr/codeindex`](https://github.com/maxgfr/codeindex) v2.28.4 (MIT, same author).
 
 They are here rather than as a dependency because the shipped engine must be a single
 zero-dependency `.mjs` that runs with no install step.
@@ -16,10 +16,19 @@ Four additive changes. Each is marked `// ULTRAI18N:` at its site.
 
 1. **`.svg` removed from `BINARY_EXT`.** SVG is text and carries `<title>`, `<desc>` and `<text>`.
    Upstream skips it because it holds no code symbols; here it holds user-visible copy.
-2. **`walk()` returns `skipped: {rel, reason}[]`** instead of an anonymous `excluded` counter. The
-   census has to account for every tracked path by name and reason; a number cannot be audited.
+2. **`walk()` returns `skipped: {rel, reason}[]`** and `skippedDirs` instead of an anonymous
+   `excluded` counter. The census has to account for every tracked path by name and reason; a
+   number cannot be audited. Upstream's nested-repository boundary — a subdirectory carrying its
+   own `.git` is not descended into — lands here as `skippedDirs: 'nested-repo'`
+   rather than as `excluded++`, and in `skippedDirs` rather than `skipped` because a submodule is
+   tracked as a gitlink at the *directory's* own path, and files under a vendored clone are
+   attributed through the directory too.
 3. **`readTextEx()`** alongside `readText()`. Upstream returns `""` for an empty file *and* for a
    binary one; the census must distinguish "scanned, no text found" from "could not be read".
+   Lifting `readText()` out of `walk.ts` into `text.ts` leaves `walk.ts` without it, so the local
+   `readGitignore()` stands in at upstream's two call sites — the per-directory `.gitignore` and
+   `.git/info/exclude`. Both are UTF-8 by definition, and the full decoder would pull a cycle
+   between the two files.
 4. **Census walk mode** (`includeLockfiles`, `includeBinary`, `includeOversize`). Upstream drops
    these silently; the census must list them so a human can see what was not read.
 

@@ -1,4 +1,4 @@
-// Vendored from @maxgfr/codeindex v2.28.0 (MIT), unmodified. See ./README.md.
+// Vendored from @maxgfr/codeindex v2.28.4 (MIT), unmodified. See ./README.md.
 import { escapeRegExp } from './util'
 
 // Minimal glob → RegExp for --include/--exclude. Supports `**` (any path,

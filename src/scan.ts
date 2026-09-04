@@ -1000,7 +1000,11 @@ function buildCensus(
     const result = byFile.get(rel)
     if (!result) {
       const skipped = walked.skipped.find((s) => s.rel === rel)
-      const dir = walked.skippedDirs.find((d) => rel.startsWith(d.rel + '/'))
+      // `rel === d.rel` and not only what sits under it: a submodule is tracked
+      // as a gitlink at the DIRECTORY's own path, so the nested-repo boundary
+      // the walk stops at is itself a tracked path. runCensus already spells it
+      // this way; without it here a submodule reports `unaccounted`.
+      const dir = walked.skippedDirs.find((d) => rel === d.rel || rel.startsWith(d.rel + '/'))
       entries.push({
         file: rel,
         bucket: 'skipped',

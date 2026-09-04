@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync9, writeFileSync as writeFileSync10 } from "fs";
-import { join as join39, resolve as resolve5 } from "path";
+import { join as join38, resolve as resolve6 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -12,8 +12,15 @@ import { spawnSync } from "child_process";
 import { join as join2 } from "path";
 
 // src/vendor/walk.ts
-import { readdirSync, statSync, lstatSync, readFileSync, realpathSync } from "fs";
-import { join, relative, sep, extname } from "path";
+import {
+  readdirSync,
+  statSync,
+  lstatSync,
+  readFileSync,
+  realpathSync,
+  existsSync
+} from "fs";
+import { join, relative, resolve, sep, extname } from "path";
 
 // src/vendor/util.ts
 function escapeRegExp(s) {
@@ -149,6 +156,41 @@ var IGNORE_DIRS = /* @__PURE__ */ new Set([
   "elm-stuff",
   ".dart_tool"
 ]);
+var GIT_ENTRY = ".git";
+function isIgnoredDirectory(name2, ignoreDirs) {
+  return name2 === GIT_ENTRY || ignoreDirs.has(name2) || name2.startsWith(".codeindex-edit-");
+}
+var GITFILE_PREFIX = "gitdir: ";
+var MAX_GITFILE_BYTES = 4096;
+function gitDirOf(dir, entries) {
+  const marker = entries.find((e) => e.name === GIT_ENTRY);
+  if (!marker) return void 0;
+  const path = join(dir, GIT_ENTRY);
+  try {
+    if (marker.isDirectory()) return path;
+    const st = statSync(path);
+    if (st.isDirectory()) return path;
+    if (!st.isFile() || st.size > MAX_GITFILE_BYTES) return void 0;
+    const content = readFileSync(path, "utf8");
+    if (!content.startsWith(GITFILE_PREFIX)) return void 0;
+    const target = content.slice(GITFILE_PREFIX.length).replace(/[\r\n]+$/, "");
+    if (!target) return void 0;
+    const gitDir = resolve(dir, target);
+    const common = join(gitDir, "commondir");
+    return existsSync(common) ? resolve(gitDir, readFileSync(common, "utf8").trim()) : gitDir;
+  } catch {
+    return void 0;
+  }
+}
+function readInfoExclude(gitDir) {
+  if (!gitDir) return "";
+  try {
+    const exclude = join(gitDir, "info", "exclude");
+    return existsSync(exclude) ? readGitignore(exclude) : "";
+  } catch {
+    return "";
+  }
+}
 var LOCKFILES = /* @__PURE__ */ new Set([
   "package-lock.json",
   "npm-shrinkwrap.json",
@@ -282,7 +324,16 @@ function walk(root, opts = {}) {
     } catch {
       continue;
     }
+    const gitDir = entries.some((e) => e.name === GIT_ENTRY) ? gitDirOf(frame.dir, entries) : void 0;
+    if (frame.rel && gitDir) {
+      skippedDirs.push({ rel: frame.rel, reason: "nested-repo" });
+      continue;
+    }
     let rules = frame.rules;
+    if (useGitignore && !frame.rel) {
+      const parsed = parseGitignore(readInfoExclude(gitDir), "");
+      if (parsed.length) rules = [...rules, ...parsed];
+    }
     if (useGitignore && entries.some((e) => e.name === ".gitignore")) {
       const parsed = parseGitignore(readGitignore(join(frame.dir, ".gitignore")), frame.rel);
       if (parsed.length) rules = [...rules, ...parsed];
@@ -292,7 +343,8 @@ function walk(root, opts = {}) {
       const abs = join(frame.dir, name2);
       const rel2 = frame.rel ? `${frame.rel}/${name2}` : name2;
       const isLink = entry.isSymbolicLink();
-      if (entry.isDirectory() && ignoreDirs.has(name2)) {
+      if (name2 === GIT_ENTRY) continue;
+      if (entry.isDirectory() && isIgnoredDirectory(name2, ignoreDirs)) {
         skippedDirs.push({ rel: rel2, reason: "ignore-dir" });
         continue;
       }
@@ -304,7 +356,7 @@ function walk(root, opts = {}) {
         continue;
       }
       if (st.isDirectory()) {
-        if (ignoreDirs.has(name2)) {
+        if (isIgnoredDirectory(name2, ignoreDirs)) {
           skippedDirs.push({ rel: rel2, reason: "ignore-dir" });
           continue;
         }
@@ -619,8 +671,8 @@ function formatCensus(r, root) {
 }
 
 // src/scan.ts
-import { existsSync as existsSync14, readFileSync as readFileSync17 } from "fs";
-import { join as join27 } from "path";
+import { existsSync as existsSync15, readFileSync as readFileSync17 } from "fs";
+import { join as join26 } from "path";
 
 // src/extract/raw.ts
 function lineBytes(map, text, start2, length) {
@@ -636,8 +688,8 @@ function addToken(index2, value, site3) {
 }
 
 // src/ast/parse.ts
-import { existsSync as existsSync11 } from "fs";
-import { dirname as dirname5, join as join24 } from "path";
+import { existsSync as existsSync12 } from "fs";
+import { dirname as dirname6, join as join23 } from "path";
 import { fileURLToPath as fileURLToPath3 } from "url";
 
 // node_modules/.pnpm/web-tree-sitter@0.26.11/node_modules/web-tree-sitter/web-tree-sitter.js
@@ -2214,13 +2266,13 @@ async function Module2(moduleArg = {}) {
       }
       readAsync = /* @__PURE__ */ __name(async (url) => {
         if (isFileURI(url)) {
-          return new Promise((resolve6, reject) => {
+          return new Promise((resolve7, reject) => {
             var xhr = new XMLHttpRequest();
             xhr.open("GET", url, true);
             xhr.responseType = "arraybuffer";
             xhr.onload = () => {
               if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                resolve6(xhr.response);
+                resolve7(xhr.response);
                 return;
               }
               reject(xhr.status);
@@ -2416,9 +2468,9 @@ async function Module2(moduleArg = {}) {
     __name(receiveInstantiationResult, "receiveInstantiationResult");
     var info2 = getWasmImports();
     if (Module["instantiateWasm"]) {
-      return new Promise((resolve6, reject) => {
+      return new Promise((resolve7, reject) => {
         Module["instantiateWasm"](info2, (mod, inst) => {
-          resolve6(receiveInstance(mod, inst));
+          resolve7(receiveInstance(mod, inst));
         });
       });
     }
@@ -3749,8 +3801,8 @@ async function Module2(moduleArg = {}) {
   if (runtimeInitialized) {
     moduleRtn = Module;
   } else {
-    moduleRtn = new Promise((resolve6, reject) => {
-      readyPromiseResolve = resolve6;
+    moduleRtn = new Promise((resolve7, reject) => {
+      readyPromiseResolve = resolve7;
       readyPromiseReject = reject;
     });
   }
@@ -4611,68 +4663,72 @@ var Query = class {
   }
 };
 
-// node_modules/.pnpm/@maxgfr+codeindex@2.28.0/node_modules/@maxgfr/codeindex/scripts/engine.mjs
+// node_modules/.pnpm/@maxgfr+codeindex@2.28.4/node_modules/@maxgfr/codeindex/scripts/engine.mjs
 import { spawnSync as spawnSync2 } from "child_process";
-import { readdirSync as readdirSync2, statSync as statSync2, lstatSync as lstatSync2, readFileSync as readFileSync3, realpathSync as realpathSync2 } from "fs";
-import { join as join3, sep as sep2, extname as extname2 } from "path";
+import { readdirSync as readdirSync2, statSync as statSync2, lstatSync as lstatSync2, readFileSync as readFileSync3, realpathSync as realpathSync2, existsSync as existsSync2 } from "fs";
+import { join as join3, resolve as resolve2, sep as sep2, extname as extname2 } from "path";
 import { createHash } from "crypto";
-import { readFileSync as readFileSync22, existsSync } from "fs";
+import { readFileSync as readFileSync22, existsSync as existsSync22, statSync as statSync22 } from "fs";
 import { homedir } from "os";
 import { dirname, join as join22 } from "path";
 import { fileURLToPath } from "url";
 import { basename } from "path";
+import { existsSync as existsSync3, statSync as statSync3 } from "fs";
+import * as os from "os";
+import { dirname as dirname2, join as join32 } from "path";
+import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
+import { Worker } from "worker_threads";
 import { readFileSync as readFileSync32 } from "fs";
-import { join as join32 } from "path";
+import { join as join4 } from "path";
 import { posix } from "path";
 import { join as join7 } from "path";
 import { posix as posix2 } from "path";
 import { join as join8 } from "path";
 import { join as join9 } from "path";
 import { join as join10 } from "path";
-import { join as join11 } from "path";
-import { readFileSync as readFileSync6, writeFileSync as writeFileSync2 } from "fs";
-import { join as join12 } from "path";
-import { mkdirSync as mkdirSync2, readdirSync as readdirSync22, readFileSync as readFileSync7, rmSync as rmSync2, statSync as statSync3, writeFileSync as writeFileSync3 } from "fs";
-import { dirname as dirname4, join as join13 } from "path";
-import { existsSync as existsSync5, readdirSync as readdirSync3, statSync as statSync4 } from "fs";
-import { join as join14 } from "path";
+import { chmodSync, mkdtempSync as mkdtempSync2, readFileSync as readFileSync6, realpathSync as realpathSync22, renameSync as renameSync2, rmSync as rmSync2, statSync as statSync4, writeFileSync as writeFileSync2 } from "fs";
+import { basename as basename3, dirname as dirname4, join as join11 } from "path";
+import { mkdirSync as mkdirSync2, readdirSync as readdirSync22, readFileSync as readFileSync7, rmSync as rmSync3, statSync as statSync5, writeFileSync as writeFileSync3 } from "fs";
+import { dirname as dirname5, join as join12 } from "path";
+import { existsSync as existsSync6, readdirSync as readdirSync3, statSync as statSync6 } from "fs";
+import { join as join13 } from "path";
 import { createHash as createHash3 } from "crypto";
-import { existsSync as existsSync6, readFileSync as readFileSync8 } from "fs";
-import { join as join16 } from "path";
-import { existsSync as existsSync7, readFileSync as readFileSync9 } from "fs";
-import { join as join17, resolve as resolve2 } from "path";
-import { existsSync as existsSync8, readFileSync as readFileSync10 } from "fs";
-import { join as join18, resolve as resolve3 } from "path";
+import { existsSync as existsSync7, readFileSync as readFileSync8 } from "fs";
+import { join as join15 } from "path";
+import { existsSync as existsSync8, readFileSync as readFileSync9 } from "fs";
+import { join as join16, resolve as resolve3 } from "path";
+import { existsSync as existsSync9, readFileSync as readFileSync10 } from "fs";
+import { join as join17, resolve as resolve4 } from "path";
 import { readFileSync as readFileSync11 } from "fs";
-import { join as join19 } from "path";
+import { join as join18 } from "path";
 import { spawn } from "child_process";
-import { existsSync as existsSync9 } from "fs";
-import { join as join20 } from "path";
+import { existsSync as existsSync10 } from "fs";
+import { join as join19 } from "path";
 import { pathToFileURL as pathToFileURL2 } from "url";
-import { statSync as statSync5 } from "fs";
-import { join as join21 } from "path";
-import { readFileSync as readFileSync12 } from "fs";
-import { isAbsolute, join as join222 } from "path";
+import { statSync as statSync7 } from "fs";
+import { join as join20 } from "path";
+import { readFileSync as readFileSync12, statSync as statSync8, watch as watchFs } from "fs";
+import { isAbsolute, join as join21 } from "path";
 import { createInterface } from "readline";
-import { existsSync as existsSync2, statSync as statSync22 } from "fs";
-import { availableParallelism } from "os";
-import { dirname as dirname2, join as join4 } from "path";
-import { fileURLToPath as fileURLToPath2, pathToFileURL } from "url";
-import { Worker } from "worker_threads";
 import { basename as basename2 } from "path";
-import { existsSync as existsSync3, readFileSync as readFileSync4 } from "fs";
+import { existsSync as existsSync4, readFileSync as readFileSync4 } from "fs";
 import { join as join5 } from "path";
 import { createHash as createHash2 } from "crypto";
-import { existsSync as existsSync4, mkdirSync, mkdtempSync, readFileSync as readFileSync5, renameSync, rmSync, writeFileSync } from "fs";
-import { dirname as dirname3, join as join6, resolve, sep as sep22 } from "path";
+import { existsSync as existsSync5, mkdirSync, mkdtempSync, readFileSync as readFileSync5, renameSync, rmSync, writeFileSync } from "fs";
+import { dirname as dirname3, join as join6, resolve as resolve22, sep as sep22 } from "path";
 import { gunzipSync } from "zlib";
-import { join as join15 } from "path";
-import { existsSync as existsSync10, mkdirSync as mkdirSync3, readFileSync as readFileSync13, writeFileSync as writeFileSync4 } from "fs";
-import { join as join23, resolve as resolve4 } from "path";
+import { join as join14 } from "path";
+import { existsSync as existsSync11, mkdirSync as mkdirSync3, readFileSync as readFileSync13, statSync as statSync9, writeFileSync as writeFileSync4 } from "fs";
+import { join as join222, resolve as resolve5 } from "path";
 var __defProp2 = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res, err2) => function __init() {
+  if (err2) throw err2[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err2 = [e], e;
+  }
 };
 var __export = (target, all) => {
   for (var name2 in all)
@@ -4684,9 +4740,9 @@ var EXTRACTOR_VERSION;
 var init_types = __esm({
   "src/types.ts"() {
     "use strict";
-    ENGINE_VERSION = "2.28.0";
+    ENGINE_VERSION = "2.28.4";
     SCHEMA_VERSION = 5;
-    EXTRACTOR_VERSION = 13;
+    EXTRACTOR_VERSION = 14;
   }
 });
 function sh(cmd, args2, opts = {}) {
@@ -5012,6 +5068,38 @@ var init_ignore = __esm({
     init_util();
   }
 });
+function isIgnoredDirectory2(name2, ignoreDirs) {
+  return name2 === GIT_ENTRY2 || ignoreDirs.has(name2) || name2.startsWith(".codeindex-edit-");
+}
+function gitDirOf2(dir, entries) {
+  const marker = entries.find((e) => e.name === GIT_ENTRY2);
+  if (!marker) return void 0;
+  const path = join3(dir, GIT_ENTRY2);
+  try {
+    if (marker.isDirectory()) return path;
+    const st = statSync2(path);
+    if (st.isDirectory()) return path;
+    if (!st.isFile() || st.size > MAX_GITFILE_BYTES2) return void 0;
+    const content = readFileSync3(path, "utf8");
+    if (!content.startsWith(GITFILE_PREFIX2)) return void 0;
+    const target = content.slice(GITFILE_PREFIX2.length).replace(/[\r\n]+$/, "");
+    if (!target) return void 0;
+    const gitDir = resolve2(dir, target);
+    const common = join3(gitDir, "commondir");
+    return existsSync2(common) ? resolve2(gitDir, readFileSync3(common, "utf8").trim()) : gitDir;
+  } catch {
+    return void 0;
+  }
+}
+function readInfoExclude2(gitDir) {
+  if (!gitDir) return "";
+  try {
+    const exclude = join3(gitDir, "info", "exclude");
+    return existsSync2(exclude) ? readText(exclude) : "";
+  } catch {
+    return "";
+  }
+}
 function walk2(root, opts = {}) {
   const maxFileBytes = opts.maxFileBytes ?? 1024 * 1024;
   const maxFiles = opts.maxFiles ?? Infinity;
@@ -5050,7 +5138,16 @@ function walk2(root, opts = {}) {
     } catch {
       continue;
     }
+    const gitDir = entries.some((e) => e.name === GIT_ENTRY2) ? gitDirOf2(frame.dir, entries) : void 0;
+    if (frame.rel && gitDir) {
+      excluded++;
+      continue;
+    }
     let rules = frame.rules;
+    if (useGitignore && !frame.rel) {
+      const parsed = parseGitignore2(readInfoExclude2(gitDir), "");
+      if (parsed.length) rules = [...rules, ...parsed];
+    }
     if (useGitignore && entries.some((e) => e.name === ".gitignore")) {
       const parsed = parseGitignore2(readText(join3(frame.dir, ".gitignore")), frame.rel);
       if (parsed.length) rules = [...rules, ...parsed];
@@ -5060,7 +5157,8 @@ function walk2(root, opts = {}) {
       const abs = join3(frame.dir, name2);
       const rel2 = frame.rel ? `${frame.rel}/${name2}` : name2;
       const isLink = entry.isSymbolicLink();
-      if (entry.isDirectory() && ignoreDirs.has(name2)) continue;
+      if (name2 === GIT_ENTRY2) continue;
+      if (entry.isDirectory() && isIgnoredDirectory2(name2, ignoreDirs)) continue;
       let st;
       try {
         st = isLink ? statSync2(abs) : lstatSync2(abs);
@@ -5068,7 +5166,7 @@ function walk2(root, opts = {}) {
         continue;
       }
       if (st.isDirectory()) {
-        if (ignoreDirs.has(name2)) continue;
+        if (isIgnoredDirectory2(name2, ignoreDirs)) continue;
         if (isLink) continue;
         if (useGitignore && rules.length && isIgnored2(rules, rel2, true)) continue;
         stack.push({ dir: abs, rel: rel2, rules });
@@ -5132,6 +5230,9 @@ function readText(abs) {
   }
 }
 var IGNORE_DIRS2;
+var GIT_ENTRY2;
+var GITFILE_PREFIX2;
+var MAX_GITFILE_BYTES2;
 var LOCKFILES2;
 var BINARY_EXT2;
 var DEFAULT_MAX_FILES;
@@ -5173,6 +5274,9 @@ var init_walk = __esm({
       "elm-stuff",
       ".dart_tool"
     ]);
+    GIT_ENTRY2 = ".git";
+    GITFILE_PREFIX2 = "gitdir: ";
+    MAX_GITFILE_BYTES2 = 4096;
     LOCKFILES2 = /* @__PURE__ */ new Set([
       "package-lock.json",
       "npm-shrinkwrap.json",
@@ -5430,34 +5534,46 @@ function extToLang(ext) {
   return EXT_LANG[ext] ?? "other";
 }
 function blankComments(src) {
-  const out2 = src.split("");
-  let i2 = 0;
   const n = src.length;
+  let out2 = "";
+  let kept = 0;
+  let i2 = 0;
   while (i2 < n) {
-    const c2 = src[i2];
-    const next = src[i2 + 1];
-    if (c2 === "/" && next === "/") {
-      while (i2 < n && src[i2] !== "\n") {
-        out2[i2] = " ";
-        i2++;
+    const c2 = src.charCodeAt(i2);
+    if (c2 === SLASH) {
+      const next = src.charCodeAt(i2 + 1);
+      if (next === SLASH) {
+        out2 += src.slice(kept, i2);
+        const start2 = i2;
+        while (i2 < n && src.charCodeAt(i2) !== NEWLINE) i2++;
+        out2 += " ".repeat(i2 - start2);
+        kept = i2;
+        continue;
       }
-      continue;
-    }
-    if (c2 === "/" && next === "*") {
-      while (i2 < n && !(src[i2] === "*" && src[i2 + 1] === "/")) {
-        if (src[i2] !== "\n") out2[i2] = " ";
-        i2++;
+      if (next === STAR) {
+        out2 += src.slice(kept, i2);
+        let run2 = 0;
+        while (i2 < n && !(src.charCodeAt(i2) === STAR && src.charCodeAt(i2 + 1) === SLASH)) {
+          if (src.charCodeAt(i2) === NEWLINE) {
+            out2 += " ".repeat(run2) + "\n";
+            run2 = 0;
+          } else run2++;
+          i2++;
+        }
+        if (i2 < n) run2++;
+        if (i2 + 1 < n) run2++;
+        out2 += " ".repeat(run2);
+        i2 += 2;
+        kept = Math.min(i2, n);
+        continue;
       }
-      if (i2 < n) out2[i2] = " ";
-      if (i2 + 1 < n) out2[i2 + 1] = " ";
-      i2 += 2;
-      continue;
-    }
-    if (c2 === '"' || c2 === "'" || c2 === "`") {
-      const quote = c2;
       i2++;
-      while (i2 < n && src[i2] !== quote) {
-        if (src[i2] === "\\") i2++;
+      continue;
+    }
+    if (c2 === DQUOTE || c2 === SQUOTE || c2 === BACKTICK) {
+      i2++;
+      while (i2 < n && src.charCodeAt(i2) !== c2) {
+        if (src.charCodeAt(i2) === BACKSLASH) i2++;
         i2++;
       }
       i2++;
@@ -5465,14 +5581,28 @@ function blankComments(src) {
     }
     i2++;
   }
-  return out2.join("");
+  return kept === 0 ? src : out2 + src.slice(kept);
 }
 function extractReexports(rel2, content, localSymbols) {
   if (!REEXPORT_EXTS.has(rel2.slice(rel2.lastIndexOf(".")))) return [];
   const lang = /\.(ts|tsx|mts|cts)$/.test(rel2) ? "typescript" : "javascript";
   const out2 = [];
   const seen = /* @__PURE__ */ new Set();
-  const lineAt = (idx) => content.slice(0, idx).split(/\r?\n/).length;
+  let lineStarts;
+  const lineAt = (idx) => {
+    if (!lineStarts) {
+      lineStarts = [0];
+      for (let i2 = 0; i2 < content.length; i2++) if (content.charCodeAt(i2) === 10) lineStarts.push(i2 + 1);
+    }
+    let lo = 0;
+    let hi = lineStarts.length;
+    while (lo < hi) {
+      const mid = lo + hi >>> 1;
+      if (lineStarts[mid] <= idx) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   const localDeclOf = /* @__PURE__ */ new Map();
   for (const s of localSymbols) if (!localDeclOf.has(s.name)) localDeclOf.set(s.name, s);
   const scanned = blankComments(content);
@@ -5525,6 +5655,13 @@ function extractReexports(rel2, content, localSymbols) {
 }
 var EXT_LANG;
 var REEXPORT_EXTS;
+var SLASH;
+var STAR;
+var NEWLINE;
+var DQUOTE;
+var SQUOTE;
+var BACKTICK;
+var BACKSLASH;
 var MAX_REEXPORTS;
 var init_common = __esm({
   "src/lang/common.ts"() {
@@ -5605,6 +5742,13 @@ var init_common = __esm({
       ".sol": "solidity"
     };
     REEXPORT_EXTS = /* @__PURE__ */ new Set([".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"]);
+    SLASH = 47;
+    STAR = 42;
+    NEWLINE = 10;
+    DQUOTE = 34;
+    SQUOTE = 39;
+    BACKTICK = 96;
+    BACKSLASH = 92;
     MAX_REEXPORTS = 400;
   }
 });
@@ -6632,13 +6776,13 @@ async function Module22(moduleArg = {}) {
       }
       readAsync = /* @__PURE__ */ __name2(async (url) => {
         if (isFileURI(url)) {
-          return new Promise((resolve52, reject) => {
+          return new Promise((resolve62, reject) => {
             var xhr = new XMLHttpRequest();
             xhr.open("GET", url, true);
             xhr.responseType = "arraybuffer";
             xhr.onload = () => {
               if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                resolve52(xhr.response);
+                resolve62(xhr.response);
                 return;
               }
               reject(xhr.status);
@@ -6834,9 +6978,9 @@ async function Module22(moduleArg = {}) {
     __name2(receiveInstantiationResult, "receiveInstantiationResult");
     var info2 = getWasmImports();
     if (Module["instantiateWasm"]) {
-      return new Promise((resolve52, reject) => {
+      return new Promise((resolve62, reject) => {
         Module["instantiateWasm"](info2, (mod, inst) => {
-          resolve52(receiveInstance(mod, inst));
+          resolve62(receiveInstance(mod, inst));
         });
       });
     }
@@ -8167,8 +8311,8 @@ async function Module22(moduleArg = {}) {
   if (runtimeInitialized) {
     moduleRtn = Module;
   } else {
-    moduleRtn = new Promise((resolve52, reject) => {
-      readyPromiseResolve = resolve52;
+    moduleRtn = new Promise((resolve62, reject) => {
+      readyPromiseResolve = resolve62;
       readyPromiseReject = reject;
     });
   }
@@ -8384,7 +8528,7 @@ var QueryErrorKind2;
 var QueryError2;
 var Query2;
 var init_web_tree_sitter = __esm({
-  "node_modules/.pnpm/web-tree-sitter@0.26.12/node_modules/web-tree-sitter/web-tree-sitter.js"() {
+  "node_modules/.pnpm/web-tree-sitter@0.26.13/node_modules/web-tree-sitter/web-tree-sitter.js"() {
     "use strict";
     __defProp22 = Object.defineProperty;
     __name2 = (target, value) => __defProp22(target, "name", { value, configurable: true });
@@ -10442,10 +10586,10 @@ function resolveGrammarsTier(opts = {}) {
     tier: tier2,
     dir,
     cacheDir,
-    dirs: [dir, ...existsSync(join22(dir, "..", EXTENDED_DIR)) ? [join22(dir, "..", EXTENDED_DIR)] : []]
+    dirs: [dir, ...existsSync22(join22(dir, "..", EXTENDED_DIR)) ? [join22(dir, "..", EXTENDED_DIR)] : []]
   });
   const legacy = process.env.CODEINDEX_GRAMMAR_DIR ?? process.env.ULTRAINDEX_GRAMMAR_DIR;
-  if (legacy && legacy.trim() && existsSync(legacy)) return withDirs("env", legacy);
+  if (legacy && legacy.trim() && existsSync22(legacy)) return withDirs("env", legacy);
   const here = opts.moduleDir ?? dirname(fileURLToPath(import.meta.url));
   const adjacent = [
     join22(here, "grammars"),
@@ -10454,10 +10598,10 @@ function resolveGrammarsTier(opts = {}) {
     // dev: src/ast → <repo>/scripts/grammars
     join22(here, "..", "scripts", "grammars")
   ];
-  for (const c2 of adjacent) if (existsSync(c2)) return withDirs("adjacent", c2);
+  for (const c2 of adjacent) if (existsSync22(c2)) return withDirs("adjacent", c2);
   const env = process.env.CODEINDEX_GRAMMARS_DIR;
-  if (env && env.trim() && existsSync(env)) return withDirs("env", env);
-  if (existsSync(cacheDir)) return withDirs("cache", cacheDir);
+  if (env && env.trim() && existsSync22(env)) return withDirs("env", env);
+  if (existsSync22(cacheDir)) return withDirs("cache", cacheDir);
   return { tier: "none", cacheDir, dirs: [] };
 }
 function resolveGrammarsDir(opts) {
@@ -10469,7 +10613,7 @@ async function ensureGrammars(keys) {
   const firstIn = (name2) => {
     for (const d of dirs) {
       const p = join22(d, name2);
-      if (existsSync(p)) return p;
+      if (existsSync22(p)) return p;
     }
     return void 0;
   };
@@ -10481,16 +10625,26 @@ async function ensureGrammars(keys) {
     parser = new Parser2();
   }
   for (const key of new Set(keys)) {
-    if (loaded.has(key) || failed.has(key)) continue;
+    if (loaded.has(key)) continue;
     const wasm = firstIn(`${key}.wasm`);
+    const fingerprint2 = wasm ? (() => {
+      try {
+        const st = statSync22(wasm);
+        return `${wasm}:${st.size}:${st.mtimeMs}`;
+      } catch {
+        return `${wasm}:unreadable`;
+      }
+    })() : `missing:${dirs.join("|")}`;
+    if (failed.get(key) === fingerprint2) continue;
     if (!wasm) {
-      failed.add(key);
+      failed.set(key, fingerprint2);
       continue;
     }
     try {
       loaded.set(key, await Language2.load(new Uint8Array(readFileSync22(wasm))));
+      failed.delete(key);
     } catch {
-      failed.add(key);
+      failed.set(key, fingerprint2);
     }
   }
 }
@@ -10593,7 +10747,7 @@ var init_loader = __esm({
     runtimeReady = false;
     parser = null;
     loaded = /* @__PURE__ */ new Map();
-    failed = /* @__PURE__ */ new Set();
+    failed = /* @__PURE__ */ new Map();
   }
 });
 function findFirst(node, pred) {
@@ -11839,6 +11993,14 @@ var init_doc = __esm({
     DECORATION = /decorator|annotation|modifiers/;
   }
 });
+function typeFlagsOf(type) {
+  let flags2 = typeFlags.get(type);
+  if (flags2 === void 0) {
+    flags2 = (REF_IDENT_TYPE.test(type) ? T_REF_IDENT : 0) | (COMMENT_NODE.test(type) ? T_COMMENT : 0) | (STRING_NODE.test(type) ? T_STRING : 0) | (NUMBER_NODE.test(type) ? T_NUMBER : 0) | (REGEX_NODE.test(type) ? T_REGEX : 0);
+    typeFlags.set(type, flags2);
+  }
+  return flags2;
+}
 function isPlainString(node) {
   return node.namedChildren.every((c2) => STRING_PART.test(c2.type));
 }
@@ -11879,20 +12041,21 @@ function collectAll(root, spec, defNames, maxCalls, wantImports) {
   const visit = (node) => {
     const type = node.type;
     const kids = node.namedChildren;
-    if (kids.length === 0 && REF_IDENT_TYPE.test(type)) {
+    const flags2 = typeFlagsOf(type);
+    if (kids.length === 0 && flags2 & T_REF_IDENT) {
       const text = node.text;
       if (REF_IDENT_TEXT.test(text) && !defNames.has(text)) identsFound.add(text);
     }
-    if (COMMENT_NODE.test(type)) {
+    if (flags2 & T_COMMENT) {
       for (const line of node.text.split(/\r?\n/)) addTerms2(stripCommentMarkers(line));
-    } else if (kids.length === 0 && STRING_NODE.test(type) && node.endIndex - node.startIndex <= MAX_LITERAL_LEN2) {
+    } else if (kids.length === 0 && flags2 & T_STRING && node.endIndex - node.startIndex <= MAX_LITERAL_LEN2) {
       addTerms2(node.text.replace(/^['"`]+|['"`]+$/g, ""));
     }
     if (!literals.full) {
-      const line = node.startPosition.row + 1;
-      if (STRING_NODE.test(type) && isPlainString(node)) literals.addString(node.text, line);
-      else if (kids.length === 0 && NUMBER_NODE.test(type)) literals.add("number", node.text.trim(), line);
-      else if (REGEX_NODE.test(type)) literals.add("regex", node.text, line);
+      if (flags2 & T_STRING) {
+        if (isPlainString(node)) literals.addString(node.text, node.startPosition.row + 1);
+      } else if (kids.length === 0 && flags2 & T_NUMBER) literals.add("number", node.text.trim(), node.startPosition.row + 1);
+      else if (flags2 & T_REGEX) literals.add("regex", node.text, node.startPosition.row + 1);
     }
     if (wantCalls && !(spec.kindFrom?.[type] && spec.kindFrom[type](node)) && !spec.skipCall?.(node)) {
       const how = spec.calls[type];
@@ -12334,6 +12497,12 @@ var STRING_NODE;
 var NUMBER_NODE;
 var REGEX_NODE;
 var STRING_PART;
+var T_REF_IDENT;
+var T_COMMENT;
+var T_STRING;
+var T_NUMBER;
+var T_REGEX;
+var typeFlags;
 var init_extract = __esm({
   "src/ast/extract.ts"() {
     "use strict";
@@ -12371,6 +12540,12 @@ var init_extract = __esm({
     NUMBER_NODE = /(^|_)(integer|float|number|decimal|numeric)(_literal)?$/;
     REGEX_NODE = /(^|_)(regex|regular_expression)(_pattern|_literal)?$/;
     STRING_PART = /(^|_)(fragment|content|escape_sequence|character)$/;
+    T_REF_IDENT = 1;
+    T_COMMENT = 2;
+    T_STRING = 4;
+    T_NUMBER = 8;
+    T_REGEX = 16;
+    typeFlags = /* @__PURE__ */ new Map();
   }
 });
 function topDocComment(content) {
@@ -12834,6 +13009,7 @@ function buildCodeRecord(rel2, ext, size, content, hash, lang, opts = {}) {
     record.truncated = code.truncated;
     record.relations = code.relations;
     record.terms = code.terms;
+    record.literals = code.literals;
   } else {
     record.title = basename(rel2);
   }
@@ -12912,7 +13088,7 @@ function scanRepo(root, opts = {}) {
       files.push(preUsable.record);
       continue;
     }
-    const record = {
+    const record = kind === "code" ? buildCodeRecord(f.rel, f.ext, f.size, content, hash, lang, opts) : {
       rel: f.rel,
       ext: f.ext,
       size: f.size,
@@ -12924,37 +13100,21 @@ function scanRepo(root, opts = {}) {
       symbols: [],
       refs: []
     };
-    if (content) {
-      if (kind === "doc" && MARKDOWN_EXT.has(f.ext)) {
+    if (kind !== "code") {
+      if (content && kind === "doc" && MARKDOWN_EXT.has(f.ext)) {
         const md = extractMarkdown(content);
         record.title = md.title ?? basename(f.rel);
         record.summary = md.summary;
         record.headings = md.headings;
         record.refs = md.refs;
-      } else if (kind === "doc") {
+      } else if (content && kind === "doc") {
         record.title = basename(f.rel);
-      } else if (kind === "code") {
-        const code = extractCode(f.rel, f.ext, content, { maxCallsPerFile: opts.maxCallsPerFile });
-        record.title = basename(f.rel);
-        record.summary = code.summary;
-        record.symbols = code.symbols;
-        record.refs = code.refs;
-        record.pkg = code.pkg;
-        record.idents = code.idents;
-        record.calls = code.calls;
-        record.importedNames = code.importedNames;
-        record.truncated = code.truncated;
-        record.relations = code.relations;
-        record.terms = code.terms;
-        record.literals = code.literals;
-      } else if (kind === "config") {
+      } else if (content && kind === "config") {
         record.title = basename(f.rel);
         record.literals = extractConfigLiterals(content);
       } else {
         record.title = basename(f.rel);
       }
-    } else {
-      record.title = basename(f.rel);
     }
     if (kind === "doc" && content) docText.set(f.rel, content);
     files.push(record);
@@ -12992,15 +13152,209 @@ var init_scan = __esm({
     init_config();
   }
 });
+function resolveEngineUrl() {
+  try {
+    const here = fileURLToPath2(import.meta.url);
+    if (here.endsWith("engine.mjs")) return pathToFileURL(here).href;
+    const adjacent = join32(dirname2(here), "engine.mjs");
+    if (existsSync3(adjacent)) return pathToFileURL(adjacent).href;
+    return void 0;
+  } catch {
+    return void 0;
+  }
+}
+function workerCount(requested) {
+  const env = process.env["CODEINDEX_WORKERS"];
+  const raw = requested ?? (env !== void 0 && env !== "" ? Number(env) : void 0);
+  if (raw !== void 0) return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
+  let cores = 1;
+  try {
+    cores = typeof os.availableParallelism === "function" ? os.availableParallelism() : os.cpus().length;
+  } catch {
+    cores = 1;
+  }
+  return Math.max(0, Math.min(cores - 1, 8));
+}
+async function runExtractWorker(input, post) {
+  await ensureGrammars(input.grammarKeys);
+  const ready = input.grammarKeys.filter((k) => grammarReady(k));
+  const records = [];
+  for (const job of input.jobs) {
+    let size;
+    let mtimeMs;
+    try {
+      const st = statSync3(job.abs);
+      size = st.size;
+      mtimeMs = st.mtimeMs;
+    } catch {
+      continue;
+    }
+    const content = readText(job.abs);
+    const record = buildCodeRecord(job.rel, job.ext, size, content, sha1(content), extToLang(job.ext), {
+      maxCallsPerFile: input.maxCallsPerFile
+    });
+    records.push({ rel: job.rel, size, mtimeMs, record });
+  }
+  post({ ready, records });
+}
+async function extractInParallel(jobs, grammarKeys, count, opts = {}) {
+  if (count < 2 || jobs.length === 0) return void 0;
+  const engineUrl = resolveEngineUrl();
+  if (!engineUrl) return void 0;
+  const wanted = grammarKeys.filter((k) => grammarReady(k)).sort();
+  const workers = Math.min(count, jobs.length);
+  const bootstrap = `import { runExtractWorker } from ${JSON.stringify(engineUrl)};
+import { parentPort, workerData } from "node:worker_threads";
+const base = workerData.input;
+const post = (o) => parentPort.postMessage(o);
+const fail = (e) => post({ error: String(e) });
+runExtractWorker({ ...base, jobs: [] }, post).then(() => {
+  parentPort.on("message", (m) => {
+    if (m.done) { parentPort.close(); return; }
+    runExtractWorker({ ...base, jobs: m.jobs }, post).catch(fail);
+  });
+}).catch(fail);
+`;
+  const out2 = /* @__PURE__ */ new Map();
+  let next = 0;
+  const takeBatch = () => {
+    const remaining = jobs.length - next;
+    if (remaining <= 0) return [];
+    const size = Math.max(MIN_BATCH_JOBS, Math.ceil(remaining / (workers * BATCHES_PER_WORKER)));
+    const batch = jobs.slice(next, next + size);
+    next += batch.length;
+    return batch;
+  };
+  const spawned = [];
+  try {
+    await Promise.all(
+      Array.from(
+        { length: workers },
+        () => new Promise((resolve62, reject) => {
+          const w = new Worker(bootstrap, {
+            eval: true,
+            workerData: { input: { jobs: [], grammarKeys: wanted, maxCallsPerFile: opts.maxCallsPerFile } }
+          });
+          spawned.push(w);
+          let finished = false;
+          let timer;
+          const arm = () => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(() => {
+              settle(() => reject(new Error("extraction worker timed out")));
+              void w.terminate();
+            }, WORKER_TIMEOUT_MS);
+          };
+          const settle = (fn) => {
+            if (timer) clearTimeout(timer);
+            finished = true;
+            fn();
+          };
+          arm();
+          let inflight = 0;
+          const dispatch = () => {
+            const batch = takeBatch();
+            if (batch.length === 0) return false;
+            inflight++;
+            w.postMessage({ jobs: batch });
+            return true;
+          };
+          w.on("message", (m) => {
+            if (finished) return;
+            if ("error" in m) {
+              settle(() => reject(new Error(m.error)));
+              void w.terminate();
+              return;
+            }
+            if (m.ready.slice().sort().join(",") !== wanted.join(",")) {
+              settle(() => reject(new Error("extraction worker grammar tier mismatch")));
+              void w.terminate();
+              return;
+            }
+            for (const r of m.records) out2.set(r.rel, { size: r.size, mtimeMs: r.mtimeMs, record: r.record });
+            if (inflight === 0) dispatch();
+            else inflight--;
+            dispatch();
+            if (inflight === 0) {
+              settle(() => resolve62());
+              w.postMessage({ done: true });
+              void w.terminate();
+              return;
+            }
+            arm();
+          });
+          w.once("error", (e) => settle(() => reject(e)));
+          w.once("exit", (code) => {
+            if (!finished && code !== 0) settle(() => reject(new Error(`extraction worker exited with ${code}`)));
+          });
+        })
+      )
+    );
+    return out2;
+  } catch {
+    for (const w of spawned) void w.terminate();
+    return void 0;
+  }
+}
+async function scanRepoParallel(root, opts = {}) {
+  const count = workerCount(opts.workers);
+  if (count < 2) return scanRepo(root, opts);
+  const walked = opts.precomputedWalk ?? walk2(root, {
+    maxFileBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles,
+    gitignore: opts.gitignore,
+    ignoreDirs: opts.ignoreDirs
+  });
+  const scanOpts = { ...opts, precomputedWalk: walked };
+  const jobs = [];
+  for (const { f } of keptCodeFiles(root, scanOpts)) {
+    const cached = opts.cache?.get(f.rel);
+    if (!opts.fullHash && cached && cached.size !== void 0 && cached.mtimeMs !== void 0 && cached.size === f.size && cached.mtimeMs === f.mtimeMs) {
+      continue;
+    }
+    jobs.push({ abs: f.abs, rel: f.rel, ext: f.ext });
+  }
+  if (jobs.length === 0) return scanRepo(root, scanOpts);
+  const workersForced = opts.workers !== void 0 || (process.env["CODEINDEX_WORKERS"] ?? "") !== "";
+  if (!workersForced && jobs.length < DEFAULT_MIN_PARALLEL_JOBS) return scanRepo(root, scanOpts);
+  const grammarKeys = grammarKeysForExts(walked.files.map((f) => f.ext));
+  const extracted = await extractInParallel(jobs, grammarKeys, count, { maxCallsPerFile: opts.maxCallsPerFile });
+  return scanRepo(root, extracted ? { ...scanOpts, extracted } : scanOpts);
+}
+var WORKER_TIMEOUT_MS;
+var DEFAULT_MIN_PARALLEL_JOBS;
+var BATCHES_PER_WORKER;
+var MIN_BATCH_JOBS;
+var init_pool = __esm({
+  "src/pool.ts"() {
+    "use strict";
+    init_hash();
+    init_walk();
+    init_registry();
+    init_loader();
+    init_scan();
+    WORKER_TIMEOUT_MS = 10 * 60 * 1e3;
+    DEFAULT_MIN_PARALLEL_JOBS = 200;
+    BATCHES_PER_WORKER = 4;
+    MIN_BATCH_JOBS = 4;
+  }
+});
 function toCacheMap(scan22) {
   const m = /* @__PURE__ */ new Map();
   for (const f of scan22.files) m.set(f.rel, { hash: f.hash, record: f, size: f.size, mtimeMs: scan22.mtimes.get(f.rel) });
   return m;
 }
+function needsGrammarWarm(walked, cache2, fullHash = false) {
+  const codeFiles = walked.files.filter((file) => classify(file.rel, file.ext) === "code");
+  return fullHash && codeFiles.length > 0 || codeFiles.some((file) => {
+    const cached = cache2.get(file.rel);
+    return !cached || cached.size !== file.size || cached.mtimeMs !== file.mtimeMs;
+  });
+}
 function readPersistedIndex(repo, indexDir = INDEX_DIR) {
   let parsed;
   try {
-    parsed = JSON.parse(readFileSync32(join32(repo, indexDir, "cache.json"), "utf8"));
+    parsed = JSON.parse(readFileSync32(join4(repo, indexDir, "cache.json"), "utf8"));
   } catch {
     return void 0;
   }
@@ -13021,12 +13375,12 @@ function preloadArtifacts(repo, scan22, meta, indexDir = INDEX_DIR) {
   if (!scan22.contentUnchanged || meta.engineVersion !== ENGINE_VERSION || meta.commit !== scan22.commit || meta.graphSha1 === void 0 || meta.symbolsSha1 === void 0) {
     return void 0;
   }
-  const dir = join32(repo, indexDir);
+  const dir = join4(repo, indexDir);
   let graphBytes;
   let symbolsBytes;
   try {
-    graphBytes = readFileSync32(join32(dir, "graph.json"));
-    symbolsBytes = readFileSync32(join32(dir, "symbols.json"));
+    graphBytes = readFileSync32(join4(dir, "graph.json"));
+    symbolsBytes = readFileSync32(join4(dir, "symbols.json"));
   } catch {
     return void 0;
   }
@@ -13048,16 +13402,54 @@ function preloadSession(repo, opts, indexDir = INDEX_DIR) {
   const scan22 = scanRepo(repo, { ...opts, cache: persisted.cacheMap });
   return { scan: scan22, cacheMap: toCacheMap(scan22), arts: preloadArtifacts(repo, scan22, persisted.meta, indexDir) };
 }
+async function preloadSessionLazy(repo, opts, warm, indexDir = INDEX_DIR) {
+  const persisted = readPersistedIndex(repo, indexDir);
+  if (!persisted) return void 0;
+  const walked = opts.precomputedWalk ?? walk2(repo, {
+    maxFileBytes: opts.maxBytes,
+    maxFiles: opts.maxFiles,
+    gitignore: opts.gitignore,
+    ignoreDirs: opts.ignoreDirs
+  });
+  const needsWarm = needsGrammarWarm(walked, persisted.cacheMap, opts.fullHash);
+  if (needsWarm) {
+    await warm();
+  }
+  const scan22 = await scanRepoParallel(repo, { ...opts, cache: persisted.cacheMap, precomputedWalk: walked });
+  let artifactsTried = false;
+  let artifacts;
+  return {
+    scan: scan22,
+    cacheMap: toCacheMap(scan22),
+    loadArtifacts: () => {
+      if (!artifactsTried) {
+        artifactsTried = true;
+        artifacts = preloadArtifacts(repo, scan22, persisted.meta, indexDir);
+      }
+      return artifacts;
+    }
+  };
+}
 var INDEX_DIR;
 var init_preload = __esm({
   "src/preload.ts"() {
     "use strict";
     init_types();
     init_scan();
+    init_pool();
     init_hash();
+    init_walk();
+    init_classify();
     INDEX_DIR = ".codeindex";
   }
 });
+function filesInDir(ctx, dir, ext) {
+  const memo = ctx.dirFilesMemo ??= /* @__PURE__ */ new Map();
+  const key = ext + "\0" + dir;
+  let list = memo.get(key);
+  if (!list) memo.set(key, list = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(ext)).sort());
+  return list;
+}
 function distToSrcCandidates(target) {
   const segs = norm(target).split("/").filter((s) => s !== ".");
   const out2 = [];
@@ -13509,7 +13901,7 @@ function resolveGo(fromRel, spec, ctx) {
   if (!ctx.goModules.length) return { kind: "external" };
   const probePkg = (dir) => {
     const d = norm(dir).replace(/^\.$/, "");
-    const inDir = (ctx.filesByDir.get(d) ?? []).filter((f) => f.endsWith(".go")).sort();
+    const inDir = filesInDir(ctx, d, ".go");
     return inDir.length ? { kind: "resolved", target: inDir[0] } : { kind: "dangling", reason: "missing-package" };
   };
   const home = ctx.goModules.find((g) => !g.dir || fromRel === g.dir || fromRel.startsWith(g.dir + "/"));
@@ -13595,7 +13987,7 @@ function resolveJava(spec, ctx) {
       const p = norm(posix.join(root, pkgPath));
       if (p.endsWith("/*") || p === "*") {
         const dir = p === "*" ? "" : p.slice(0, -2);
-        const inDir = (ctx.filesByDir.get(dir) ?? []).filter((f) => f.endsWith(".java")).sort();
+        const inDir = filesInDir(ctx, dir, ".java");
         if (inDir.length) return inDir[0];
         continue;
       }
@@ -13664,7 +14056,14 @@ function resolveImport(fromRel, ext, spec, ctx) {
   if (dot !== -1 && ASSET_EXT.has(spec.slice(dot).toLowerCase().replace(/[?#].*$/, ""))) {
     return { kind: "external" };
   }
-  if (JS_TS2.has(ext) || SFC_HTML.has(ext)) return resolveJs(fromRel, spec, ctx);
+  if (JS_TS2.has(ext) || SFC_HTML.has(ext)) {
+    const dir = fromRel.includes("/") ? posix.dirname(fromRel) : "";
+    const key = dir + "\0" + spec;
+    const memo = ctx.jsMemo ??= /* @__PURE__ */ new Map();
+    let r = memo.get(key);
+    if (!r) memo.set(key, r = resolveJs(fromRel, spec, ctx));
+    return { ...r };
+  }
   if (PY2.has(ext)) return resolvePython(fromRel, spec, ctx);
   if (ext === ".go") return resolveGo(fromRel, spec, ctx);
   if (ext === ".rs") return resolveRust(fromRel, spec, ctx);
@@ -14096,6 +14495,7 @@ function computeSymbolRefs(scan22) {
     if (!set) refs.set(name2, set = /* @__PURE__ */ new Set());
     set.add(file);
   };
+  const mentions = docMentionsFor(scan22);
   for (const f of scan22.files) {
     if (f.kind === "code" && f.idents) {
       for (const id of f.idents) {
@@ -14103,9 +14503,9 @@ function computeSymbolRefs(scan22) {
         if (target && target !== f.rel) add(id, f.rel);
       }
     } else if (f.kind === "doc") {
-      const content = scan22.docText.get(f.rel);
-      if (!content) continue;
-      for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
+      const m = mentions.get(f.rel);
+      if (!m || !m.retained) continue;
+      for (const tok of m.counts.keys()) {
         const target = unique.get(tok);
         if (target && target !== f.rel) add(tok, f.rel);
       }
@@ -14170,6 +14570,17 @@ function buildCallerIndex(scan22, importPairs, opts = {}) {
       arr.push(s);
     }
   }
+  const defsByFamily = /* @__PURE__ */ new Map();
+  for (const [name2, sites2] of defs) {
+    const families = /* @__PURE__ */ new Map();
+    for (const site3 of sites2) {
+      const family = familyOf(site3.lang);
+      let grouped = families.get(family);
+      if (!grouped) families.set(family, grouped = []);
+      grouped.push(site3);
+    }
+    defsByFamily.set(name2, families);
+  }
   const localDefs = /* @__PURE__ */ new Map();
   for (const f of scan22.files) {
     const byName = /* @__PURE__ */ new Map();
@@ -14195,7 +14606,7 @@ function buildCallerIndex(scan22, importPairs, opts = {}) {
           record(local, recall ? { file: f.rel, line: c2.line, confidence: "corroborated" } : { file: f.rel, line: c2.line });
         continue;
       }
-      const cands = (defs.get(c2.name) ?? []).filter((d) => familyOf(d.lang) === family && d.file !== f.rel).map((d) => ({ file: d.file, lang: d.lang }));
+      const cands = (defsByFamily.get(c2.name)?.get(family) ?? []).filter((d) => d.file !== f.rel);
       if (!cands.length) continue;
       const imported = cands.filter((d) => pairs.has(`${f.rel}|${d.file}`));
       const chosen = family === "js" ? imported.length ? pickCandidate(f.rel, imported) : (
@@ -14204,7 +14615,7 @@ function buildCallerIndex(scan22, importPairs, opts = {}) {
         recall && cands.length === 1 ? cands[0] : void 0
       ) : imported.length ? pickCandidate(f.rel, imported) : pickCandidate(f.rel, cands);
       if (!chosen) continue;
-      const def = defs.get(c2.name).find((d) => d.file === chosen.file);
+      const def = chosen;
       record(
         def,
         recall ? { file: f.rel, line: c2.line, confidence: imported.length ? "corroborated" : "unique-name" } : { file: f.rel, line: c2.line }
@@ -14870,15 +15281,25 @@ function betweennessOf(ids, edges) {
     nbSets[b].add(a);
   }
   const adj = nbSets.map((s) => [...s].sort((x, y) => x - y));
-  const cb = new Array(n).fill(0);
+  const cb = new Float64Array(n);
+  const stack = [];
+  const queue = [];
+  const pred = Array.from({ length: n }, () => []);
+  const sigma = new Float64Array(n);
+  const dist = new Int32Array(n).fill(-1);
+  const delta = new Float64Array(n);
   for (let s = 0; s < n; s++) {
-    const stack = [];
-    const pred = Array.from({ length: n }, () => []);
-    const sigma = new Array(n).fill(0);
-    const dist = new Array(n).fill(-1);
+    for (const v of stack) {
+      sigma[v] = 0;
+      dist[v] = -1;
+      delta[v] = 0;
+      pred[v].length = 0;
+    }
+    stack.length = 0;
+    queue.length = 0;
     sigma[s] = 1;
     dist[s] = 0;
-    const queue = [s];
+    queue.push(s);
     for (let qi = 0; qi < queue.length; qi++) {
       const v = queue[qi];
       stack.push(v);
@@ -14893,7 +15314,6 @@ function betweennessOf(ids, edges) {
         }
       }
     }
-    const delta = new Array(n).fill(0);
     for (let si = stack.length - 1; si >= 0; si--) {
       const w = stack[si];
       for (const v of pred[w]) delta[v] += sigma[v] / sigma[w] * (1 + delta[w]);
@@ -14986,6 +15406,25 @@ function cacheFor(scan22) {
   if (!c2) caches.set(scan22, c2 = {});
   return c2;
 }
+function fileByRelFor(scan22) {
+  const c2 = cacheFor(scan22);
+  return c2.fileByRel ??= new Map(scan22.files.map((file) => [file.rel, file]));
+}
+function symbolsByNameFor(scan22) {
+  const c2 = cacheFor(scan22);
+  if (!c2.symbolsByName) {
+    const byName = /* @__PURE__ */ new Map();
+    for (const file of scan22.files) {
+      for (const symbol of file.symbols) {
+        const group = byName.get(symbol.name);
+        if (group) group.push(symbol);
+        else byName.set(symbol.name, [symbol]);
+      }
+    }
+    c2.symbolsByName = byName;
+  }
+  return c2.symbolsByName;
+}
 function resolveContextFor(scan22) {
   const c2 = cacheFor(scan22);
   return c2.resolveCtx ??= buildResolveContext(scan22);
@@ -15018,6 +15457,33 @@ function uniqueDefsFor(scan22) {
 function symbolRefsFor(scan22) {
   const c2 = cacheFor(scan22);
   return c2.symbolRefs ??= computeSymbolRefs(scan22);
+}
+function docMentionsFor(scan22) {
+  const c2 = cacheFor(scan22);
+  if (c2.docMentions) return c2.docMentions;
+  const unique = uniqueDefsFor(scan22);
+  const out2 = /* @__PURE__ */ new Map();
+  if (unique.size) {
+    for (const f of scan22.files) {
+      if (f.kind !== "doc") continue;
+      const retained = scan22.docText.get(f.rel);
+      const content = retained ?? readText(join9(scan22.root, f.rel));
+      if (!content) continue;
+      const counts = /* @__PURE__ */ new Map();
+      for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
+        if (unique.has(tok)) counts.set(tok, (counts.get(tok) ?? 0) + 1);
+      }
+      out2.set(f.rel, { counts, retained: retained !== void 0 });
+    }
+  }
+  return c2.docMentions = out2;
+}
+function identSetsFor(scan22) {
+  const c2 = cacheFor(scan22);
+  if (c2.identSets) return c2.identSets;
+  const out2 = /* @__PURE__ */ new Map();
+  for (const f of scan22.files) if (f.kind === "code" && f.idents?.length) out2.set(f.rel, new Set(f.idents));
+  return c2.identSets = out2;
 }
 function callerIndexFor(scan22) {
   const c2 = cacheFor(scan22);
@@ -15168,18 +15634,11 @@ function buildGraph(scan22, ctx, modules, moduleOf, meta) {
     }
   }
   if (unique.size) {
-    for (const f of scan22.files) {
-      if (f.kind !== "doc") continue;
-      const content = scan22.docText.get(f.rel) ?? readText(join10(scan22.root, f.rel));
-      if (!content) continue;
-      const tokens = /* @__PURE__ */ new Map();
-      for (const tok of content.split(/[^A-Za-z0-9_]+/)) {
-        if (unique.has(tok)) tokens.set(tok, (tokens.get(tok) ?? 0) + 1);
-      }
-      for (const [name2, count] of tokens) {
+    for (const [rel2, { counts }] of docMentionsFor(scan22)) {
+      for (const [name2, count] of counts) {
         const target = unique.get(name2);
-        if (target === f.rel) continue;
-        collect(fileEdgeMap, { from: f.rel, to: target, kind: "mention", weight: Math.min(count, 5) });
+        if (target === rel2) continue;
+        collect(fileEdgeMap, { from: rel2, to: target, kind: "mention", weight: Math.min(count, 5) });
       }
     }
   }
@@ -15281,15 +15740,17 @@ var init_graph = __esm({
     init_calls();
     init_relations();
     init_derived();
-    init_walk();
     init_sort();
     REFERENCE_KINDS4 = /* @__PURE__ */ new Set(["reexport", "reexport-all", "default"]);
     SEP3 = "\0";
     keyOf = (from, to, kind) => `${from}${SEP3}${to}${SEP3}${kind}`;
   }
 });
+function* allSymbols(scan22) {
+  for (const file of scan22.files) yield* file.symbols;
+}
 function symbolsOverview(scan22, rel2) {
-  const f = scan22.files.find((x) => x.rel === rel2);
+  const f = fileByRelFor(scan22).get(rel2);
   if (!f) return [];
   return [...f.symbols].filter((s) => !REFERENCE_KINDS5.has(s.kind)).sort((a, b) => a.line - b.line || byStr(a.name, b.name));
 }
@@ -15300,27 +15761,37 @@ function findSymbol(scan22, namePath, opts = {}) {
   const parents = segments.slice(0, -1);
   const matchName = (name2, wanted) => opts.substring ? name2.toLowerCase().includes(wanted.toLowerCase()) : name2 === wanted;
   const out2 = [];
-  for (const f of scan22.files) {
-    for (const s of f.symbols) {
-      if (REFERENCE_KINDS5.has(s.kind)) continue;
-      if (!matchName(s.name, leaf)) continue;
-      if (parents.length) {
-        const parent = parents[parents.length - 1];
-        if (!s.parent || s.parent !== parent) continue;
-      }
-      out2.push({ ...s });
+  const candidates = opts.substring ? allSymbols(scan22) : symbolsByNameFor(scan22).get(leaf) ?? [];
+  for (const s of candidates) {
+    if (REFERENCE_KINDS5.has(s.kind)) continue;
+    if (!matchName(s.name, leaf)) continue;
+    if (parents.length) {
+      const parent = parents[parents.length - 1];
+      if (!s.parent || s.parent !== parent) continue;
     }
+    out2.push({ ...s });
   }
   out2.sort(
     (a, b) => Number(b.name === leaf) - Number(a.name === leaf) || byStr(a.file, b.file) || a.line - b.line
   );
   const capped = out2.slice(0, opts.maxResults ?? 50);
   if (opts.includeBody) {
+    const linesByFile = /* @__PURE__ */ new Map();
+    const unreadableFiles = /* @__PURE__ */ new Set();
     for (const m of capped) {
       const end = m.endLine ?? m.line;
-      const content = readText(join11(scan22.root, m.file));
-      if (!content) continue;
-      m.body = content.split("\n").slice(m.line - 1, end).join("\n");
+      if (unreadableFiles.has(m.file)) continue;
+      let lines = linesByFile.get(m.file);
+      if (!lines) {
+        const content = readText(join10(scan22.root, m.file));
+        if (!content) {
+          unreadableFiles.add(m.file);
+          continue;
+        }
+        lines = content.split("\n");
+        linesByFile.set(m.file, lines);
+      }
+      m.body = lines.slice(m.line - 1, end).join("\n");
     }
   }
   if (opts.concise) {
@@ -15348,14 +15819,14 @@ function findReferences(scan22, name2) {
   const referencingFiles = /* @__PURE__ */ new Set();
   const unique = uniqueDefsFor(scan22);
   const defFile = unique.get(name2);
+  const idents = identSetsFor(scan22);
+  const mention = new RegExp(`\\b${name2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`);
   for (const f of scan22.files) {
     if (f.rel === defFile) continue;
-    if (f.kind === "code" && f.idents?.includes(name2)) referencingFiles.add(f.rel);
+    if (f.kind === "code" && idents.get(f.rel)?.has(name2)) referencingFiles.add(f.rel);
     else if (f.kind === "doc") {
       const content = scan22.docText.get(f.rel);
-      if (content && new RegExp(`\\b${name2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(content)) {
-        referencingFiles.add(f.rel);
-      }
+      if (content && mention.test(content)) referencingFiles.add(f.rel);
     }
   }
   for (const site3 of callSites) referencingFiles.add(site3.file);
@@ -15385,18 +15856,46 @@ function resolveUniqueSymbol(scan22, namePath, file) {
 function readLines(abs) {
   return readFileSync6(abs, "utf8").split("\n");
 }
+function atomicWriteText(abs, content, cleanup = rmSync2) {
+  const target = realpathSync22(abs);
+  const mode = statSync4(target).mode;
+  let tempDir;
+  try {
+    tempDir = mkdtempSync2(join11(dirname4(target), ".codeindex-edit-"));
+  } catch {
+    writeFileSync2(target, content);
+    chmodSync(target, mode);
+    return;
+  }
+  const tempFile = join11(tempDir, basename3(target));
+  try {
+    writeFileSync2(tempFile, content);
+    chmodSync(tempFile, mode);
+    try {
+      renameSync2(tempFile, target);
+    } catch {
+      writeFileSync2(target, content);
+      chmodSync(target, mode);
+    }
+  } finally {
+    try {
+      cleanup(tempDir, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
 function replaceSymbolBody(scan22, namePath, body2, file) {
   const sym = resolveUniqueSymbol(scan22, namePath, file);
   const end = sym.endLine ?? sym.line;
-  const abs = join12(scan22.root, sym.file);
+  const abs = join11(scan22.root, sym.file);
   const lines = readLines(abs);
   const newLines = body2.replace(/^\n+|\n+$/g, "").split("\n");
   lines.splice(sym.line - 1, end - sym.line + 1, ...newLines);
-  writeFileSync2(abs, lines.join("\n"));
+  atomicWriteText(abs, lines.join("\n"));
   return { file: sym.file, startLine: sym.line, endLine: sym.line + newLines.length - 1, lines: newLines.length };
 }
 function insertAt(scan22, sym, body2, index2, blankBefore, blankAfter) {
-  const abs = join12(scan22.root, sym.file);
+  const abs = join11(scan22.root, sym.file);
   const lines = readLines(abs);
   const minGap = SEPARATED_KINDS.has(sym.kind) ? 1 : 0;
   const newLines = body2.replace(/^\n+|\n+$/g, "").split("\n");
@@ -15405,7 +15904,7 @@ function insertAt(scan22, sym, body2, index2, blankBefore, blankAfter) {
   block.push(...newLines);
   if (blankAfter && minGap && lines[index2]?.trim() !== "") block.push("");
   lines.splice(index2, 0, ...block);
-  writeFileSync2(abs, lines.join("\n"));
+  atomicWriteText(abs, lines.join("\n"));
   return { file: sym.file, startLine: index2 + 1, endLine: index2 + block.length, lines: block.length };
 }
 function insertAfterSymbol(scan22, namePath, body2, file) {
@@ -15438,11 +15937,11 @@ function sanitize(name2) {
   return clean;
 }
 function memoryPath(repo, name2) {
-  return join13(repo, ...MEMORY_DIR, `${sanitize(name2)}.md`);
+  return join12(repo, ...MEMORY_DIR, `${sanitize(name2)}.md`);
 }
 function writeMemory(repo, name2, content) {
   const path = memoryPath(repo, name2);
-  mkdirSync2(dirname4(path), { recursive: true });
+  mkdirSync2(dirname5(path), { recursive: true });
   writeFileSync3(path, content.endsWith("\n") ? content : content + "\n");
   return sanitize(name2);
 }
@@ -15456,15 +15955,15 @@ function readMemory(repo, name2) {
 function deleteMemory(repo, name2) {
   const path = memoryPath(repo, name2);
   try {
-    statSync3(path);
+    statSync5(path);
   } catch {
     return false;
   }
-  rmSync2(path);
+  rmSync3(path);
   return true;
 }
 function listMemories(repo) {
-  const root = join13(repo, ...MEMORY_DIR);
+  const root = join12(repo, ...MEMORY_DIR);
   const out2 = [];
   const walk22 = (dir, prefix) => {
     let entries;
@@ -15474,7 +15973,7 @@ function listMemories(repo) {
       return;
     }
     for (const e of entries) {
-      if (e.isDirectory()) walk22(join13(dir, e.name), prefix ? `${prefix}/${e.name}` : e.name);
+      if (e.isDirectory()) walk22(join12(dir, e.name), prefix ? `${prefix}/${e.name}` : e.name);
       else if (e.name.endsWith(".md")) out2.push(prefix ? `${prefix}/${e.name.slice(0, -3)}` : e.name.slice(0, -3));
     }
   };
@@ -15538,8 +16037,8 @@ function wsGlobToRegExp(pat) {
   return new RegExp(`^${re}($|/)`);
 }
 function probeNodePkg(root, dir, kind, warnings) {
-  const path = join14(root, dir, "package.json");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "package.json");
+  if (!existsSync6(path)) return void 0;
   const manifest = `${dir}/package.json`;
   const pkg = readJson(path, manifest, warnings);
   const out2 = {
@@ -15552,8 +16051,8 @@ function probeNodePkg(root, dir, kind, warnings) {
   return out2;
 }
 function probeCargo(root, dir) {
-  const path = join14(root, dir, "Cargo.toml");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "Cargo.toml");
+  if (!existsSync6(path)) return void 0;
   const body2 = tomlSectionBody(readText(path), "package");
   const out2 = {
     name: tomlString(body2, "name") ?? dir,
@@ -15566,19 +16065,19 @@ function probeCargo(root, dir) {
   return out2;
 }
 function probeGoMod(root, dir) {
-  const path = join14(root, dir, "go.mod");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "go.mod");
+  if (!existsSync6(path)) return void 0;
   const name2 = readText(path).match(/^module\s+(\S+)/m)?.[1] ?? dir;
   return { name: name2, dir, kind: "go", manifest: `${dir}/go.mod` };
 }
 function probeMaven(root, dir) {
-  const path = join14(root, dir, "pom.xml");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "pom.xml");
+  if (!existsSync6(path)) return void 0;
   return { name: ownArtifactId(readText(path)) ?? dir, dir, kind: "maven", manifest: `${dir}/pom.xml` };
 }
 function probePyproject(root, dir) {
-  const path = join14(root, dir, "pyproject.toml");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "pyproject.toml");
+  if (!existsSync6(path)) return void 0;
   const toml = readText(path);
   const project = tomlSectionBody(toml, "project");
   const poetry = tomlSectionBody(toml, "tool.poetry");
@@ -15593,8 +16092,8 @@ function probePyproject(root, dir) {
   return out2;
 }
 function probeComposer(root, dir, warnings) {
-  const path = join14(root, dir, "composer.json");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "composer.json");
+  if (!existsSync6(path)) return void 0;
   const manifest = `${dir}/composer.json`;
   const pkg = readJson(path, manifest, warnings);
   const out2 = {
@@ -15607,8 +16106,8 @@ function probeComposer(root, dir, warnings) {
   return out2;
 }
 function probeNxProject(root, dir, warnings) {
-  const path = join14(root, dir, "project.json");
-  if (!existsSync5(path)) return void 0;
+  const path = join13(root, dir, "project.json");
+  if (!existsSync6(path)) return void 0;
   const manifest = `${dir}/project.json`;
   const proj = readJson(path, manifest, warnings);
   return {
@@ -15620,7 +16119,7 @@ function probeNxProject(root, dir, warnings) {
 }
 function probeGradle(root, dir) {
   for (const f of ["build.gradle", "build.gradle.kts"]) {
-    if (existsSync5(join14(root, dir, f))) {
+    if (existsSync6(join13(root, dir, f))) {
       return { name: dir, dir, kind: "gradle", manifest: `${dir}/${f}` };
     }
   }
@@ -15655,7 +16154,7 @@ function addPackage(root, dir, found, kind, warnings) {
 }
 function isDirAt(root, rel2) {
   try {
-    return statSync4(join14(root, rel2)).isDirectory();
+    return statSync6(join13(root, rel2)).isDirectory();
   } catch {
     return false;
   }
@@ -15663,7 +16162,7 @@ function isDirAt(root, rel2) {
 function subdirsOf(root, base) {
   let entries;
   try {
-    entries = readdirSync3(base ? join14(root, base) : root, { withFileTypes: true });
+    entries = readdirSync3(base ? join13(root, base) : root, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -15725,14 +16224,14 @@ function npmFamilyPatterns(root, warnings) {
     if (t.startsWith("!")) negations.push(t.slice(1));
     else positives.push({ pattern: t, kind });
   };
-  const pkg = readJson(join14(root, "package.json"), "package.json", warnings);
+  const pkg = readJson(join13(root, "package.json"), "package.json", warnings);
   const ws = pkg?.workspaces;
   if (Array.isArray(ws)) {
     for (const x of ws) if (typeof x === "string") push(x, "npm");
   } else if (ws && typeof ws === "object" && Array.isArray(ws.packages)) {
     for (const x of ws.packages) if (typeof x === "string") push(x, "npm");
   }
-  const pnpm = readText(join14(root, "pnpm-workspace.yaml"));
+  const pnpm = readText(join13(root, "pnpm-workspace.yaml"));
   let inPackages = false;
   for (const line of pnpm.split(/\r?\n/)) {
     if (/^\S/.test(line)) {
@@ -15746,11 +16245,11 @@ function npmFamilyPatterns(root, warnings) {
   return { positives, negations };
 }
 function fallbackNpmPatterns(root, warnings) {
-  const lerna = readJson(join14(root, "lerna.json"), "lerna.json", warnings);
+  const lerna = readJson(join13(root, "lerna.json"), "lerna.json", warnings);
   if (lerna && Array.isArray(lerna.packages)) {
     return lerna.packages.filter((x) => typeof x === "string").map((pattern) => ({ pattern, kind: "lerna" }));
   }
-  const nx = readJson(join14(root, "nx.json"), "nx.json", warnings);
+  const nx = readJson(join13(root, "nx.json"), "nx.json", warnings);
   if (nx) {
     const layout = nx.workspaceLayout ?? {};
     const appsDir = typeof layout.appsDir === "string" ? layout.appsDir : "apps";
@@ -15760,7 +16259,7 @@ function fallbackNpmPatterns(root, warnings) {
   return [];
 }
 function detectCargoMembers(root, found, warnings) {
-  const toml = readText(join14(root, "Cargo.toml"));
+  const toml = readText(join13(root, "Cargo.toml"));
   if (!toml) return;
   const body2 = tomlSectionBody(toml, "workspace");
   if (!body2) return;
@@ -15775,7 +16274,7 @@ function detectCargoMembers(root, found, warnings) {
   }
 }
 function detectGoWork(root, found, warnings) {
-  const gowork = readText(join14(root, "go.work"));
+  const gowork = readText(join13(root, "go.work"));
   if (!gowork) return;
   const dirs = [];
   for (const block of gowork.matchAll(/^use\s*\(([\s\S]*?)\)/gm)) {
@@ -15791,7 +16290,7 @@ function detectGoWork(root, found, warnings) {
   }
 }
 function detectMavenModules(root, found, warnings) {
-  const pom = readText(join14(root, "pom.xml"));
+  const pom = readText(join13(root, "pom.xml"));
   if (!pom) return;
   const modules = pom.match(/<modules>([\s\S]*?)<\/modules>/)?.[1];
   if (!modules) return;
@@ -15800,7 +16299,7 @@ function detectMavenModules(root, found, warnings) {
   }
 }
 function detectUvMembers(root, found, warnings) {
-  const toml = readText(join14(root, "pyproject.toml"));
+  const toml = readText(join13(root, "pyproject.toml"));
   if (!toml) return;
   const body2 = tomlSectionBody(toml, "tool.uv.workspace");
   if (!body2) return;
@@ -15815,7 +16314,7 @@ function detectUvMembers(root, found, warnings) {
   }
 }
 function detectComposerPathRepos(root, found, warnings) {
-  const composer = readJson(join14(root, "composer.json"), "composer.json", warnings);
+  const composer = readJson(join13(root, "composer.json"), "composer.json", warnings);
   const repos = composer?.repositories;
   if (!Array.isArray(repos)) return;
   for (const r of repos) {
@@ -15826,7 +16325,7 @@ function detectComposerPathRepos(root, found, warnings) {
 }
 function detectGradleIncludes(root, found, warnings) {
   for (const f of ["settings.gradle", "settings.gradle.kts"]) {
-    const text = readText(join14(root, f));
+    const text = readText(join13(root, f));
     if (!text) continue;
     for (const line of text.split(/\r?\n/)) {
       if (!/^\s*include[\s(]/.test(line)) continue;
@@ -15838,7 +16337,7 @@ function detectGradleIncludes(root, found, warnings) {
   }
 }
 function npmEdges(root, pkg, byName, warnings) {
-  const manifest = readJson(join14(root, pkg.dir, "package.json"), `${pkg.dir}/package.json`, warnings);
+  const manifest = readJson(join13(root, pkg.dir, "package.json"), `${pkg.dir}/package.json`, warnings);
   if (!manifest) return [];
   const edges = /* @__PURE__ */ new Set();
   for (const field of ["dependencies", "devDependencies", "peerDependencies"]) {
@@ -15861,7 +16360,7 @@ function normalizeDepPath(fromDir, rel2) {
   return out2.join("/");
 }
 function cargoEdges(root, pkg, byName, byDir) {
-  const toml = readText(join14(root, pkg.dir, "Cargo.toml"));
+  const toml = readText(join13(root, pkg.dir, "Cargo.toml"));
   if (!toml) return [];
   const edges = /* @__PURE__ */ new Set();
   for (const section of ["dependencies", "dev-dependencies", "build-dependencies"]) {
@@ -15885,7 +16384,7 @@ function cargoEdges(root, pkg, byName, byDir) {
   return [...edges];
 }
 function goPkgEdges(root, pkg, byName, byDir) {
-  const gomod = readText(join14(root, pkg.dir, "go.mod"));
+  const gomod = readText(join13(root, pkg.dir, "go.mod"));
   if (!gomod) return [];
   const edges = /* @__PURE__ */ new Set();
   for (const m of gomod.matchAll(/^\s*(?:require\s+)?([^\s/(][^\s]*)\s+v[^\s]+/gm)) {
@@ -15899,7 +16398,7 @@ function goPkgEdges(root, pkg, byName, byDir) {
   return [...edges];
 }
 function mavenEdges(root, pkg, byName) {
-  const pom = readText(join14(root, pkg.dir, "pom.xml"));
+  const pom = readText(join13(root, pkg.dir, "pom.xml"));
   if (!pom) return [];
   const edges = /* @__PURE__ */ new Set();
   for (const m of pom.replace(/<parent>[\s\S]*?<\/parent>/g, "").matchAll(/<dependency>([\s\S]*?)<\/dependency>/g)) {
@@ -15909,7 +16408,7 @@ function mavenEdges(root, pkg, byName) {
   return [...edges];
 }
 function uvEdges(root, pkg, byName) {
-  const toml = readText(join14(root, pkg.dir, "pyproject.toml"));
+  const toml = readText(join13(root, pkg.dir, "pyproject.toml"));
   if (!toml) return [];
   const edges = /* @__PURE__ */ new Set();
   const project = tomlSectionBody(toml, "project");
@@ -15929,7 +16428,7 @@ function uvEdges(root, pkg, byName) {
   return [...edges];
 }
 function composerEdges(root, pkg, byName, warnings) {
-  const manifest = readJson(join14(root, pkg.dir, "composer.json"), `${pkg.dir}/composer.json`, warnings);
+  const manifest = readJson(join13(root, pkg.dir, "composer.json"), `${pkg.dir}/composer.json`, warnings);
   if (!manifest) return [];
   const edges = /* @__PURE__ */ new Set();
   for (const field of ["require", "require-dev"]) {
@@ -15943,7 +16442,7 @@ function composerEdges(root, pkg, byName, warnings) {
 }
 function gradleEdges(root, pkg, byName, byDir) {
   for (const f of ["build.gradle", "build.gradle.kts"]) {
-    const text = readText(join14(root, pkg.dir, f));
+    const text = readText(join13(root, pkg.dir, f));
     if (!text) continue;
     const edges = /* @__PURE__ */ new Set();
     for (const m of text.matchAll(/project\s*\(\s*["']:?([^"']+)["']\s*\)/g)) {
@@ -16365,13 +16864,20 @@ function isFunctionValued(signature) {
   }
   return false;
 }
-function holderFor(symbols, line) {
-  let best;
+function holderCandidates(symbols) {
+  const out2 = [];
   for (const s of symbols) {
     if (!HOLDER_KINDS.has(s.kind)) continue;
     if (isFunctionValued(s.signature)) continue;
+    if ((s.endLine ?? s.line) - s.line > MAX_HOLDER_SPAN) continue;
+    out2.push(s);
+  }
+  return out2;
+}
+function holderFor(candidates, line) {
+  let best;
+  for (const s of candidates) {
     const end = s.endLine ?? s.line;
-    if (end - s.line > MAX_HOLDER_SPAN) continue;
     if (line < s.line || line > end) continue;
     if (!best || s.line > best.line) best = s;
   }
@@ -16384,13 +16890,14 @@ function findLiteralDuplications(scan22, opts = {}) {
   for (const f of scan22.files) {
     if (!f.literals?.length) continue;
     if (!opts.includeTests && isTestPath(f.rel)) continue;
+    let holders;
     for (const lit of f.literals) {
       if (opts.kinds && !opts.kinds.has(lit.kind)) continue;
       if (!isDistinctive2(lit.value, lit.kind)) continue;
       const key = `${lit.kind}\0${lit.value}`;
       let g = groups.get(key);
       if (!g) groups.set(key, g = { value: lit.value, kind: lit.kind, sites: [] });
-      const holder = holderFor(f.symbols, lit.line);
+      const holder = holderFor(holders ??= holderCandidates(f.symbols), lit.line);
       g.sites.push(
         holder ? { file: f.rel, line: lit.line, holder: holder.name, holderExported: holder.exported } : { file: f.rel, line: lit.line }
       );
@@ -16614,10 +17121,10 @@ function resolveEmbedModelDir(repo) {
   const env = process.env.CODEINDEX_EMBED_DIR;
   const candidates = [];
   if (env) candidates.push(env);
-  if (repo) candidates.push(join16(repo, ".codeindex", DEFAULT_EMBED_DIRNAME));
-  candidates.push(join16(process.cwd(), ".codeindex", DEFAULT_EMBED_DIRNAME));
+  if (repo) candidates.push(join15(repo, ".codeindex", DEFAULT_EMBED_DIRNAME));
+  candidates.push(join15(process.cwd(), ".codeindex", DEFAULT_EMBED_DIRNAME));
   for (const c2 of candidates) {
-    if (existsSync6(join16(c2, "model.json"))) return c2;
+    if (existsSync7(join15(c2, "model.json"))) return c2;
   }
   return void 0;
 }
@@ -16650,8 +17157,8 @@ function parseEmbedModel(raw, source) {
 }
 function loadEmbedModel(dir) {
   if (!dir) return void 0;
-  const path = join16(dir, "model.json");
-  if (!existsSync6(path)) return void 0;
+  const path = join15(dir, "model.json");
+  if (!existsSync7(path)) return void 0;
   const raw = JSON.parse(readFileSync8(path, "utf8"));
   return parseEmbedModel(raw, path);
 }
@@ -16813,31 +17320,31 @@ function serializeEmbeddings(index2) {
     count: index2.records.length,
     records: index2.records.map((r) => ({ file: r.file, symbol: r.symbol ?? "", line: r.line ?? 0 }))
   });
-  const headerBuf = Buffer.from(header, "utf8");
-  const body2 = Buffer.alloc(index2.records.length * index2.dim);
-  let off = 0;
+  const headerBuf = new TextEncoder().encode(header);
+  const bodyLength = index2.records.length * index2.dim;
+  const out2 = new Uint8Array(8 + headerBuf.length + bodyLength);
+  out2.set([67, 73, 69, 49], 0);
+  new DataView(out2.buffer, out2.byteOffset, out2.byteLength).setUint32(4, headerBuf.length, true);
+  out2.set(headerBuf, 8);
+  let off = 8 + headerBuf.length;
   for (const r of index2.records) {
-    for (let d = 0; d < index2.dim; d++) body2.writeInt8(r.vec[d] ?? 0, off++);
+    for (let d = 0; d < index2.dim; d++) out2[off++] = r.vec[d] ?? 0;
   }
-  const out2 = Buffer.alloc(8 + headerBuf.length + body2.length);
-  out2.write(MAGIC, 0, "ascii");
-  out2.writeUInt32LE(headerBuf.length, 4);
-  headerBuf.copy(out2, 8);
-  body2.copy(out2, 8 + headerBuf.length);
   return out2;
 }
 function deserializeEmbeddings(bytes) {
-  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  if (buf.length < 8 || buf.toString("ascii", 0, 4) !== MAGIC) {
+  if (bytes.byteLength < 8 || String.fromCharCode(...bytes.subarray(0, 4)) !== MAGIC) {
     throw new Error("embeddings.bin: bad magic (not a codeindex embeddings artifact)");
   }
-  const headerLen = buf.readUInt32LE(4);
-  const header = JSON.parse(buf.toString("utf8", 8, 8 + headerLen));
+  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const headerLen = data.getUint32(4, true);
+  if (8 + headerLen > bytes.byteLength) throw new Error("embeddings.bin: truncated header");
+  const header = JSON.parse(new TextDecoder().decode(bytes.subarray(8, 8 + headerLen)));
   const bodyOff = 8 + headerLen;
   const { dim } = header;
+  if (bodyOff + header.records.length * dim > bytes.byteLength) throw new Error("embeddings.bin: truncated body");
   const records = header.records.map((m, i2) => {
-    const vec = new Int8Array(dim);
-    for (let d = 0; d < dim; d++) vec[d] = buf.readInt8(bodyOff + i2 * dim + d);
+    const vec = new Int8Array(bytes.buffer.slice(bytes.byteOffset + bodyOff + i2 * dim, bytes.byteOffset + bodyOff + (i2 + 1) * dim));
     const rec = { file: m.file, vec };
     if (m.symbol) rec.symbol = m.symbol;
     if (m.line) rec.line = m.line;
@@ -17078,8 +17585,8 @@ var init_coupling = __esm({
 });
 function tagline(root) {
   for (const name2 of README_NAMES) {
-    const path = join17(root, name2);
-    if (!existsSync7(path)) continue;
+    const path = join16(root, name2);
+    if (!existsSync8(path)) continue;
     let text;
     try {
       text = readFileSync9(path, "utf8");
@@ -17099,7 +17606,7 @@ function tagline(root) {
 }
 function onboardBrief(scan22, graph, opts = {}) {
   const lines = [];
-  const name2 = resolve2(scan22.root).replace(/\/+$/, "").split("/").pop() || "repository";
+  const name2 = resolve3(scan22.root).replace(/\/+$/, "").split("/").pop() || "repository";
   lines.push(`# ${name2}`, "");
   const summary = tagline(scan22.root);
   if (summary) lines.push(summary, "");
@@ -17204,18 +17711,33 @@ function createFramer() {
   };
 }
 function fileUri(root, rel2) {
-  const abs = `${root.replace(/\/+$/, "")}/${rel2.replace(/^\/+/, "")}`;
+  const rootPath = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const relPath = rel2.replace(/\\/g, "/").replace(/^\/+/, "");
+  const abs = `${rootPath}/${relPath}`;
+  if (abs.startsWith("//")) {
+    const [host = "", ...segments] = abs.slice(2).split("/");
+    return `file://${encodeURIComponent(host)}/${segments.map(encodeURIComponent).join("/")}`;
+  }
   const drive = /^([A-Za-z]):/.exec(abs);
   const path = drive ? `/${abs}` : abs;
-  return "file://" + path.split("/").map((segment, i2) => i2 === 0 ? segment : encodeURIComponent(segment)).join("/");
+  return "file://" + path.split("/").map((segment, i2) => i2 === 0 || i2 === 1 && /^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment)).join("/");
 }
 function relFromUri(root, uri) {
   if (!uri.startsWith("file://")) return void 0;
-  let path = decodeURIComponent(uri.slice("file://".length));
+  let path;
+  try {
+    const encoded = uri.slice("file://".length);
+    path = decodeURIComponent(encoded.startsWith("/") ? encoded : `//${encoded}`).replace(/\\/g, "/");
+  } catch {
+    return void 0;
+  }
   if (/^\/[A-Za-z]:/.test(path)) path = path.slice(1);
-  const base = root.replace(/\/+$/, "");
-  if (path === base) return "";
-  if (!path.startsWith(`${base}/`)) return void 0;
+  const base = root.replace(/\\/g, "/").replace(/\/+$/, "");
+  const windows = /^[A-Za-z]:/.test(base) || base.startsWith("//");
+  const comparablePath = windows ? path.toLowerCase() : path;
+  const comparableBase = windows ? base.toLowerCase() : base;
+  if (comparablePath === comparableBase) return "";
+  if (!comparablePath.startsWith(`${comparableBase}/`)) return void 0;
   return path.slice(base.length + 1);
 }
 function locationsToRefs(root, raw) {
@@ -17283,13 +17805,13 @@ async function openLspSession(transport, options) {
   const request = (method, params, budget = timeoutMs) => {
     if (dead) return Promise.reject(dead);
     const id = nextId++;
-    return new Promise((resolve52, reject) => {
+    return new Promise((resolve62, reject) => {
       const timer = setTimeout(() => {
         pending.delete(id);
         reject(new LspTimeout(method, budget));
       }, budget);
       timer.unref?.();
-      pending.set(id, { resolve: resolve52, reject, timer });
+      pending.set(id, { resolve: resolve62, reject, timer });
       transport.write(encodeMessage({ jsonrpc: "2.0", id, method, params }));
     });
   };
@@ -17383,12 +17905,12 @@ function resolveLspConfigPath(repo) {
   if (env !== void 0) {
     const trimmed = env.trim();
     if (!trimmed || trimmed === "0" || trimmed.toLowerCase() === "off") return { path: void 0, source: "none" };
-    return { path: resolve3(trimmed), source: "env" };
+    return { path: resolve4(trimmed), source: "env" };
   }
-  const inRepo = join18(repo, LSP_CONFIG_DIR, LSP_CONFIG_NAME);
-  if (existsSync8(inRepo)) return { path: inRepo, source: "repo" };
-  const inCwd = join18(process.cwd(), LSP_CONFIG_DIR, LSP_CONFIG_NAME);
-  if (inCwd !== inRepo && existsSync8(inCwd)) return { path: inCwd, source: "cwd" };
+  const inRepo = join17(repo, LSP_CONFIG_DIR, LSP_CONFIG_NAME);
+  if (existsSync9(inRepo)) return { path: inRepo, source: "repo" };
+  const inCwd = join17(process.cwd(), LSP_CONFIG_DIR, LSP_CONFIG_NAME);
+  if (inCwd !== inRepo && existsSync9(inCwd)) return { path: inCwd, source: "cwd" };
   return { path: void 0, source: "none" };
 }
 function parseLspConfig(payload) {
@@ -17427,7 +17949,7 @@ function parseLspConfig(payload) {
 }
 function loadLspConfig(repo) {
   const { path } = resolveLspConfigPath(repo);
-  if (!path || !existsSync8(path)) return void 0;
+  if (!path || !existsSync9(path)) return void 0;
   let payload;
   try {
     payload = JSON.parse(readFileSync10(path, "utf8"));
@@ -17469,7 +17991,7 @@ function lspUnavailable(server, reason) {
 }
 function columnOfSymbol(root, rel2, line, name2) {
   try {
-    const lines = readFileSync11(join19(root, rel2), "utf8").split(/\r?\n/);
+    const lines = readFileSync11(join18(root, rel2), "utf8").split(/\r?\n/);
     const index2 = lines[line - 1]?.indexOf(name2) ?? -1;
     return index2 < 0 ? 0 : index2;
   } catch {
@@ -17534,7 +18056,7 @@ function refOrder(a, b) {
 }
 function readTextOrEmpty(root, rel2) {
   try {
-    return readFileSync11(join19(root, rel2), "utf8");
+    return readFileSync11(join18(root, rel2), "utf8");
   } catch {
     return "";
   }
@@ -17899,7 +18421,7 @@ function findDeadCode(scan22) {
   for (const f of scan22.files) {
     for (const s of f.symbols) {
       if (!consider(s)) continue;
-      const entry = callers.get(s.name) ?? callers.get(`${s.name}@${s.file}`);
+      const entry = callers.get(`${s.name}@${s.file}`) ?? callers.get(s.name);
       const hasCallers = !!entry && entry.def.file === s.file && entry.callers.length > 0;
       if (hasCallers) continue;
       const referenced = (refs.get(s.name)?.size ?? 0) > 0;
@@ -18008,9 +18530,13 @@ function validateArgs(schema, args2) {
     if (!spec?.type) continue;
     const actual = Array.isArray(value) ? "array" : typeof value;
     if (spec.type === "number") {
-      if (actual === "number") continue;
-      if (actual === "string" && Number.isFinite(Number(value)) && value.trim() !== "") continue;
-      return `\`${key}\` must be a number, got ${actual === "string" ? JSON.stringify(value) : actual}`;
+      const numeric = actual === "number" ? value : actual === "string" && value.trim() !== "" ? Number(value) : NaN;
+      if (!Number.isFinite(numeric)) {
+        return `\`${key}\` must be a number, got ${actual === "string" ? JSON.stringify(value) : actual}`;
+      }
+      if (spec.minimum !== void 0 && numeric < spec.minimum) return `\`${key}\` must be at least ${spec.minimum}`;
+      if (spec.maximum !== void 0 && numeric > spec.maximum) return `\`${key}\` must be at most ${spec.maximum}`;
+      continue;
     }
     if (spec.type === "array") {
       if (actual !== "array") return `\`${key}\` must be an array of strings, got ${actual}`;
@@ -18040,7 +18566,7 @@ function negotiateProtocol(requested) {
 function capResponse(text, tool, repo, maxBytes) {
   const bytes = Buffer.byteLength(text, "utf8");
   if (bytes <= maxBytes) return text;
-  const artifact = ARTIFACT_FOR[tool] ? join20(repo, INDEX_DIR, ARTIFACT_FOR[tool]) : void 0;
+  const artifact = ARTIFACT_FOR[tool] ? join19(repo, INDEX_DIR, ARTIFACT_FOR[tool]) : void 0;
   return JSON.stringify(
     {
       truncated: true,
@@ -18049,7 +18575,7 @@ function capResponse(text, tool, repo, maxBytes) {
       maxBytes,
       reason: "This response exceeds the configured limit and was withheld rather than sent as an unusable partial payload.",
       narrower: NARROWER[tool] ?? "narrow the request with `scope`, `include`/`exclude`, or a `limit`",
-      ...artifact && existsSync9(artifact) ? { artifact, artifactNote: "The full result is already on disk here \u2014 read it directly if you need all of it." } : artifact ? { artifactNote: `Run \`codeindex index --repo ${repo} --out ${join20(repo, INDEX_DIR)}\` to get this as a file.` } : {}
+      ...artifact && existsSync10(artifact) ? { artifact, artifactNote: "The full result is already on disk here \u2014 read it directly if you need all of it." } : artifact ? { artifactNote: `Run \`codeindex index --repo ${repo} --out ${join19(repo, INDEX_DIR)}\` to get this as a file.` } : {}
     },
     null,
     2
@@ -18238,7 +18764,7 @@ var init_tools = __esm({
               type: "boolean",
               description: "Return only name/kind/file/line \u2014 drop the signature, line span, visibility and language. Roughly 2.5x smaller; use it when you are resolving a path and nothing more (default false)."
             },
-            maxResults: { type: "number", description: "Cap matches (default 50)" }
+            maxResults: { type: "number", minimum: 1, description: "Cap matches (default 50)" }
           },
           required: ["repo", "namePath"]
         }
@@ -18278,7 +18804,7 @@ var init_tools = __esm({
           type: "object",
           properties: {
             ...repoProp,
-            budgetTokens: { type: "number", description: "Token budget for the key-files section (default 900)" },
+            budgetTokens: { type: "number", minimum: 1, description: "Token budget for the key-files section (default 900)" },
             remember: { type: "boolean", description: "Persist the brief as the `onboarding` memory (default true)" }
           },
           required: ["repo"]
@@ -18289,7 +18815,7 @@ var init_tools = __esm({
         description: "Token-budgeted map of the repository: the highest-PageRank files with their key exported signatures, deterministically rendered to fit `budgetTokens` (default 1024). The densest single read to understand an unfamiliar codebase.",
         inputSchema: {
           type: "object",
-          properties: { ...repoProp, budgetTokens: { type: "number", description: "Approximate token budget (default 1024)" } },
+          properties: { ...repoProp, budgetTokens: { type: "number", minimum: 1, description: "Approximate token budget (default 1024)" } },
           required: ["repo"]
         }
       },
@@ -18383,7 +18909,7 @@ var init_tools = __esm({
           properties: {
             ...repoProp,
             ...scopeProps,
-            limit: { type: "number", description: "Cap entries (default: all)" }
+            limit: { type: "number", minimum: 0, description: "Cap entries (default: all)" }
           },
           required: ["repo"]
         }
@@ -18396,10 +18922,10 @@ var init_tools = __esm({
           properties: {
             ...repoProp,
             ...scopeProps,
-            minFiles: { type: "number", description: "Distinct files a value must span (default 2)" },
-            minCount: { type: "number", description: "Total occurrences required (default 3)" },
+            minFiles: { type: "number", minimum: 1, description: "Distinct files a value must span (default 2)" },
+            minCount: { type: "number", minimum: 1, description: "Total occurrences required (default 3)" },
             includeTests: { type: "boolean", description: "Count test files too (default false)" },
-            limit: { type: "number", description: "Cap duplications (default: all)" }
+            limit: { type: "number", minimum: 0, description: "Cap duplications (default: all)" }
           },
           required: ["repo"]
         }
@@ -18409,7 +18935,13 @@ var init_tools = __esm({
         description: "Cyclomatic-complexity estimates (branch-token counting over AST line spans), most-complex first. Pass `file` for one file's symbols, omit for the repo-wide top. Combine with hotspots: the `risk` field of this tool's sibling ranks complexity \xD7 churn.",
         inputSchema: {
           type: "object",
-          properties: { ...repoProp, file: { type: "string" }, risk: { type: "boolean", description: "Return complexity \xD7 git-churn risk ranking instead" } },
+          properties: {
+            ...repoProp,
+            file: { type: "string" },
+            risk: { type: "boolean", description: "Return complexity \xD7 git-churn risk ranking instead" },
+            since: { type: "string", description: "Only count risk churn after this ref" },
+            top: { type: "number", minimum: 1, description: "Cap ranked symbols" }
+          },
           required: ["repo"]
         }
       },
@@ -18418,7 +18950,11 @@ var init_tools = __esm({
         description: "Mermaid diagram of the module graph (renders inline in Claude/GitHub \u2014 no graph database). Optionally scoped to one module's neighborhood.",
         inputSchema: {
           type: "object",
-          properties: { ...repoProp, module: { type: "string", description: "Module slug to focus on" } },
+          properties: {
+            ...repoProp,
+            module: { type: "string", description: "Module slug to focus on" },
+            maxEdges: { type: "number", minimum: 1, description: "Cap rendered edges" }
+          },
           required: ["repo"]
         }
       },
@@ -18433,7 +18969,7 @@ var init_tools = __esm({
             scope: { type: "string", description: "Restrict to one directory (repo-relative)" },
             globs: { type: "array", items: { type: "string" }, description: "Restrict to matching paths" },
             ignoreCase: { type: "boolean" },
-            maxHits: { type: "number" }
+            maxHits: { type: "number", minimum: 1 }
           },
           required: ["repo", "pattern"]
         }
@@ -18447,7 +18983,7 @@ var init_tools = __esm({
             ...repoProp,
             ...scopeProps,
             query: { type: "string", description: "Natural-language or identifier query" },
-            limit: { type: "number", description: "Max results (default 20)" },
+            limit: { type: "number", minimum: 0, description: "Max results (default 20)" },
             fuzzy: {
               type: "boolean",
               description: 'Fallback for query terms with zero document frequency: a morphological stem match first ("caching" finds "cache"), then trigram similarity for typos (default true)'
@@ -18481,7 +19017,7 @@ var init_tools = __esm({
             ...repoProp,
             ...scopeProps,
             query: { type: "string", description: "Natural-language or identifier query" },
-            limit: { type: "number", description: "Max results (default 20)" },
+            limit: { type: "number", minimum: 0, description: "Max results (default 20)" },
             fuzzy: { type: "boolean", description: "Stem/trigram fallback for zero-document-frequency terms (default true)" },
             exact: { type: "boolean", description: "Drop results carrying no verbatim term match (default false)" }
           },
@@ -18519,7 +19055,7 @@ var init_tools = __esm({
           properties: {
             ...repoProp,
             symbol: { type: "string", description: "Symbol name to centre on" },
-            depth: { type: "number", description: "Hops to follow (default 2, max 5)" },
+            depth: { type: "number", minimum: 1, maximum: 5, description: "Hops to follow (default 2, max 5)" },
             direction: { type: "string", description: "out | in | both (default both)" }
           },
           required: ["repo", "symbol"]
@@ -18783,7 +19319,7 @@ async function memoizedEmbeddingIndex(key, build) {
 function memoizedEmbedModel(modelDir) {
   let stat;
   try {
-    stat = statSync5(join21(modelDir, "model.json"));
+    stat = statSync7(join20(modelDir, "model.json"));
   } catch {
     return void 0;
   }
@@ -18810,6 +19346,14 @@ function sessionPut(entry) {
 function sessionClear() {
   sessionCaches.length = 0;
 }
+function sessionInvalidate(repo, rel2) {
+  const prefix = repo + "\0";
+  for (const entry of sessionCaches) {
+    if (!entry.key.startsWith(prefix)) continue;
+    if (rel2) entry.cacheMap.delete(rel2);
+    else entry.cacheMap.clear();
+  }
+}
 function sessionKey(repo, opts) {
   return repo + "\0" + JSON.stringify({
     scope: opts.scope,
@@ -18831,7 +19375,11 @@ function getScan(repo, opts = {}, walked) {
     const fresh2 = scanRepo(repo, { ...opts, cache: hit.cacheMap, precomputedWalk: walked });
     if (fresh2.contentUnchanged) {
       if (fresh2.cacheDirty) hit.cacheMap = toCacheMap(fresh2);
-      if (hit.scan.commit !== fresh2.commit) hit.scan.commit = fresh2.commit;
+      if (hit.scan.commit !== fresh2.commit) {
+        hit.scan.commit = fresh2.commit;
+        hit.arts = void 0;
+        hit.loadArtifacts = void 0;
+      }
       return hit.scan;
     }
     sessionPut({ key, scan: fresh2, cacheMap: toCacheMap(fresh2) });
@@ -18839,31 +19387,77 @@ function getScan(repo, opts = {}, walked) {
   }
   const preloaded = preloadSession(repo, { ...opts, precomputedWalk: walked });
   if (preloaded) {
-    sessionPut({ key, scan: preloaded.scan, cacheMap: preloaded.cacheMap, arts: preloaded.arts });
+    sessionPut({
+      key,
+      scan: preloaded.scan,
+      cacheMap: preloaded.cacheMap,
+      arts: preloaded.arts
+    });
     return preloaded.scan;
   }
   const scan22 = scanRepo(repo, { ...opts, precomputedWalk: walked });
   sessionPut({ key, scan: scan22, cacheMap: toCacheMap(scan22) });
   return scan22;
 }
-function getScanSummary(repo, opts = {}, walked) {
-  if (sessionCaches.some((e) => e.key === sessionKey(repo, opts))) {
-    const scan22 = getScan(repo, opts, walked);
-    return {
-      root: scan22.root,
-      commit: scan22.commit,
-      fileCount: scan22.files.length,
-      languages: scan22.languages,
-      capped: scan22.capped,
-      excluded: scan22.excluded
+async function getScanParallel(repo, opts = {}, walked, warm = async () => {
+}) {
+  const key = sessionKey(repo, opts);
+  const existing = sessionCaches.find((entry) => entry.key === key);
+  if (existing) {
+    const originalCache = existing.cacheMap;
+    const reuseUnchanged = (fresh2) => {
+      if (fresh2.cacheDirty) existing.cacheMap = toCacheMap(fresh2);
+      if (existing.scan.commit !== fresh2.commit) {
+        existing.scan.commit = fresh2.commit;
+        existing.arts = void 0;
+        existing.loadArtifacts = void 0;
+      }
+      sessionGet(key);
+      return existing.scan;
     };
+    if (walked && needsGrammarWarm(walked, originalCache, opts.fullHash)) {
+      await warm();
+      const fresh2 = await scanRepoParallel(repo, { ...opts, cache: originalCache, precomputedWalk: walked });
+      if (fresh2.contentUnchanged) return reuseUnchanged(fresh2);
+      sessionPut({ key, scan: fresh2, cacheMap: toCacheMap(fresh2) });
+      return fresh2;
+    }
+    const provisional = scanRepo(repo, { ...opts, cache: originalCache, precomputedWalk: walked });
+    if (provisional.contentUnchanged) {
+      return reuseUnchanged(provisional);
+    }
+    if (walked) {
+      sessionPut({ key, scan: provisional, cacheMap: toCacheMap(provisional) });
+      return provisional;
+    }
+    await warm();
+    const scan3 = await scanRepoParallel(repo, { ...opts, cache: originalCache, precomputedWalk: walked });
+    sessionPut({ key, scan: scan3, cacheMap: toCacheMap(scan3) });
+    return scan3;
   }
+  const preloaded = await preloadSessionLazy(repo, { ...opts, precomputedWalk: walked }, warm);
+  if (preloaded) {
+    sessionPut({
+      key,
+      scan: preloaded.scan,
+      cacheMap: preloaded.cacheMap,
+      arts: preloaded.arts,
+      loadArtifacts: preloaded.loadArtifacts
+    });
+    return preloaded.scan;
+  }
+  await warm();
+  const scan22 = await scanRepoParallel(repo, { ...opts, precomputedWalk: walked });
+  sessionPut({ key, scan: scan22, cacheMap: toCacheMap(scan22) });
+  return scan22;
+}
+function getScanSummary(repo, opts = {}, walked) {
   return scanSummary(repo, { ...opts, precomputedWalk: walked });
 }
-function getArtifacts(repo, opts = {}, walked) {
-  const scan22 = getScan(repo, opts, walked);
+function getArtifacts(repo, opts = {}, walked, prepared) {
+  const scan22 = prepared ?? getScan(repo, opts, walked);
   const entry = sessionCaches.find((e) => e.scan === scan22);
-  if (entry) return entry.arts ??= buildArtifactsFromScan(scan22, opts);
+  if (entry) return entry.arts ??= entry.loadArtifacts?.() ?? buildArtifactsFromScan(scan22, opts);
   return buildArtifactsFromScan(scan22, opts);
 }
 async function warmGrammarsForRepo(repo) {
@@ -18881,6 +19475,7 @@ var init_session = __esm({
     "use strict";
     init_pipeline();
     init_scan();
+    init_pool();
     init_preload();
     init_walk();
     init_loader();
@@ -18903,6 +19498,7 @@ __export(mcp_exports, {
   capResponse: () => capResponse,
   getArtifacts: () => getArtifacts,
   getScan: () => getScan,
+  getScanParallel: () => getScanParallel,
   getScanSummary: () => getScanSummary,
   memoizedEmbedModel: () => memoizedEmbedModel,
   memoizedEmbeddingIndex: () => memoizedEmbeddingIndex,
@@ -18919,6 +19515,17 @@ __export(mcp_exports, {
   warmGrammarsForRepo: () => warmGrammarsForRepo,
   warmGrammarsForWalk: () => warmGrammarsForWalk
 });
+function isRpcRequest(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const req = value;
+  if (req.jsonrpc !== "2.0" || typeof req.method !== "string") return false;
+  return req.id === void 0 || req.id === null || typeof req.id === "number" || typeof req.id === "string";
+}
+function isRpcResponse(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const response = value;
+  return response.jsonrpc === "2.0" && typeof response.method !== "string" && ("result" in response || "error" in response);
+}
 function str(v) {
   return typeof v === "string" && v ? v : void 0;
 }
@@ -18927,7 +19534,11 @@ function strArray(v) {
 }
 function num(v) {
   const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
-  return Number.isFinite(n) && n > 0 ? n : void 0;
+  return Number.isFinite(n) && n >= 0 ? n : void 0;
+}
+function positiveNum(v) {
+  const n = num(v);
+  return n !== void 0 && n > 0 ? n : void 0;
 }
 function errMessage(e) {
   return e instanceof Error ? e.message : String(e);
@@ -18935,14 +19546,27 @@ function errMessage(e) {
 async function callTool(name2, args2, defaultRepo) {
   const repo = str(args2.repo) ?? defaultRepo;
   if (!repo) throw new Error("`repo` is required (absolute path to the repository root)");
+  try {
+    if (!statSync8(repo).isDirectory()) throw new Error("not a directory");
+  } catch {
+    throw new Error(`repository root is not a readable directory: ${repo}`);
+  }
   const scanOpts = { scope: str(args2.scope), include: strArray(args2.include), exclude: strArray(args2.exclude) };
   const rankArg = str(args2.rank);
   const rankOpt = rankArg === "graph" || rankArg === "lexical" ? { rank: rankArg } : {};
   let walked;
+  let preparedScan;
   if (!SCANLESS_TOOLS.has(name2)) {
     walked = walk2(repo, {});
-    await warmGrammarsForWalk(walked);
+    preparedScan = await getScanParallel(
+      repo,
+      scanOpts,
+      walked,
+      () => walked ? warmGrammarsForWalk(walked) : Promise.resolve()
+    );
   }
+  const readScan = () => preparedScan ?? getScan(repo, scanOpts, walked);
+  const readArtifacts = () => getArtifacts(repo, scanOpts, walked, preparedScan);
   if (name2 === "scan_summary") {
     const s = getScanSummary(repo, scanOpts, walked);
     return JSON.stringify(
@@ -18952,10 +19576,10 @@ async function callTool(name2, args2, defaultRepo) {
     );
   }
   if (name2 === "graph") {
-    return renderGraphJson(getArtifacts(repo, scanOpts, walked).graph);
+    return renderGraphJson(readArtifacts().graph);
   }
   if (name2 === "symbols") {
-    const { symbols } = getArtifacts(repo, scanOpts, walked);
+    const { symbols } = readArtifacts();
     const lookup = str(args2.name);
     if (lookup) {
       return JSON.stringify({ name: lookup, defs: symbols.defs[lookup] ?? [], refs: symbols.refs[lookup] ?? [] }, null, 2);
@@ -18963,7 +19587,7 @@ async function callTool(name2, args2, defaultRepo) {
     return JSON.stringify(symbols, null, 2);
   }
   if (name2 === "callers") {
-    const scan22 = getScan(repo, scanOpts, walked);
+    const scan22 = readScan();
     const index2 = args2.recall === true ? buildCallerIndex(scan22, void 0, { recall: true }) : callerIndexFor(scan22);
     const lookup = str(args2.name);
     if (lookup) {
@@ -18987,35 +19611,35 @@ async function callTool(name2, args2, defaultRepo) {
   if (name2 === "symbols_overview") {
     const file = str(args2.file);
     if (!file) throw new Error("`file` is required");
-    return JSON.stringify(symbolsOverview(getScan(repo, scanOpts, walked), file), null, 2);
+    return JSON.stringify(symbolsOverview(readScan(), file), null, 2);
   }
   if (name2 === "find_symbol") {
     const namePath = str(args2.namePath);
     if (!namePath) throw new Error("`namePath` is required");
-    const matches2 = findSymbol(getScan(repo, scanOpts, walked), namePath, {
+    const matches2 = findSymbol(readScan(), namePath, {
       substring: args2.substring === true,
       includeBody: args2.includeBody === true,
       concise: args2.concise === true,
-      maxResults: num(args2.maxResults)
+      maxResults: positiveNum(args2.maxResults)
     });
     return JSON.stringify(matches2, null, 2);
   }
   if (name2 === "find_references") {
     const symName = str(args2.name);
     if (!symName) throw new Error("`name` is required");
-    const scan22 = getScan(repo, scanOpts, walked);
+    const scan22 = readScan();
     const statik = findReferences(scan22, symName);
     if (args2.lsp === true) return JSON.stringify(await referencesWithLsp(scan22, repo, symName, statik), null, 2);
     return JSON.stringify(statik, null, 2);
   }
   if (name2 === "lsp_status") {
-    return JSON.stringify(await lspStatus(getScan(repo, scanOpts, walked), repo, args2.probe === true), null, 2);
+    return JSON.stringify(await lspStatus(readScan(), repo, args2.probe === true), null, 2);
   }
   if (name2 === "replace_symbol_body" || name2 === "insert_after_symbol" || name2 === "insert_before_symbol") {
     const namePath = str(args2.namePath);
     const body2 = typeof args2.body === "string" ? args2.body : void 0;
     if (!namePath || body2 === void 0) throw new Error("`namePath` and `body` are required");
-    const scan22 = getScan(repo, scanOpts, walked);
+    const scan22 = readScan();
     const fn = name2 === "replace_symbol_body" ? replaceSymbolBody : name2 === "insert_after_symbol" ? insertAfterSymbol : insertBeforeSymbol;
     const result = fn(scan22, namePath, body2, str(args2.file));
     sessionClear();
@@ -19043,15 +19667,15 @@ async function callTool(name2, args2, defaultRepo) {
     return JSON.stringify({ deleted: deleteMemory(repo, memName) }, null, 2);
   }
   if (name2 === "dead_code") {
-    const all = findDeadCode(getScan(repo, scanOpts, walked));
+    const all = findDeadCode(readScan());
     const limit = num(args2.limit);
     if (limit === void 0 || all.length <= limit) return JSON.stringify(all, null, 2);
     return JSON.stringify({ total: all.length, shown: limit, truncated: true, candidates: all.slice(0, limit) }, null, 2);
   }
   if (name2 === "duplicated_literals") {
-    const report = findLiteralDuplications(getScan(repo, scanOpts, walked), {
-      minFiles: num(args2.minFiles),
-      minCount: num(args2.minCount),
+    const report = findLiteralDuplications(readScan(), {
+      minFiles: positiveNum(args2.minFiles),
+      minCount: positiveNum(args2.minCount),
       includeTests: args2.includeTests === true
     });
     const limit = num(args2.limit);
@@ -19069,23 +19693,23 @@ async function callTool(name2, args2, defaultRepo) {
     );
   }
   if (name2 === "complexity") {
-    const scan22 = getScan(repo, scanOpts, walked);
+    const scan22 = readScan();
     if (args2.risk === true) {
       const { churn, ok } = gitChurn(repo, { since: str(args2.since) });
-      return JSON.stringify({ churnOk: ok, risks: riskHotspots(scan22, churn, num(args2.top)) }, null, 2);
+      return JSON.stringify({ churnOk: ok, risks: riskHotspots(scan22, churn, positiveNum(args2.top)) }, null, 2);
     }
-    return JSON.stringify(symbolComplexity(scan22, str(args2.file), num(args2.top)), null, 2);
+    return JSON.stringify(symbolComplexity(scan22, str(args2.file), positiveNum(args2.top)), null, 2);
   }
   if (name2 === "mermaid") {
-    const { graph } = getArtifacts(repo, scanOpts, walked);
-    return renderMermaid(graph, { module: str(args2.module), maxEdges: num(args2.maxEdges) });
+    const { graph } = readArtifacts();
+    return renderMermaid(graph, { module: str(args2.module), maxEdges: positiveNum(args2.maxEdges) });
   }
   if (name2 === "onboard") {
-    const scan22 = getScan(repo, scanOpts, walked);
-    const { graph } = getArtifacts(repo, scanOpts, walked);
+    const scan22 = readScan();
+    const { graph } = readArtifacts();
     return JSON.stringify(
       onboardBrief(scan22, graph, {
-        ...typeof args2.budgetTokens === "number" ? { budgetTokens: args2.budgetTokens } : {},
+        ...positiveNum(args2.budgetTokens) !== void 0 ? { budgetTokens: positiveNum(args2.budgetTokens) } : {},
         ...args2.remember === false ? { remember: false } : {}
       }),
       null,
@@ -19093,11 +19717,11 @@ async function callTool(name2, args2, defaultRepo) {
     );
   }
   if (name2 === "repo_map") {
-    const { scan: scan22, graph } = getArtifacts(repo, scanOpts, walked);
-    return renderRepoMap(scan22, graph, { budgetTokens: typeof args2.budgetTokens === "number" ? args2.budgetTokens : void 0 });
+    const { scan: scan22, graph } = readArtifacts();
+    return renderRepoMap(scan22, graph, { budgetTokens: positiveNum(args2.budgetTokens) });
   }
   if (name2 === "hotspots") {
-    const scan22 = getScan(repo, scanOpts, walked);
+    const scan22 = readScan();
     const { churn, ok } = gitChurn(repo, { since: str(args2.since) });
     return JSON.stringify({ churnOk: ok, hotspots: rankHotspots(scan22, churn) }, null, 2);
   }
@@ -19113,15 +19737,15 @@ async function callTool(name2, args2, defaultRepo) {
     const hits = grepRepo(repo, pattern, {
       globs: scope ? [...globs ?? [], `${scope.replace(/\/+$/, "")}/**`] : globs,
       ignoreCase: args2.ignoreCase === true,
-      maxHits: typeof args2.maxHits === "number" ? args2.maxHits : void 0
+      maxHits: positiveNum(args2.maxHits)
     });
     return JSON.stringify(hits, null, 2);
   }
   if (name2 === "search") {
     const query = str(args2.query);
     if (!query) throw new Error("`query` is required");
-    const scan22 = getScan(repo, scanOpts, walked);
-    const limit = typeof args2.limit === "number" ? args2.limit : void 0;
+    const scan22 = readScan();
+    const limit = num(args2.limit);
     const fuzzy = typeof args2.fuzzy === "boolean" ? args2.fuzzy : void 0;
     const exactOpt = args2.exact === true ? { exact: true } : {};
     if (args2.semantic === true) {
@@ -19164,8 +19788,8 @@ async function callTool(name2, args2, defaultRepo) {
   if (name2 === "explain_search") {
     const query = str(args2.query);
     if (!query) throw new Error("`query` is required");
-    const scan22 = getScan(repo, scanOpts, walked);
-    const limit = typeof args2.limit === "number" ? args2.limit : void 0;
+    const scan22 = readScan();
+    const limit = num(args2.limit);
     const fuzzy = typeof args2.fuzzy === "boolean" ? args2.fuzzy : void 0;
     const { results, explain } = explainQuery(scan22, query, {
       limit,
@@ -19190,7 +19814,7 @@ async function callTool(name2, args2, defaultRepo) {
     return JSON.stringify(status2, null, 2);
   }
   if (name2 === "type_hierarchy") {
-    const hierarchy = hierarchyFor(getScan(repo, scanOpts, walked));
+    const hierarchy = hierarchyFor(readScan());
     const wanted = str(args2.name);
     if (!wanted) {
       const obj = {};
@@ -19204,7 +19828,7 @@ async function callTool(name2, args2, defaultRepo) {
   if (name2 === "implementations") {
     const wanted = str(args2.name);
     if (!wanted) throw new Error("`name` is required");
-    const hierarchy = hierarchyFor(getScan(repo, scanOpts, walked));
+    const hierarchy = hierarchyFor(readScan());
     if (!hierarchy.has(wanted)) return JSON.stringify({ error: `no type named ${wanted}` }, null, 2);
     return JSON.stringify({ name: wanted, implementations: implementationsOf(hierarchy, wanted) }, null, 2);
   }
@@ -19213,8 +19837,8 @@ async function callTool(name2, args2, defaultRepo) {
     if (!symbol) throw new Error("`symbol` is required");
     const direction = str(args2.direction);
     const dir = direction === "out" || direction === "in" ? direction : "both";
-    const result = neighborhood(symbolGraphFor(getScan(repo, scanOpts, walked)), symbol, {
-      ...typeof args2.depth === "number" ? { depth: args2.depth } : {},
+    const result = neighborhood(symbolGraphFor(readScan()), symbol, {
+      ...positiveNum(args2.depth) !== void 0 ? { depth: positiveNum(args2.depth) } : {},
       direction: dir
     });
     if (!result.root.length) return JSON.stringify({ error: `no symbol named ${symbol}` }, null, 2);
@@ -19224,7 +19848,7 @@ async function callTool(name2, args2, defaultRepo) {
     const configPath = str(args2.configPath);
     let payload = args2.rules;
     if (payload === void 0 && configPath) {
-      const abs = isAbsolute(configPath) ? configPath : join222(repo, configPath);
+      const abs = isAbsolute(configPath) ? configPath : join21(repo, configPath);
       try {
         payload = JSON.parse(readFileSync12(abs, "utf8"));
       } catch (e) {
@@ -19233,7 +19857,7 @@ async function callTool(name2, args2, defaultRepo) {
     }
     if (payload === void 0) throw new Error("`rules` (or `configPath`) is required");
     const rules = parseRules(payload);
-    const { graph } = getArtifacts(repo, scanOpts, walked);
+    const { graph } = readArtifacts();
     return JSON.stringify(checkRules(graph, rules), null, 2);
   }
   throw new Error(`unknown tool: ${name2}`);
@@ -19245,31 +19869,81 @@ async function runMcpServer(opts = {}) {
   };
   let protocolVersion = PROTOCOL_VERSIONS[0];
   let tools = toolsFor(opts.defaultRepo, protocolVersion, opts.profile);
+  let watcher;
+  if (opts.watch && opts.defaultRepo) {
+    try {
+      watcher = watchFs(opts.defaultRepo, { recursive: true }, (_event, filename) => {
+        const rel2 = filename?.toString().replaceAll("\\", "/") ?? "";
+        const ignored = rel2.split("/").some(
+          (segment) => IGNORE_DIRS2.has(segment) || segment.startsWith(".codeindex-edit-")
+        );
+        if (ignored) return;
+        sessionInvalidate(opts.defaultRepo, rel2 || void 0);
+      });
+      watcher.on("error", (error) => {
+        process.stderr.write(`codeindex: MCP watcher disabled (${error.message}); using freshness scans
+`);
+        watcher?.close();
+        watcher = void 0;
+        sessionInvalidate(opts.defaultRepo);
+      });
+    } catch (error) {
+      process.stderr.write(
+        `codeindex: MCP watcher unavailable (${error instanceof Error ? error.message : String(error)}); using freshness scans
+`
+      );
+    }
+  }
   const send = (msg) => {
-    process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...msg }) + "\n");
+    const wire = Array.isArray(msg) ? msg.map((entry) => ({ jsonrpc: "2.0", ...entry })) : { jsonrpc: "2.0", ...msg };
+    process.stdout.write(JSON.stringify(wire) + "\n");
   };
   const rl = createInterface({ input: process.stdin, terminal: false });
-  for await (const line of rl) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let parsed;
-    try {
-      parsed = JSON.parse(trimmed);
-    } catch {
-      send({ id: null, error: { code: -32700, message: "parse error" } });
-      continue;
+  try {
+    for await (const line of rl) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      let parsed;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        send({ id: null, error: { code: -32700, message: "parse error" } });
+        continue;
+      }
+      if (Array.isArray(parsed) && parsed.length === 0) {
+        send({ id: null, error: { code: -32600, message: "invalid request" } });
+        continue;
+      }
+      const dispatch = async (req) => {
+        if (isRpcResponse(req)) return void 0;
+        if (!isRpcRequest(req)) {
+          return { id: null, error: { code: -32600, message: "invalid request" } };
+        }
+        return handle2(req);
+      };
+      if (Array.isArray(parsed)) {
+        const replies = [];
+        for (const req of parsed) {
+          const reply = await dispatch(req);
+          if (reply) replies.push(reply);
+        }
+        if (replies.length > 0) send(replies);
+      } else {
+        const reply = await dispatch(parsed);
+        if (reply) send(reply);
+      }
     }
-    const requests = Array.isArray(parsed) ? parsed : [parsed];
-    for (const req of requests) await handle2(req);
+  } finally {
+    watcher?.close();
   }
   async function handle2(req) {
-    if (req.id === void 0 || req.id === null) return;
+    const notification = !("id" in req);
+    const respond = (body2) => notification ? void 0 : { id: req.id ?? null, ...body2 };
     try {
       if (req.method === "initialize") {
         protocolVersion = negotiateProtocol(req.params?.protocolVersion);
         tools = toolsFor(opts.defaultRepo, protocolVersion, opts.profile);
-        send({
-          id: req.id,
+        return respond({
           result: {
             protocolVersion,
             capabilities: { tools: {} },
@@ -19277,9 +19951,9 @@ async function runMcpServer(opts = {}) {
           }
         });
       } else if (req.method === "ping") {
-        send({ id: req.id, result: {} });
+        return respond({ result: {} });
       } else if (req.method === "tools/list") {
-        send({ id: req.id, result: { tools } });
+        return respond({ result: { tools } });
       } else if (req.method === "tools/call") {
         const params = req.params ?? {};
         const name2 = str(params.name) ?? "";
@@ -19296,24 +19970,22 @@ async function runMcpServer(opts = {}) {
           const capped = text !== raw;
           const link = capped && protocolVersion >= RICH_TOOLS_SINCE ? resourceLinkFor(text, name2) : void 0;
           const structured = protocolVersion >= RICH_TOOLS_SINCE ? structuredContentFor(text, capped, OUTPUT_SCHEMAS[name2] !== void 0) : void 0;
-          send({
-            id: req.id,
+          return respond({
             result: {
               content: link ? [{ type: "text", text }, link] : [{ type: "text", text }],
               ...structured ? { structuredContent: structured } : {}
             }
           });
         } catch (e) {
-          send({
-            id: req.id,
+          return respond({
             result: { content: [{ type: "text", text: e instanceof Error ? e.message : String(e) }], isError: true }
           });
         }
       } else {
-        send({ id: req.id, error: { code: -32601, message: `method not found: ${req.method}` } });
+        return respond({ error: { code: -32601, message: `method not found: ${req.method}` } });
       }
     } catch (e) {
-      send({ id: req.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
+      return respond({ error: { code: -32603, message: e instanceof Error ? e.message : String(e) } });
     }
   }
 }
@@ -19365,8 +20037,7 @@ var init_mcp = __esm({
       "delete_memory",
       "embed_status",
       // scan_summary counts and classifies by path only — it never parses, so the
-      // grammar warm (a whole extra walk) would be pure overhead. When a scan is
-      // already cached getScanSummary reuses it, warm grammars included.
+      // grammar warm (a whole extra walk) would be pure overhead.
       "scan_summary"
     ]);
   }
@@ -19490,129 +20161,7 @@ init_walk();
 init_scan();
 init_scan();
 init_preload();
-init_hash();
-init_walk();
-init_registry();
-init_loader();
-init_scan();
-function resolveEngineUrl() {
-  try {
-    const here = fileURLToPath2(import.meta.url);
-    if (here.endsWith("engine.mjs")) return pathToFileURL(here).href;
-    const adjacent = join4(dirname2(here), "engine.mjs");
-    if (existsSync2(adjacent)) return pathToFileURL(adjacent).href;
-    return void 0;
-  } catch {
-    return void 0;
-  }
-}
-var WORKER_TIMEOUT_MS = 10 * 60 * 1e3;
-function workerCount(requested) {
-  const env = process.env["CODEINDEX_WORKERS"];
-  const raw = requested ?? (env !== void 0 && env !== "" ? Number(env) : void 0);
-  if (raw !== void 0) return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : 0;
-  let cores = 1;
-  try {
-    cores = availableParallelism();
-  } catch {
-    cores = 1;
-  }
-  return Math.max(0, Math.min(cores - 1, 8));
-}
-async function runExtractWorker(input, post) {
-  await ensureGrammars(input.grammarKeys);
-  const ready = input.grammarKeys.filter((k) => grammarReady(k));
-  const records = [];
-  for (const job of input.jobs) {
-    let size;
-    let mtimeMs;
-    try {
-      const st = statSync22(job.abs);
-      size = st.size;
-      mtimeMs = st.mtimeMs;
-    } catch {
-      continue;
-    }
-    const content = readText(job.abs);
-    const record = buildCodeRecord(job.rel, job.ext, size, content, sha1(content), extToLang(job.ext), {
-      maxCallsPerFile: input.maxCallsPerFile
-    });
-    records.push({ rel: job.rel, size, mtimeMs, record });
-  }
-  post({ ready, records });
-}
-async function extractInParallel(jobs, grammarKeys, count, opts = {}) {
-  if (count < 2 || jobs.length === 0) return void 0;
-  const engineUrl = resolveEngineUrl();
-  if (!engineUrl) return void 0;
-  const wanted = grammarKeys.filter((k) => grammarReady(k)).sort();
-  const shards = Array.from({ length: Math.min(count, jobs.length) }, () => []);
-  jobs.forEach((j, i2) => shards[i2 % shards.length].push(j));
-  const bootstrap = `import { runExtractWorker } from ${JSON.stringify(engineUrl)};
-import { parentPort, workerData } from "node:worker_threads";
-runExtractWorker(workerData.input, (o) => parentPort.postMessage(o)).catch((e) => parentPort.postMessage({ error: String(e) }));
-`;
-  try {
-    const outputs = await Promise.all(
-      shards.map(
-        (jobsForShard) => new Promise((resolve52, reject) => {
-          const w = new Worker(bootstrap, {
-            eval: true,
-            workerData: { input: { jobs: jobsForShard, grammarKeys: wanted, maxCallsPerFile: opts.maxCallsPerFile } }
-          });
-          const timer = setTimeout(() => {
-            reject(new Error("extraction worker timed out"));
-            void w.terminate();
-          }, WORKER_TIMEOUT_MS);
-          const settle = (fn) => {
-            clearTimeout(timer);
-            fn();
-          };
-          w.once("message", (m) => {
-            settle(() => resolve52(m));
-            void w.terminate();
-          });
-          w.once("error", (e) => settle(() => reject(e)));
-          w.once("exit", (code) => {
-            if (code !== 0) settle(() => reject(new Error(`extraction worker exited with ${code}`)));
-          });
-        })
-      )
-    );
-    const out2 = /* @__PURE__ */ new Map();
-    for (const o of outputs) {
-      if ("error" in o) return void 0;
-      if (o.ready.slice().sort().join(",") !== wanted.join(",")) return void 0;
-      for (const r of o.records) out2.set(r.rel, { size: r.size, mtimeMs: r.mtimeMs, record: r.record });
-    }
-    return out2;
-  } catch {
-    return void 0;
-  }
-}
-async function scanRepoParallel(root, opts = {}) {
-  const count = workerCount(opts.workers);
-  if (count < 2) return scanRepo(root, opts);
-  const walked = opts.precomputedWalk ?? walk2(root, {
-    maxFileBytes: opts.maxBytes,
-    maxFiles: opts.maxFiles,
-    gitignore: opts.gitignore,
-    ignoreDirs: opts.ignoreDirs
-  });
-  const scanOpts = { ...opts, precomputedWalk: walked };
-  const jobs = [];
-  for (const { f } of keptCodeFiles(root, scanOpts)) {
-    const cached = opts.cache?.get(f.rel);
-    if (!opts.fullHash && cached && cached.size !== void 0 && cached.mtimeMs !== void 0 && cached.size === f.size && cached.mtimeMs === f.mtimeMs) {
-      continue;
-    }
-    jobs.push({ abs: f.abs, rel: f.rel, ext: f.ext });
-  }
-  if (jobs.length === 0) return scanRepo(root, scanOpts);
-  const grammarKeys = grammarKeysForExts(walked.files.map((f) => f.ext));
-  const extracted = await extractInParallel(jobs, grammarKeys, count, { maxCallsPerFile: opts.maxCallsPerFile });
-  return scanRepo(root, extracted ? { ...scanOpts, extracted } : scanOpts);
-}
+init_pool();
 init_glob();
 init_ignore();
 init_classify();
@@ -19759,7 +20308,7 @@ function queryFor(key, language) {
   let compiled = null;
   for (const dir of resolveGrammarsTier().dirs) {
     const path = join5(dir, `${key}.tags.scm`);
-    if (!existsSync3(path)) continue;
+    if (!existsSync4(path)) continue;
     try {
       compiled = new Query2(language, readFileSync4(path, "utf8"));
     } catch {
@@ -19771,7 +20320,7 @@ function queryFor(key, language) {
   return compiled;
 }
 function tagsQueryStatus(key) {
-  const present = resolveGrammarsTier().dirs.some((d) => existsSync3(join5(d, `${key}.tags.scm`)));
+  const present = resolveGrammarsTier().dirs.some((d) => existsSync4(join5(d, `${key}.tags.scm`)));
   if (!present) return { present: false, compiled: false };
   const language = languageFor(key);
   if (!language) return { present: true, compiled: false };
@@ -19888,13 +20437,13 @@ function safeRelPath(name2) {
   return out2.length ? out2.join("/") : null;
 }
 function extractTarInto(rawTar, destDir) {
-  const root = resolve(destDir);
+  const root = resolve22(destDir);
   const written = [];
   for (const entry of readTar(asBuffer(rawTar))) {
     if (entry.type !== "0" && entry.type !== "\0") continue;
     const rel2 = safeRelPath(entry.name);
     if (rel2 === null) throw new Error(`refusing unsafe tar entry: ${entry.name}`);
-    const dest = resolve(destDir, rel2);
+    const dest = resolve22(destDir, rel2);
     if (dest !== root && !dest.startsWith(root + sep22)) {
       throw new Error(`tar entry escapes destination: ${entry.name}`);
     }
@@ -19908,6 +20457,64 @@ function extractGrammarsTarball(bytes, destDir) {
   const b = asBuffer(bytes);
   const raw = b.length >= 2 && b[0] === 31 && b[1] === 139 ? gunzipSync(b) : b;
   return extractTarInto(raw, destDir);
+}
+function installGrammarCacheAtomically(tempDir, cacheDir, markerPath, expectedSha256, rename = renameSync, cleanup = rmSync) {
+  const parent = dirname3(cacheDir);
+  const swapDir = mkdtempSync(join6(parent, ".grammars-swap-"));
+  const previousCache = join6(swapDir, "previous-cache");
+  const previousMarker = join6(swapDir, "previous-marker");
+  const nextMarker = join6(swapDir, "next-marker");
+  let cacheBackedUp = false;
+  let markerBackedUp = false;
+  let cacheInstalled = false;
+  let markerInstalled = false;
+  try {
+    if (expectedSha256) writeFileSync(nextMarker, expectedSha256 + "\n");
+    if (existsSync5(cacheDir)) {
+      rename(cacheDir, previousCache);
+      cacheBackedUp = true;
+    }
+    if (existsSync5(markerPath)) {
+      rename(markerPath, previousMarker);
+      markerBackedUp = true;
+    }
+    rename(tempDir, cacheDir);
+    cacheInstalled = true;
+    if (expectedSha256) {
+      rename(nextMarker, markerPath);
+      markerInstalled = true;
+    }
+  } catch (error) {
+    const rollbackErrors = [];
+    const attempt = (operation) => {
+      try {
+        operation();
+      } catch (rollback) {
+        rollbackErrors.push(rollback);
+      }
+    };
+    if (markerInstalled && existsSync5(markerPath)) attempt(() => rmSync(markerPath, { force: true }));
+    if (cacheInstalled && existsSync5(cacheDir)) attempt(() => rmSync(cacheDir, { recursive: true, force: true }));
+    if (markerBackedUp && existsSync5(previousMarker)) attempt(() => rename(previousMarker, markerPath));
+    if (cacheBackedUp && existsSync5(previousCache)) attempt(() => rename(previousCache, cacheDir));
+    if (rollbackErrors.length === 0) {
+      try {
+        rmSync(swapDir, { recursive: true, force: true });
+      } catch {
+      }
+    }
+    if (rollbackErrors.length > 0) {
+      const rollbackError = rollbackErrors[0];
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)}; rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)} (backup preserved at ${swapDir})`
+      );
+    }
+    throw error;
+  }
+  try {
+    cleanup(swapDir, { recursive: true, force: true });
+  } catch {
+  }
 }
 async function pullGrammars(cacheDir, opts = {}) {
   const note = opts.onNote ?? (() => {
@@ -19924,7 +20531,7 @@ async function pullGrammars(cacheDir, opts = {}) {
   }
   const runtime = join6(cacheDir, "web-tree-sitter.wasm");
   const markerPath = join6(dirname3(cacheDir), `${ENGINE_VERSION}.sha256`);
-  if (existsSync4(runtime) && expected && existsSync4(markerPath)) {
+  if (existsSync5(runtime) && expected && existsSync5(markerPath)) {
     let marker = "";
     try {
       marker = readFileSync5(markerPath, "utf8").trim();
@@ -19954,13 +20561,11 @@ async function pullGrammars(cacheDir, opts = {}) {
     mkdirSync(dirname3(cacheDir), { recursive: true });
     tmp = mkdtempSync(join6(dirname3(cacheDir), ".grammars-tmp-"));
     extractGrammarsTarball(bytes, tmp);
-    if (!existsSync4(join6(tmp, "web-tree-sitter.wasm"))) {
+    if (!existsSync5(join6(tmp, "web-tree-sitter.wasm"))) {
       throw new Error("archive is missing web-tree-sitter.wasm");
     }
-    if (existsSync4(cacheDir)) rmSync(cacheDir, { recursive: true, force: true });
-    renameSync(tmp, cacheDir);
+    installGrammarCacheAtomically(tmp, cacheDir, markerPath, expected);
     tmp = void 0;
-    if (expected) writeFileSync(markerPath, expected + "\n");
   } catch (e) {
     if (tmp) {
       try {
@@ -20243,7 +20848,7 @@ function renderScip(scan22, opts = {}) {
   };
   const documents = [];
   for (const f of docs) {
-    const text = readText(join15(scan22.root, f.rel));
+    const text = readText(join14(scan22.root, f.rel));
     const lines = text.split("\n").map((l) => l.endsWith("\r") ? l.slice(0, -1) : l);
     const locate = (lineNo, name2) => {
       const line = lines[lineNo - 1];
@@ -20337,6 +20942,58 @@ init_complexity();
 init_viz();
 init_sort();
 var DEPENDS_KINDS = /* @__PURE__ */ new Set(["import", "use", "call"]);
+var FIELDS2 = 6;
+function snapshot(edges) {
+  const snap = new Array(edges.length * FIELDS2);
+  for (let i2 = 0; i2 < edges.length; i2++) {
+    const e = edges[i2];
+    const o = i2 * FIELDS2;
+    snap[o] = e.from;
+    snap[o + 1] = e.to;
+    snap[o + 2] = e.kind;
+    snap[o + 3] = e.weight;
+    snap[o + 4] = e.dangling;
+    snap[o + 5] = e.confidence;
+  }
+  return snap;
+}
+function unchanged(edges, snap) {
+  if (snap.length !== edges.length * FIELDS2) return false;
+  for (let i2 = 0; i2 < edges.length; i2++) {
+    const e = edges[i2];
+    const o = i2 * FIELDS2;
+    if (snap[o] !== e.from || snap[o + 1] !== e.to || snap[o + 2] !== e.kind || snap[o + 3] !== e.weight || snap[o + 4] !== e.dangling || snap[o + 5] !== e.confidence) {
+      return false;
+    }
+  }
+  return true;
+}
+var adjacencyMemo = /* @__PURE__ */ new WeakMap();
+function adjacencyOf(edges, kinds) {
+  const viewKey = kinds ? [...kinds].sort(byStr).join(",") : "*";
+  let entry = adjacencyMemo.get(edges);
+  if (!entry || !unchanged(edges, entry.snap)) {
+    adjacencyMemo.set(edges, entry = { snap: snapshot(edges), views: /* @__PURE__ */ new Map() });
+  }
+  const cached = entry.views.get(viewKey);
+  if (cached) return cached;
+  const out2 = /* @__PURE__ */ new Map();
+  const inn = /* @__PURE__ */ new Map();
+  const degree = /* @__PURE__ */ new Map();
+  for (const e of edges) {
+    if (e.dangling) continue;
+    if (kinds && !kinds.has(e.kind)) continue;
+    (out2.get(e.from) ?? out2.set(e.from, []).get(e.from)).push(e);
+    (inn.get(e.to) ?? inn.set(e.to, []).get(e.to)).push(e);
+    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
+    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
+  }
+  for (const arr of out2.values()) arr.sort((a, b) => byStr(a.to, b.to));
+  for (const arr of inn.values()) arr.sort((a, b) => byStr(a.from, b.from));
+  const adj = { out: out2, inn, degree, threshold: hubThreshold([...degree.values()]) };
+  entry.views.set(viewKey, adj);
+  return adj;
+}
 function hubThreshold(degrees) {
   const sorted = degrees.slice().sort((a, b) => a - b);
   const n = sorted.length;
@@ -20380,18 +21037,7 @@ function impactOf(graph, target, depth = Infinity) {
   return { target, scope: mod ? "module" : "file", seeds, files, modules };
 }
 function bfs(edges, start2, depth, kinds) {
-  const out2 = /* @__PURE__ */ new Map();
-  const inn = /* @__PURE__ */ new Map();
-  const degree = /* @__PURE__ */ new Map();
-  for (const e of edges) {
-    if (e.dangling) continue;
-    if (kinds && !kinds.has(e.kind)) continue;
-    (out2.get(e.from) ?? out2.set(e.from, []).get(e.from)).push(e);
-    (inn.get(e.to) ?? inn.set(e.to, []).get(e.to)).push(e);
-    degree.set(e.from, (degree.get(e.from) ?? 0) + 1);
-    degree.set(e.to, (degree.get(e.to) ?? 0) + 1);
-  }
-  const threshold = hubThreshold([...degree.values()]);
+  const { out: out2, inn, degree, threshold } = adjacencyOf(edges, kinds);
   const seen = /* @__PURE__ */ new Set([start2]);
   const links = [];
   let frontier = [start2];
@@ -20399,13 +21045,13 @@ function bfs(edges, start2, depth, kinds) {
     const next = [];
     for (const node of frontier) {
       if (node !== start2 && (degree.get(node) ?? 0) >= threshold) continue;
-      for (const e of (out2.get(node) ?? []).slice().sort((a, b) => byStr(a.to, b.to))) {
+      for (const e of out2.get(node) ?? []) {
         if (seen.has(e.to)) continue;
         links.push({ node: e.to, direction: "out", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.to);
         next.push(e.to);
       }
-      for (const e of (inn.get(node) ?? []).slice().sort((a, b) => byStr(a.from, b.from))) {
+      for (const e of inn.get(node) ?? []) {
         if (seen.has(e.from)) continue;
         links.push({ node: e.from, direction: "in", kind: e.kind, weight: e.weight, depth: d, confidence: e.confidence });
         seen.add(e.from);
@@ -20724,6 +21370,7 @@ init_hash();
 init_graph_json();
 init_symbols_json();
 init_scan();
+init_pool();
 init_preload();
 init_walk();
 init_relations();
@@ -20850,7 +21497,8 @@ Commands:
               advertises a named subset (all | orient | find | impact | edit |
               risk, default all) \u2014 every advertised tool's schema costs an agent
               context on EVERY turn, and a tool left out is still answerable
-              when called by name
+              when called by name; --watch enables proactive invalidation for a
+              pinned repo while retaining per-request freshness verification
   version     Print the engine version
 
 Flags (accepted before OR after the subcommand: '--repo X scan' and
@@ -20866,6 +21514,7 @@ Flags (accepted before OR after the subcommand: '--repo X scan' and
   --no-gitignore      Do not honor .gitignore files (default: honored)
   --ignore-dir <name> Directory names to skip (repeatable) \u2014 REPLACES the
                       default ignored-directory set, never merges with it
+                      (\`.git\` stays skipped regardless)
   --max-files <n>     Cap walked files (default: none \u2014 the whole tree is
                       indexed; a cap sets the \`capped\` flag)
   --max-bytes <n>     Skip files above this size (default 1 MiB)
@@ -20920,10 +21569,10 @@ function parseFlags(args2) {
       if (!Number.isFinite(n) || n <= 0) throw new Error(`${a} expects a positive number, got "${raw}"`);
       return n;
     };
-    if (a === "--repo") flags2.repo = resolve4(next());
+    if (a === "--repo") flags2.repo = resolve5(next());
     else if (a === "--out") {
       const v = next();
-      flags2.out = v === "-" ? "-" : resolve4(v);
+      flags2.out = v === "-" ? "-" : resolve5(v);
     } else if (a === "--project-root") flags2.projectRoot = next();
     else if (a === "--include") flags2.include.push(next());
     else if (a === "--exclude") flags2.exclude.push(next());
@@ -20948,7 +21597,7 @@ function parseFlags(args2) {
       if (!Number.isInteger(n) || n < 0) throw new Error(`--workers expects a non-negative integer, got "${raw}"`);
       flags2.workers = n;
     } else if (a === "--since") flags2.since = next();
-    else if (a === "--config") flags2.config = resolve4(next());
+    else if (a === "--config") flags2.config = resolve5(next());
     else if (a === "--limit") flags2.limit = num2();
     else if (a === "--no-fuzzy") flags2.fuzzy = false;
     else if (a === "--exact") flags2.exact = true;
@@ -21001,12 +21650,13 @@ function parseMcpFlags(argv) {
   let name2;
   let maxResponseBytes;
   let profile2;
+  let watch = false;
   for (let i2 = 0; i2 < argv.length; i2++) {
     const a = argv[i2];
     if (a === "--repo") {
       const v = argv[++i2];
       if (!v) throw new Error("--repo requires a directory");
-      defaultRepo = resolve4(v);
+      defaultRepo = resolve5(v);
     } else if (a === "--server-name") {
       const v = argv[++i2];
       if (!v) throw new Error("--server-name requires a value");
@@ -21021,12 +21671,15 @@ function parseMcpFlags(argv) {
       if (!v) throw new Error(`--tools requires a profile: ${profileNames().join(", ")}`);
       toolsInProfiles(v);
       profile2 = v === "all" ? void 0 : v;
+    } else if (a === "--watch") {
+      watch = true;
     } else {
       throw new Error(`unknown flag for \`mcp\`: ${a}`);
     }
   }
-  if (defaultRepo && !existsSync10(defaultRepo)) throw new Error(`--repo path does not exist: ${defaultRepo}`);
-  return { defaultRepo, serverInfo: name2 ? { name: name2 } : void 0, maxResponseBytes, profile: profile2 };
+  if (defaultRepo && !existsSync11(defaultRepo)) throw new Error(`--repo path does not exist: ${defaultRepo}`);
+  if (watch && !defaultRepo) throw new Error("--watch requires --repo <dir>");
+  return { defaultRepo, serverInfo: name2 ? { name: name2 } : void 0, maxResponseBytes, profile: profile2, watch };
 }
 var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--repo",
@@ -21050,7 +21703,12 @@ var VALUE_FLAGS = /* @__PURE__ */ new Set([
   "--tools",
   "--workers",
   "--index",
-  "--max-response-bytes"
+  "--max-response-bytes",
+  "--base",
+  "--depth",
+  "--kind",
+  "--rank",
+  "--direction"
 ]);
 function hoistLeadingFlags(argv) {
   const lead = [];
@@ -21095,7 +21753,8 @@ async function runCli(rawArgv) {
     return;
   }
   const flags2 = parseFlags(rest);
-  if (!existsSync10(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
+  if (!existsSync11(flags2.repo)) throw new Error(`--repo path does not exist: ${flags2.repo}`);
+  if (!statSync9(flags2.repo).isDirectory()) throw new Error(`--repo path is not a directory: ${flags2.repo}`);
   const scans = !SCANLESS_COMMANDS.has(cmd) && !(cmd === "embed" && flags2.positional !== "build");
   let precomputedWalk;
   if (scans && !flags2.noAst) {
@@ -21105,31 +21764,56 @@ async function runCli(rawArgv) {
       gitignore: flags2.gitignore,
       ignoreDirs: flags2.ignoreDirs.length ? flags2.ignoreDirs : void 0
     });
-    await ensureGrammars(grammarKeysForExts(precomputedWalk.files.map((f) => f.ext)));
   }
+  let grammarsWarmed = false;
+  const warmPresentGrammars = async () => {
+    if (grammarsWarmed || flags2.noAst || !precomputedWalk) return;
+    await ensureGrammars(grammarKeysForExts(precomputedWalk.files.map((f) => f.ext)));
+    grammarsWarmed = true;
+  };
   const indexDir = flags2.indexDir ?? INDEX_DIR;
   let preloadTried = false;
+  let preloadPromise;
   let preloaded;
-  const tryPreload = () => {
+  const tryPreload = async () => {
+    if (preloadPromise) return preloadPromise;
     if (preloadTried) return preloaded;
     preloadTried = true;
     if (flags2.noIndexCache) return void 0;
-    const p = preloadSession(flags2.repo, scanOptions(flags2, precomputedWalk), indexDir);
-    if (p) preloaded = { scan: p.scan, arts: p.arts };
-    return preloaded;
+    preloadPromise = preloadSessionLazy(
+      flags2.repo,
+      { ...scanOptions(flags2, precomputedWalk), workers: flags2.workers },
+      warmPresentGrammars,
+      indexDir
+    ).then((p) => {
+      if (p) preloaded = { scan: p.scan, arts: p.arts, loadArtifacts: p.loadArtifacts };
+      return preloaded;
+    });
+    return preloadPromise;
   };
-  const readScan = () => tryPreload()?.scan ?? scanRepo(flags2.repo, scanOptions(flags2, precomputedWalk));
-  const readArtifacts = () => {
-    const p = tryPreload();
+  let readScanPromise;
+  const readScan = async () => {
+    const preloadedScan = (await tryPreload())?.scan;
+    if (preloadedScan) return preloadedScan;
+    return readScanPromise ??= warmPresentGrammars().then(
+      () => scanRepoParallel(flags2.repo, {
+        ...scanOptions(flags2, precomputedWalk),
+        workers: flags2.workers
+      })
+    );
+  };
+  let readArtifactsPromise;
+  const readArtifacts = async () => {
+    const p = await tryPreload();
     if (p?.arts) return p.arts;
-    if (p) return buildArtifactsFromScan(p.scan, scanOptions(flags2, precomputedWalk));
-    return buildIndexArtifacts(flags2.repo, scanOptions(flags2, precomputedWalk));
+    if (p) return p.arts ??= p.loadArtifacts?.() ?? buildArtifactsFromScan(p.scan, scanOptions(flags2, precomputedWalk));
+    return readArtifactsPromise ??= readScan().then((scan22) => buildArtifactsFromScan(scan22, scanOptions(flags2, precomputedWalk)));
   };
   if (cmd === "index") {
     if (!flags2.out) throw new Error("index needs --out <dir>");
     const outDir = flags2.out;
     mkdirSync3(outDir, { recursive: true });
-    const cachePath = join23(outDir, "cache.json");
+    const cachePath = join222(outDir, "cache.json");
     let cache2;
     let meta = {};
     try {
@@ -21146,6 +21830,7 @@ async function runCli(rawArgv) {
       }
     } catch {
     }
+    await warmPresentGrammars();
     const scan22 = await scanRepoParallel(flags2.repo, {
       ...scanOptions(flags2, precomputedWalk),
       cache: cache2,
@@ -21154,9 +21839,9 @@ async function runCli(rawArgv) {
     });
     const modelDir = resolveEmbedModelDir(flags2.repo);
     const model = modelDir ? loadEmbedModel(modelDir) : void 0;
-    const graphPath = join23(outDir, "graph.json");
-    const symbolsPath = join23(outDir, "symbols.json");
-    const embedPath = join23(outDir, "embeddings.bin");
+    const graphPath = join222(outDir, "graph.json");
+    const symbolsPath = join222(outDir, "symbols.json");
+    const embedPath = join222(outDir, "embeddings.bin");
     const artifactSha = (path) => {
       try {
         return sha1(readFileSync13(path));
@@ -21224,15 +21909,15 @@ async function runCli(rawArgv) {
     };
     emit(JSON.stringify(summary, null, 2) + "\n", flags2.out);
   } else if (cmd === "graph") {
-    const { graph } = readArtifacts();
+    const { graph } = await readArtifacts();
     emit(renderGraphJson(graph), flags2.out);
   } else if (cmd === "symbols") {
-    const { symbols } = readArtifacts();
+    const { symbols } = await readArtifacts();
     emit(renderSymbolsJson(symbols), flags2.out);
   } else if (cmd === "scip") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const bytes = renderScip(scan22, { projectRoot: flags2.projectRoot });
-    const out2 = flags2.out ?? resolve4("index.scip");
+    const out2 = flags2.out ?? resolve5("index.scip");
     if (out2 === "-") process.stdout.write(Buffer.from(bytes));
     else {
       writeFileSync4(out2, bytes);
@@ -21240,13 +21925,13 @@ async function runCli(rawArgv) {
 `);
     }
   } else if (cmd === "callers") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const index2 = buildCallerIndex(scan22, void 0, { recall: flags2.recall });
     const obj = {};
     for (const [name2, entry] of index2) obj[name2] = entry;
     emit(JSON.stringify(obj, null, 2) + "\n", flags2.out);
   } else if (cmd === "hierarchy") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const hierarchy = buildTypeHierarchy(scan22, computeImportPairs(scan22));
     if (flags2.positional) {
       const entry = hierarchy.get(flags2.positional);
@@ -21259,7 +21944,7 @@ async function runCli(rawArgv) {
     }
   } else if (cmd === "implementations") {
     if (!flags2.positional) throw new Error("implementations needs a type name: cli.mjs implementations <Name> --repo <dir>");
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const hierarchy = buildTypeHierarchy(scan22, computeImportPairs(scan22));
     if (!hierarchy.has(flags2.positional)) throw new Error(`no type named ${flags2.positional}`);
     emit(
@@ -21268,7 +21953,7 @@ async function runCli(rawArgv) {
     );
   } else if (cmd === "callgraph") {
     if (!flags2.positional) throw new Error("callgraph needs a symbol: cli.mjs callgraph <Symbol> --repo <dir>");
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const graph = buildSymbolGraph(scan22, computeImportPairs(scan22));
     const result = neighborhood(graph, flags2.positional, {
       ...flags2.depth !== void 0 ? { depth: flags2.depth } : {},
@@ -21278,7 +21963,7 @@ async function runCli(rawArgv) {
     emit(JSON.stringify(result, null, 2) + "\n", flags2.out);
   } else if (cmd === "search") {
     if (!flags2.positional) throw new Error('search needs a query: cli.mjs search "<query>" --repo <dir>');
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const searchOpts = {
       limit: flags2.limit,
       fuzzy: flags2.fuzzy,
@@ -21383,16 +22068,16 @@ async function runCli(rawArgv) {
       }
       const model = loadEmbedModel(modelDir);
       mkdirSync3(flags2.out, { recursive: true });
-      const scan22 = readScan();
+      const scan22 = await readScan();
       const index2 = buildEmbeddingIndex(scan22, model);
-      writeFileSync4(join23(flags2.out, "embeddings.bin"), serializeEmbeddings(index2));
+      writeFileSync4(join222(flags2.out, "embeddings.bin"), serializeEmbeddings(index2));
       process.stderr.write(`codeindex: ${index2.records.length} embedding records \u2192 ${flags2.out}/embeddings.bin (model ${model.modelId})
 `);
     } else if (sub === "pull") {
       const { url, sha256: sha2562 } = resolveEmbedPullUrl();
-      const destDir = process.env.CODEINDEX_EMBED_DIR ?? join23(flags2.repo, ".codeindex", "models");
+      const destDir = process.env.CODEINDEX_EMBED_DIR ?? join222(flags2.repo, ".codeindex", "models");
       mkdirSync3(destDir, { recursive: true });
-      process.stderr.write(`codeindex: fetching model from ${url} \u2192 ${join23(destDir, "model.json")}
+      process.stderr.write(`codeindex: fetching model from ${url} \u2192 ${join222(destDir, "model.json")}
 `);
       let body2;
       try {
@@ -21413,8 +22098,8 @@ async function runCli(rawArgv) {
         process.exitCode = 1;
         return;
       }
-      writeFileSync4(join23(destDir, "model.json"), body2);
-      process.stderr.write(`codeindex: model written to ${join23(destDir, "model.json")}
+      writeFileSync4(join222(destDir, "model.json"), body2);
+      process.stderr.write(`codeindex: model written to ${join222(destDir, "model.json")}
 `);
     } else {
       throw new Error("embed needs a subcommand: status | build | pull | serve");
@@ -21422,13 +22107,13 @@ async function runCli(rawArgv) {
   } else if (cmd === "lsp") {
     const sub = flags2.positional;
     if (sub !== "status") throw new Error("lsp needs a subcommand: status");
-    emit(JSON.stringify(await lspStatus(readScan(), flags2.repo, flags2.probe === true), null, 2) + "\n", flags2.out);
+    emit(JSON.stringify(await lspStatus(await readScan(), flags2.repo, flags2.probe === true), null, 2) + "\n", flags2.out);
   } else if (cmd === "grammars") {
     const sub = flags2.positional;
     const cacheDir = sharedGrammarsCacheDir();
     if (sub === "status") {
       const info2 = resolveGrammarsTier();
-      const present = (name2) => info2.dirs.some((d) => existsSync10(join23(d, name2)));
+      const present = (name2) => info2.dirs.some((d) => existsSync11(join222(d, name2)));
       const runtimePresent = present("web-tree-sitter.wasm");
       const target = resolveGrammarsPullTarget();
       const resolvedIn = (keys) => [...keys].filter((k) => present(`${k}.wasm`)).sort();
@@ -21461,7 +22146,7 @@ async function runCli(rawArgv) {
   } else if (cmd === "rules") {
     if (!flags2.config) throw new Error("rules needs --config <codeindex.rules.json>");
     const rules = parseRules(JSON.parse(readFileSync13(flags2.config, "utf8")));
-    const { graph } = readArtifacts();
+    const { graph } = await readArtifacts();
     const violations = checkRules(graph, rules);
     const errors = violations.filter((v) => v.severity === "error").length;
     emit(JSON.stringify({ errors, warnings: violations.length - errors, violations }, null, 2) + "\n", flags2.out);
@@ -21482,33 +22167,33 @@ async function runCli(rawArgv) {
     for (const k of [...churn.keys()].sort()) sorted[k] = churn.get(k);
     emit(JSON.stringify({ ok, churn: sorted }, null, 2) + "\n", flags2.out);
   } else if (cmd === "repomap") {
-    const { scan: scan22, graph } = readArtifacts();
+    const { scan: scan22, graph } = await readArtifacts();
     emit(renderRepoMap(scan22, graph, { budgetTokens: flags2.budgetTokens }), flags2.out);
   } else if (cmd === "hotspots") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const { churn, ok } = gitChurn(flags2.repo, { since: flags2.since });
     emit(JSON.stringify({ churnOk: ok, hotspots: rankHotspots(scan22, churn) }, null, 2) + "\n", flags2.out);
   } else if (cmd === "coupling") {
     const { ok, couplings } = changeCoupling(flags2.repo, { since: flags2.since });
     emit(JSON.stringify({ ok, couplings }, null, 2) + "\n", flags2.out);
   } else if (cmd === "deadcode") {
-    emit(JSON.stringify(findDeadCode(readScan()), null, 2) + "\n", flags2.out);
+    emit(JSON.stringify(findDeadCode(await readScan()), null, 2) + "\n", flags2.out);
   } else if (cmd === "literals") {
-    const report = findLiteralDuplications(readScan(), {
+    const report = findLiteralDuplications(await readScan(), {
       minFiles: flags2.minFiles,
       minCount: flags2.minCount,
       includeTests: flags2.includeTests
     });
     emit(JSON.stringify(report, null, 2) + "\n", flags2.out);
   } else if (cmd === "complexity") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     emit(JSON.stringify(symbolComplexity(scan22, flags2.positional), null, 2) + "\n", flags2.out);
   } else if (cmd === "risk") {
-    const scan22 = readScan();
+    const scan22 = await readScan();
     const { churn, ok } = gitChurn(flags2.repo, { since: flags2.since });
     emit(JSON.stringify({ churnOk: ok, risks: riskHotspots(scan22, churn) }, null, 2) + "\n", flags2.out);
   } else if (cmd === "delta") {
-    const { graph, symbols } = readArtifacts();
+    const { graph, symbols } = await readArtifacts();
     const res = deltaFor(flags2.repo, graph, symbols, {
       base: flags2.base,
       staged: flags2.staged,
@@ -21518,19 +22203,19 @@ async function runCli(rawArgv) {
     emit(flags2.json ? JSON.stringify(res, null, 2) + "\n" : formatDeltaPanel(res), flags2.out);
   } else if (cmd === "impact") {
     if (!flags2.positional) throw new Error("impact needs a target: cli.mjs impact <file|module> --repo <dir>");
-    const { graph } = readArtifacts();
+    const { graph } = await readArtifacts();
     const res = impactOf(graph, flags2.positional, flags2.depth ?? Infinity);
     if (!res) throw new Error(`no such file or module in the index: ${flags2.positional}`);
     emit(JSON.stringify(res, null, 2) + "\n", flags2.out);
   } else if (cmd === "neighbors") {
     if (!flags2.positional) throw new Error("neighbors needs a target: cli.mjs neighbors <file|module> --repo <dir>");
-    const { graph } = readArtifacts();
+    const { graph } = await readArtifacts();
     const kinds = flags2.kind ? new Set(flags2.kind.split(",").map((k) => k.trim()).filter(Boolean)) : void 0;
     const res = neighborsOf(graph, flags2.positional, flags2.depth ?? 1, kinds);
     if (!res) throw new Error(`no such file or module in the index: ${flags2.positional}`);
     emit(JSON.stringify(res, null, 2) + "\n", flags2.out);
   } else if (cmd === "mermaid") {
-    const { graph } = readArtifacts();
+    const { graph } = await readArtifacts();
     emit(renderMermaid(graph, { module: flags2.positional }), flags2.out);
   } else if (cmd === "grep") {
     if (!flags2.positional) throw new Error("grep needs a pattern: cli.mjs grep <pattern> --repo <dir>");
@@ -21575,8 +22260,8 @@ function grammarStatus() {
 }
 function shippedGrammarsDir() {
   try {
-    const dir = join24(dirname5(fileURLToPath3(import.meta.url)), "grammars");
-    return existsSync11(join24(dir, "tsx.wasm")) ? dir : null;
+    const dir = join23(dirname6(fileURLToPath3(import.meta.url)), "grammars");
+    return existsSync12(join23(dir, "tsx.wasm")) ? dir : null;
   } catch {
     return null;
   }
@@ -21628,11 +22313,11 @@ async function parserForExt(ext) {
   try {
     if (!initialized) {
       await Parser.init({
-        locateFile: (name2) => join24(dir, name2)
+        locateFile: (name2) => join23(dir, name2)
       });
       initialized = true;
     }
-    const language = await Language.load(join24(dir, `${key}.wasm`));
+    const language = await Language.load(join23(dir, `${key}.wasm`));
     const parser2 = new Parser();
     parser2.setLanguage(language);
     cache.set(key, parser2);
@@ -24869,7 +25554,7 @@ function charIndexOfByte(text, byte) {
 
 // src/paths.ts
 import { readFileSync as readFileSync14 } from "fs";
-import { join as join25 } from "path";
+import { join as join24 } from "path";
 
 // src/lang/detect.ts
 var SUPPORTED = [
@@ -25915,7 +26600,7 @@ function findReferrers(repo, files, target) {
     if (!/\.(md|mdx|html?|[cm]?[jt]sx?|json|ya?ml|css|txt)$/.test(file)) continue;
     let text;
     try {
-      text = readFileSync14(join25(repo, file), "utf8");
+      text = readFileSync14(join24(repo, file), "utf8");
     } catch {
       continue;
     }
@@ -28221,7 +28906,7 @@ function unescapeFor(syntax, text, opts = {}) {
 }
 
 // src/plural/annotate.ts
-import { existsSync as existsSync12, readFileSync as readFileSync15 } from "fs";
+import { existsSync as existsSync13, readFileSync as readFileSync15 } from "fs";
 var PRAGMA = /(^|\s)ultrai18n:plural\b/;
 function readPragmas(sites) {
   const byFile = /* @__PURE__ */ new Map();
@@ -28258,7 +28943,7 @@ function readPragmas(sites) {
   return out2;
 }
 function readSidecar(path, sites) {
-  if (!existsSync12(path)) return [];
+  if (!existsSync13(path)) return [];
   let parsed;
   try {
     parsed = JSON.parse(readFileSync15(path, "utf8"));
@@ -28292,7 +28977,7 @@ function readSidecar(path, sites) {
   return out2;
 }
 function danglingSidecarKeys(path, sites) {
-  if (!existsSync12(path)) return [];
+  if (!existsSync13(path)) return [];
   let parsed;
   try {
     parsed = JSON.parse(readFileSync15(path, "utf8"));
@@ -28542,8 +29227,8 @@ function keyForCategory(family, category) {
 }
 
 // src/plural/dialect/evidence.ts
-import { existsSync as existsSync13, readFileSync as readFileSync16 } from "fs";
-import { join as join26 } from "path";
+import { existsSync as existsSync14, readFileSync as readFileSync16 } from "fs";
+import { join as join25 } from "path";
 function gatherEvidence(repo, files, sites) {
   const dependencies = /* @__PURE__ */ new Map();
   const imports = /* @__PURE__ */ new Map();
@@ -28567,7 +29252,7 @@ function packageOf(specifier) {
 }
 function readManifest(repo, rel2) {
   const base = rel2.slice(rel2.lastIndexOf("/") + 1);
-  const abs = join26(repo, rel2);
+  const abs = join25(repo, rel2);
   const text = read(abs);
   if (text === null) return [];
   if (base === "package.json") return fromJsonDeps(text, rel2, /"(dependencies|devDependencies|peerDependencies|optionalDependencies)"/);
@@ -28581,7 +29266,7 @@ function readManifest(repo, rel2) {
   return [];
 }
 function read(abs) {
-  if (!existsSync13(abs)) return null;
+  if (!existsSync14(abs)) return null;
   try {
     return readFileSync16(abs, "utf8");
   } catch {
@@ -28999,7 +29684,7 @@ async function scan2(opts) {
   );
   linkDuplicates(sites);
   const evidence = gatherEvidence(repo, tracked, sites);
-  const project = readProjectDialects(opts.dialectsPath ?? join27(repo, ".ultrai18n", "dialects.json"));
+  const project = readProjectDialects(opts.dialectsPath ?? join26(repo, ".ultrai18n", "dialects.json"));
   const catalog = mergeDialects(project);
   const inert = new Set(catalog.filter((d) => !evidenceFor(d, evidence).applies).map((d) => d.id));
   const plurals = attachPlurals(sites, {
@@ -29047,7 +29732,7 @@ async function scan2(opts) {
   };
 }
 function readProjectDialects(path) {
-  if (!existsSync14(path)) return [];
+  if (!existsSync15(path)) return [];
   try {
     const parsed = JSON.parse(readFileSync17(path, "utf8"));
     return (parsed.dialects ?? []).flatMap((d) => {
@@ -29089,7 +29774,7 @@ function isBundleFile(file) {
   return matchRules(RULES17, { file, path: "", value: "" }).some((m) => m.rule.ecosystem === "i18n");
 }
 function attachPlurals(sites, opts) {
-  const sidecar = opts.sidecarPath ?? join27(opts.repo, ".ultrai18n", "plurals.json");
+  const sidecar = opts.sidecarPath ?? join26(opts.repo, ".ultrai18n", "plurals.json");
   const { families, memberSites, pragmaSites } = assembleFamilies({
     sites,
     targetLanguage: opts.to,
@@ -29482,7 +30167,7 @@ function buildCensus(repo, walked, results) {
     const result = byFile.get(rel2);
     if (!result) {
       const skipped = walked.skipped.find((s) => s.rel === rel2);
-      const dir = walked.skippedDirs.find((d) => rel2.startsWith(d.rel + "/"));
+      const dir = walked.skippedDirs.find((d) => rel2 === d.rel || rel2.startsWith(d.rel + "/"));
       entries.push({
         file: rel2,
         bucket: "skipped",
@@ -30028,8 +30713,8 @@ function formatPlan(p) {
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync5, renameSync as renameSync2, unlinkSync, mkdirSync as mkdirSync4 } from "fs";
-import { join as join28, dirname as dirname6 } from "path";
+import { readFileSync as readFileSync18, writeFileSync as writeFileSync5, renameSync as renameSync3, unlinkSync, mkdirSync as mkdirSync4 } from "fs";
+import { join as join27, dirname as dirname7 } from "path";
 import { createHash as createHash5 } from "crypto";
 function apply(opts) {
   const { repo, inventory } = opts;
@@ -30119,7 +30804,7 @@ function apply(opts) {
       }
       continue;
     }
-    const abs = join28(repo, file);
+    const abs = join27(repo, file);
     const before = readFileSync18(abs);
     let patched;
     try {
@@ -30142,16 +30827,16 @@ function apply(opts) {
       });
     }
     if (write && opts.backupDir) {
-      const dest = join28(opts.backupDir, file);
-      mkdirSync4(dirname6(dest), { recursive: true });
+      const dest = join27(opts.backupDir, file);
+      mkdirSync4(dirname7(dest), { recursive: true });
       writeFileSync5(dest, before);
       backups.push(dest);
     }
     if (write) {
-      const tmp = join28(dirname6(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
+      const tmp = join27(dirname7(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
       try {
         writeFileSync5(tmp, patched);
-        renameSync2(tmp, abs);
+        renameSync3(tmp, abs);
         filesWritten++;
       } catch (err2) {
         try {
@@ -30187,7 +30872,7 @@ function apply(opts) {
   };
 }
 function buildPatch(repo, site3, text, recover) {
-  const buf = readFileSync18(join28(repo, site3.file));
+  const buf = readFileSync18(join27(repo, site3.file));
   const syntax = syntaxFor(site3);
   let start2 = site3.span.start;
   let end = site3.span.end;
@@ -30265,7 +30950,7 @@ function buildInsertion(repo, site3, insertions) {
       `${site3.file}: a new plural form here would be a ${syntax} edit, and insertion is only supported in JSON and YAML locale bundles`
     );
   }
-  const buf = readFileSync18(join28(repo, site3.file));
+  const buf = readFileSync18(join27(repo, site3.file));
   if (buf.subarray(site3.span.start, site3.span.end).toString("utf8") !== site3.raw) {
     throw new Error(
       `drift at ${site3.file}:${site3.line} \u2014 the anchor for a new key no longer matches, so its position is unknown`
@@ -30385,8 +31070,8 @@ function formatApply(r) {
 }
 
 // src/commands.ts
-import { existsSync as existsSync17, mkdirSync as mkdirSync5, readFileSync as readFileSync21, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
-import { join as join30 } from "path";
+import { existsSync as existsSync18, mkdirSync as mkdirSync5, readFileSync as readFileSync21, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "fs";
+import { join as join29 } from "path";
 
 // src/translate.ts
 import { spawnSync as spawnSync3 } from "child_process";
@@ -30544,8 +31229,8 @@ function validatePlural(forms, expected, sourcePlaceholders) {
 var PLACEHOLDER2 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
 
 // src/provider.ts
-import { existsSync as existsSync15, readFileSync as readFileSync19 } from "fs";
-import { join as join29 } from "path";
+import { existsSync as existsSync16, readFileSync as readFileSync19 } from "fs";
+import { join as join28 } from "path";
 var PROVIDERS = [
   {
     id: "anthropic",
@@ -30581,7 +31266,7 @@ var PROVIDERS = [
 ];
 var PROVIDERS_BY_ID = new Map(PROVIDERS.map((p) => [p.id, p]));
 function resolveProvider(repo, flags2 = {}, configPath) {
-  const file = readConfig(configPath ?? join29(repo, ".ultrai18n", "config.json"));
+  const file = readConfig(configPath ?? join28(repo, ".ultrai18n", "config.json"));
   const env = readEnv();
   const id = flags2.provider ?? env.provider ?? file.provider ?? "anthropic";
   const preset = PROVIDERS_BY_ID.get(id);
@@ -30630,7 +31315,7 @@ function readEnv() {
   return out2;
 }
 function readConfig(path) {
-  if (!existsSync15(path)) return {};
+  if (!existsSync16(path)) return {};
   try {
     return JSON.parse(readFileSync19(path, "utf8")).translate ?? {};
   } catch (err2) {
@@ -30983,7 +31668,7 @@ function guardWorkingTree(repo, opts) {
 }
 
 // src/adjudicate.ts
-import { existsSync as existsSync16, readFileSync as readFileSync20 } from "fs";
+import { existsSync as existsSync17, readFileSync as readFileSync20 } from "fs";
 function parseRulings(raw, ctx) {
   const problems = [];
   const accepted = [];
@@ -31079,7 +31764,7 @@ function parseRulings(raw, ctx) {
 function mergeExceptions(existing, accepted) {
   const byKey2 = new Map(existing.entries.map((e) => [e.siteKey, e]));
   let wrote = 0;
-  let unchanged = 0;
+  let unchanged2 = 0;
   for (const a of accepted) {
     if (a.verdict !== "exclude") continue;
     const next = {
@@ -31092,7 +31777,7 @@ function mergeExceptions(existing, accepted) {
     };
     const prev = byKey2.get(a.siteKey);
     if (prev && prev.contentHash === next.contentHash && prev.reason === next.reason) {
-      unchanged++;
+      unchanged2++;
       continue;
     }
     byKey2.set(a.siteKey, next);
@@ -31101,11 +31786,11 @@ function mergeExceptions(existing, accepted) {
   return {
     merged: { ...existing, entries: [...byKey2.values()].sort((a, b) => a.siteKey < b.siteKey ? -1 : 1) },
     wrote,
-    unchanged
+    unchanged: unchanged2
   };
 }
 function readAdjudications(path) {
-  if (!existsSync16(path)) return /* @__PURE__ */ new Map();
+  if (!existsSync17(path)) return /* @__PURE__ */ new Map();
   try {
     const parsed = JSON.parse(readFileSync20(path, "utf8"));
     return new Map((parsed.entries ?? []).map((e) => [e.siteKey, e]));
@@ -31167,34 +31852,34 @@ function formatAdjudicate(r, wrote) {
 function runDir(out2) {
   return {
     root: out2,
-    inventory: join30(out2, "inventory.json"),
-    plan: join30(out2, "PLAN.json"),
-    batches: join30(out2, "batches"),
-    results: join30(out2, "results"),
-    translations: join30(out2, "TRANSLATIONS.json"),
-    glossary: join30(out2, "glossary.md"),
-    applyReport: join30(out2, "APPLY.json"),
-    exceptions: join30(out2, "exceptions.json"),
+    inventory: join29(out2, "inventory.json"),
+    plan: join29(out2, "PLAN.json"),
+    batches: join29(out2, "batches"),
+    results: join29(out2, "results"),
+    translations: join29(out2, "TRANSLATIONS.json"),
+    glossary: join29(out2, "glossary.md"),
+    applyReport: join29(out2, "APPLY.json"),
+    exceptions: join29(out2, "exceptions.json"),
     // Inside the run directory, which the walker already ignores by name, so a
     // kept original never becomes a site on the next scan.
-    backup: join30(out2, "backup")
+    backup: join29(out2, "backup")
   };
 }
 function readJson2(path, what) {
-  if (!existsSync17(path)) {
+  if (!existsSync18(path)) {
     throw new Error(`${what} not found at ${path} \u2014 run the step that produces it first`);
   }
   return JSON.parse(readFileSync21(path, "utf8"));
 }
 function writeJson(path, value) {
-  mkdirSync5(join30(path, ".."), { recursive: true });
+  mkdirSync5(join29(path, ".."), { recursive: true });
   writeFileSync6(path, JSON.stringify(value, null, 2) + "\n");
 }
 var GEN_OPEN = "<!-- ul:gen key=proposals -->";
 var GEN_CLOSE = "<!-- /ul:gen key=proposals -->";
 function readGlossary(path) {
   const out2 = /* @__PURE__ */ new Map();
-  if (!existsSync17(path)) return out2;
+  if (!existsSync18(path)) return out2;
   const text = readFileSync21(path, "utf8");
   for (const line of text.split("\n")) {
     const cells = line.split("|").map((c2) => c2.trim());
@@ -31249,7 +31934,7 @@ function cmdPlan(out2, mode) {
     glossary: new Map([...glossary].map(([k, v]) => [k, v.text])),
     // Rulings an adjudicator folded in. Absent on a first run, which is why a
     // hazard is a hazard until somebody answers it.
-    adjudications: readAdjudications(join30(out2, "adjudications.json"))
+    adjudications: readAdjudications(join29(out2, "adjudications.json"))
   });
   writeJson(dirs.plan, p);
   const batches = buildBatches(p.groups, {
@@ -31260,11 +31945,11 @@ function cmdPlan(out2, mode) {
   });
   mkdirSync5(dirs.batches, { recursive: true });
   for (const batch of batches) {
-    writeJson(join30(dirs.batches, `${batch.batchId}.batch.json`), batch);
+    writeJson(join29(dirs.batches, `${batch.batchId}.batch.json`), batch);
   }
-  mkdirSync5(join30(out2, "agents"), { recursive: true });
-  writeFileSync6(join30(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
-  const existing = existsSync17(dirs.glossary) ? readFileSync21(dirs.glossary, "utf8") : null;
+  mkdirSync5(join29(out2, "agents"), { recursive: true });
+  writeFileSync6(join29(out2, "agents", "translator.md"), TRANSLATOR_CONTRACT);
+  const existing = existsSync18(dirs.glossary) ? readFileSync21(dirs.glossary, "utf8") : null;
   writeFileSync6(dirs.glossary, writeGlossary(dirs.glossary, existing, p.groups.filter((g) => g.status === "pending")));
   return { plan: p, batches };
 }
@@ -31288,7 +31973,7 @@ async function cmdTranslateApi(opts) {
         contract: TRANSLATOR_CONTRACT,
         ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
       });
-      const path = join30(dirs.results, `${batch.batchId}.result.json`);
+      const path = join29(dirs.results, `${batch.batchId}.result.json`);
       writeJson(path, result);
       wrote.push(path);
     } catch (err2) {
@@ -31296,7 +31981,7 @@ async function cmdTranslateApi(opts) {
     }
   }
   if (failed2.length) {
-    writeJson(join30(opts.out, "FAILED.json"), { failed: failed2 });
+    writeJson(join29(opts.out, "FAILED.json"), { failed: failed2 });
     throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
   }
   return { backend: "api", batches: batches.length, wrote, provider };
@@ -31322,7 +32007,7 @@ function cmdTranslate(opts) {
           targetLang: p.targetLang,
           ...opts.timeoutMs !== void 0 ? { timeoutMs: opts.timeoutMs } : {}
         });
-        const path = join30(dirs.results, `${batch.batchId}.result.json`);
+        const path = join29(dirs.results, `${batch.batchId}.result.json`);
         writeJson(path, result);
         wrote.push(path);
       } catch (err2) {
@@ -31330,7 +32015,7 @@ function cmdTranslate(opts) {
       }
     }
     if (failed2.length) {
-      writeJson(join30(opts.out, "FAILED.json"), { failed: failed2 });
+      writeJson(join29(opts.out, "FAILED.json"), { failed: failed2 });
       throw new Error(`${failed2.length} of ${batches.length} batches failed \u2014 see FAILED.json; re-run to retry only those`);
     }
     return { backend: "cli", batches: batches.length, wrote };
@@ -31339,19 +32024,19 @@ function cmdTranslate(opts) {
     backend: opts.backend,
     batches: batches.length,
     wrote: [],
-    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join30(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
+    handoff: opts.backend === "subagent" ? `${batches.length} batch(es) written. Dispatch one agent per batch following ${join29(opts.out, "agents/translator.md")}, then write each answer to ${dirs.results}/<id>.result.json and run \`translate --apply\`.` : `${batches.length} batch(es) written to ${dirs.batches}. Fill ${dirs.results}/<id>.result.json, then run \`translate --apply\`.`
   };
 }
 function readBatches(dir) {
-  if (!existsSync17(dir)) return [];
-  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync21(join30(dir, f), "utf8")));
+  if (!existsSync18(dir)) return [];
+  return readdirSync4(dir).filter((f) => f.endsWith(".batch.json")).sort().map((f) => JSON.parse(readFileSync21(join29(dir, f), "utf8")));
 }
 function readResults(dir) {
-  if (!existsSync17(dir)) return [];
+  if (!existsSync18(dir)) return [];
   return readdirSync4(dir).filter((f) => f.endsWith(".json")).sort().map((f) => {
-    const raw = readFileSync21(join30(dir, f), "utf8");
+    const raw = readFileSync21(join29(dir, f), "utf8");
     const parsed = parseResult(raw, f.replace(/\..*$/, ""));
-    if (!parsed) throw new Error(`${join30(dir, f)} is not a valid batch result`);
+    if (!parsed) throw new Error(`${join29(dir, f)} is not a valid batch result`);
     return parsed;
   });
 }
@@ -31394,7 +32079,7 @@ function cmdTranslateApply(out2) {
     }
   }
   writeJson(dirs.translations, { schemaVersion: 1, translations, insertions, report });
-  if (structural.length) writeJson(join30(out2, "PLURALS.todo.json"), { schemaVersion: 1, families: structural });
+  if (structural.length) writeJson(join29(out2, "PLURALS.todo.json"), { schemaVersion: 1, families: structural });
   return {
     accepted: report.accepted.length,
     rejected: report.rejected.length,
@@ -31539,8 +32224,8 @@ function cmdApply(repo, out2, flags2) {
 }
 
 // src/check.ts
-import { existsSync as existsSync18, readFileSync as readFileSync23 } from "fs";
-import { join as join31 } from "path";
+import { existsSync as existsSync19, readFileSync as readFileSync23 } from "fs";
+import { join as join30 } from "path";
 
 // src/plural/verify.ts
 function parsePluralReturns(raw) {
@@ -31941,8 +32626,8 @@ function gateCoherence(inv, repo) {
       message: `${family.base} is a plural family in ${family.locale ?? "an unknown locale"}, which selects ${family.ownRequired?.join(", ") ?? "?"} \u2014 and it has ${parts2.join(", and ")}`
     });
   }
-  const structuralPath = join31(repo, ".ultrai18n", "STRUCTURAL.json");
-  if (existsSync18(structuralPath)) {
+  const structuralPath = join30(repo, ".ultrai18n", "STRUCTURAL.json");
+  if (existsSync19(structuralPath)) {
     try {
       const returns = readStructuralReturns(JSON.parse(readFileSync23(structuralPath, "utf8")));
       for (const claim of unverifiedStructural(returns, inv)) {
@@ -31961,7 +32646,7 @@ function gateCoherence(inv, repo) {
       });
     }
   }
-  for (const key of danglingSidecarKeys(join31(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
+  for (const key of danglingSidecarKeys(join30(repo, ".ultrai18n", "plurals.json"), inv.sites)) {
     findings.push({
       siteKey: key,
       kind: "plural-dangling",
@@ -31983,8 +32668,8 @@ function gateCoherence(inv, repo) {
   const from = inv.sourceLanguage;
   if (from && from !== inv.targetLanguage) {
     for (const rel2 of ["CONTRIBUTING.md", "README.md", "docs/CONTRIBUTING.md"]) {
-      const abs = join31(repo, rel2);
-      if (!existsSync18(abs)) continue;
+      const abs = join30(repo, rel2);
+      if (!existsSync19(abs)) continue;
       const text = readFileSync23(abs, "utf8");
       const policy = /\b(commit messages|comments|documentation|everything in this repository|tout(?:e)? (?:le|la)? ?(?:dépôt|projet)|les commentaires|les messages de commit)\b[^.\n]{0,80}\b(français|french|anglais|english|español|spanish|deutsch|german)\b/i;
       const m = policy.exec(text);
@@ -32019,7 +32704,7 @@ function clip3(s, n = 56) {
   return flat.length > n ? flat.slice(0, n - 1) + "\u2026" : flat;
 }
 function readExceptions(path) {
-  if (!existsSync18(path)) return { entries: [] };
+  if (!existsSync19(path)) return { entries: [] };
   return JSON.parse(readFileSync23(path, "utf8"));
 }
 function formatCheck(r) {
@@ -32046,8 +32731,8 @@ function formatCheck(r) {
 }
 
 // src/verify.ts
-import { existsSync as existsSync19, readFileSync as readFileSync24 } from "fs";
-import { join as join33 } from "path";
+import { existsSync as existsSync20, readFileSync as readFileSync24 } from "fs";
+import { join as join31 } from "path";
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 var VERIFY_MAX = 40;
 function buildVerify(opts) {
@@ -32107,15 +32792,15 @@ function censusReason(group) {
   return null;
 }
 function readLive(repo, site3) {
-  const abs = join33(repo, site3.file);
-  if (!existsSync19(abs)) return null;
+  const abs = join31(repo, site3.file);
+  if (!existsSync20(abs)) return null;
   const buf = readFileSync24(abs);
   const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
   return sha256(slice).slice(0, 16);
 }
 function currentValue(repo, site3) {
-  const abs = join33(repo, site3.file);
-  if (!existsSync19(abs)) return null;
+  const abs = join31(repo, site3.file);
+  if (!existsSync20(abs)) return null;
   const buf = readFileSync24(abs);
   return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
 }
@@ -32224,15 +32909,15 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync21, mkdirSync as mkdirSync7, readFileSync as readFileSync25, writeFileSync as writeFileSync8 } from "fs";
-import { join as join35 } from "path";
+import { existsSync as existsSync23, mkdirSync as mkdirSync7, readFileSync as readFileSync25, writeFileSync as writeFileSync8 } from "fs";
+import { join as join34 } from "path";
 
 // src/dialects.ts
-import { existsSync as existsSync20, mkdirSync as mkdirSync6, writeFileSync as writeFileSync7 } from "fs";
-import { join as join34 } from "path";
+import { existsSync as existsSync21, mkdirSync as mkdirSync6, writeFileSync as writeFileSync7 } from "fs";
+import { join as join33 } from "path";
 var SAMPLE = 40;
 function viewDialects(repo, inventory, dialectsPath) {
-  const project = readProjectDialects(dialectsPath ?? join34(repo, ".ultrai18n", "dialects.json"));
+  const project = readProjectDialects(dialectsPath ?? join33(repo, ".ultrai18n", "dialects.json"));
   const catalog = mergeDialects(project);
   const evidence = gatherEvidence(repo, inventory.census.map((c2) => c2.file), inventory.sites);
   const claimed = /* @__PURE__ */ new Map();
@@ -32260,7 +32945,7 @@ function viewDialects(repo, inventory, dialectsPath) {
 function explainFile(repo, inventory, file, dialectsPath) {
   const bundle = isBundleFile(file);
   return viewDialects(repo, inventory, dialectsPath).flatMap((view) => {
-    const d = mergeDialects(readProjectDialects(dialectsPath ?? join34(repo, ".ultrai18n", "dialects.json"))).find((x) => x.id === view.id);
+    const d = mergeDialects(readProjectDialects(dialectsPath ?? join33(repo, ".ultrai18n", "dialects.json"))).find((x) => x.id === view.id);
     if (!view.active) return [{ dialect: view, reason: "inert: its declared evidence is absent from this repository" }];
     if (d.where.bundleOnly && !bundle) return [];
     if (d.where.file?.length && !d.where.file.some((g) => file.endsWith(g.replace(/^\*\*\//, "").replace(/^\*/, "")))) return [];
@@ -32274,8 +32959,8 @@ function explainFile(repo, inventory, file, dialectsPath) {
   });
 }
 function runCheck(repo, inventory, dialectsPath) {
-  const path = dialectsPath ?? join34(repo, ".ultrai18n", "dialects.json");
-  if (!existsSync20(path)) return [];
+  const path = dialectsPath ?? join33(repo, ".ultrai18n", "dialects.json");
+  if (!existsSync21(path)) return [];
   const project = readProjectDialects(path);
   if (project.length === 0) {
     return [{ dialect: "(file)", problem: `${path} declares no readable dialect \u2014 a row with a bad regex is dropped here and reported nowhere else` }];
@@ -32389,9 +33074,9 @@ Write the rows to \`.ultrai18n/dialects.json\` as
 **Do not edit any other file.**
 `;
 function writeTodo(out2, todo) {
-  mkdirSync6(join34(out2, "agents"), { recursive: true });
-  const todoPath = join34(out2, "dialects.todo.json");
-  const contractPath = join34(out2, "agents", "dialectician.md");
+  mkdirSync6(join33(out2, "agents"), { recursive: true });
+  const todoPath = join33(out2, "dialects.todo.json");
+  const contractPath = join33(out2, "agents", "dialectician.md");
   writeFileSync7(todoPath, JSON.stringify(todo, null, 2) + "\n");
   writeFileSync7(contractPath, DIALECTICIAN_CONTRACT);
   return { todo: todoPath, contract: contractPath };
@@ -32449,15 +33134,15 @@ function formatProblems(problems) {
 var BATCH_SIZE2 = 8;
 var SMALL_WORKLIST = 3;
 function phaseStatuses(out2) {
-  const planPath = join35(out2, "PLAN.json");
-  const plan2 = existsSync21(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
-  const batches = existsSync21(join35(out2, "batches"));
-  const todo = existsSync21(join35(out2, "VERIFY.todo.json"));
-  const applied = existsSync21(join35(out2, "APPLY.json"));
-  const dialectPath = join35(out2, "dialects.todo.json");
-  const dialectTodo = existsSync21(dialectPath) ? (JSON.parse(readOr(dialectPath, '{"residual":[]}')).residual ?? []).length : 0;
-  const pluralPath = join35(out2, "PLURALS.todo.json");
-  const pluralTodo = existsSync21(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
+  const planPath = join34(out2, "PLAN.json");
+  const plan2 = existsSync23(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
+  const batches = existsSync23(join34(out2, "batches"));
+  const todo = existsSync23(join34(out2, "VERIFY.todo.json"));
+  const applied = existsSync23(join34(out2, "APPLY.json"));
+  const dialectPath = join34(out2, "dialects.todo.json");
+  const dialectTodo = existsSync23(dialectPath) ? (JSON.parse(readOr(dialectPath, '{"residual":[]}')).residual ?? []).length : 0;
+  const pluralPath = join34(out2, "PLURALS.todo.json");
+  const pluralTodo = existsSync23(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
   const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
   const hazards = plan2?.hazards?.length ?? 0;
   const structural = plan2?.structural?.length ?? 0;
@@ -32487,7 +33172,7 @@ function phaseStatuses(out2) {
       // the hazard rule exists to prevent.
       ready: !!plan2 && batches && hazards === 0 && pending > 0,
       ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
-      worklist: join35(out2, "batches"),
+      worklist: join34(out2, "batches"),
       items: Math.ceil(pending / BATCH_SIZE2),
       writes: false
     },
@@ -32495,8 +33180,8 @@ function phaseStatuses(out2) {
       name: "review",
       ready: todo,
       ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
-      worklist: join35(out2, "VERIFY.todo.json"),
-      items: todo ? JSON.parse(readOr(join35(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      worklist: join34(out2, "VERIFY.todo.json"),
+      items: todo ? JSON.parse(readOr(join34(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
       writes: false
     },
     {
@@ -32505,7 +33190,7 @@ function phaseStatuses(out2) {
       // edits files, and `apply` is the sole writer until it has finished.
       ready: pluralTodo > 0 && applied,
       ...pluralTodo === 0 ? { reason: "no plural family in this run needs a code edit" } : !applied ? { reason: "plural code edits run after `apply --write`, never alongside it" } : {},
-      worklist: join35(out2, "PLURALS.todo.json"),
+      worklist: join34(out2, "PLURALS.todo.json"),
       items: pluralTodo,
       writes: true
     },
@@ -32529,18 +33214,18 @@ function orchestrate(opts) {
     err2.exitCode = 2;
     throw err2;
   }
-  const dir = join35(opts.out, "orchestration");
-  const agents = join35(dir, "agents");
+  const dir = join34(opts.out, "orchestration");
+  const agents = join34(dir, "agents");
   mkdirSync7(agents, { recursive: true });
   const files = [];
   const contract = CONTRACTS[phase];
-  const contractPath = join35(agents, `${contract.role}.md`);
+  const contractPath = join34(agents, `${contract.role}.md`);
   writeFileSync8(contractPath, contract.body);
   files.push(contractPath);
-  const workflowPath = join35(dir, `${phase}.workflow.mjs`);
+  const workflowPath = join34(dir, `${phase}.workflow.mjs`);
   writeFileSync8(workflowPath, workflowScript(phase, opts, status2, contract.role));
   files.push(workflowPath);
-  const runbookPath = join35(dir, "RUNBOOK.md");
+  const runbookPath = join34(dir, "RUNBOOK.md");
   writeFileSync8(runbookPath, runbook(statuses, opts));
   files.push(runbookPath);
   return {
@@ -32783,7 +33468,7 @@ function readOr(path, fallback) {
 }
 
 // src/sync.ts
-import { existsSync as existsSync22, readFileSync as readFileSync26 } from "fs";
+import { existsSync as existsSync24, readFileSync as readFileSync26 } from "fs";
 import "path";
 var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
 function sync(opts) {
@@ -32964,7 +33649,7 @@ function sameSet(a, b) {
   return true;
 }
 function readState(path) {
-  if (!path || !existsSync22(path)) return null;
+  if (!path || !existsSync24(path)) return null;
   try {
     return JSON.parse(readFileSync26(path, "utf8"));
   } catch {
@@ -33009,7 +33694,7 @@ function formatSync(r) {
 
 // src/init.ts
 import { mkdirSync as mkdirSync8, writeFileSync as writeFileSync9 } from "fs";
-import { dirname as dirname7, join as join37 } from "path";
+import { dirname as dirname8, join as join36 } from "path";
 function buildBaseline(report) {
   const accepted = report.gates.flatMap((gate) => gate.findings.map((f) => fingerprint(gate.id, f))).sort();
   return { schemaVersion: 1, from: report.from, to: report.to, accepted };
@@ -33021,8 +33706,8 @@ function init2(opts) {
   const written = [];
   const notes = [];
   if (opts.baseline) {
-    const path = join37(opts.out, "baseline.json");
-    mkdirSync8(dirname7(path), { recursive: true });
+    const path = join36(opts.out, "baseline.json");
+    mkdirSync8(dirname8(path), { recursive: true });
     writeFileSync9(path, JSON.stringify(buildBaseline(opts.baseline), null, 2) + "\n");
     written.push(path);
     notes.push(
@@ -33030,14 +33715,14 @@ function init2(opts) {
     );
   }
   if (opts.ci) {
-    const path = join37(opts.repo, ".github/workflows/ultrai18n.yml");
-    mkdirSync8(dirname7(path), { recursive: true });
+    const path = join36(opts.repo, ".github/workflows/ultrai18n.yml");
+    mkdirSync8(dirname8(path), { recursive: true });
     writeFileSync9(path, WORKFLOW);
     written.push(path);
   }
   if (opts.hook) {
-    const path = join37(opts.repo, ".git/hooks/pre-commit");
-    mkdirSync8(dirname7(path), { recursive: true });
+    const path = join36(opts.repo, ".git/hooks/pre-commit");
+    mkdirSync8(dirname8(path), { recursive: true });
     writeFileSync9(path, HOOK, { mode: 493 });
     written.push(path);
     notes.push("a local hook is bypassable and does not see other people's commits; --ci is the durable guard");
@@ -33091,7 +33776,7 @@ node "$ENGINE" check --repo . || {
 `;
 
 // src/cli.ts
-import { existsSync as existsSync23, readFileSync as readFileSync27 } from "fs";
+import { existsSync as existsSync25, readFileSync as readFileSync27 } from "fs";
 
 // src/sites.ts
 var VERDICTS = /* @__PURE__ */ new Set(["translate", "do-not-translate", "locale-marker", "needs-judgment", "unclassified"]);
@@ -33248,7 +33933,7 @@ function clip4(s, n = 60) {
 }
 
 // src/audit.ts
-import { join as join38 } from "path";
+import { join as join37 } from "path";
 var TWO_WORDS = new RegExp("\\p{L}{2,}[^\\p{L}\\n]{0,2}\\s\\p{L}{2,}", "u");
 var MD_CODE = /`[^`\n]*`/g;
 var MD_LINK_TARGET = /\]\([^)]*\)/g;
@@ -33343,7 +34028,7 @@ function auditCoverage(inv, repo) {
     }
     let text;
     try {
-      const read2 = readTextEx(join38(repo, entry.file));
+      const read2 = readTextEx(join37(repo, entry.file));
       if (!read2.ok || read2.binary) continue;
       text = read2.text;
     } catch {
@@ -33783,7 +34468,7 @@ async function main() {
     process.exit(0);
   }
   if (!p.command) usage(`unknown command: ${p.positional[0]}`);
-  const repo = resolve5(String(p.flags.repo ?? process.cwd()));
+  const repo = resolve6(String(p.flags.repo ?? process.cwd()));
   const json = p.flags.json === true;
   const quiet = p.flags.quiet === true;
   const say = (full) => {
@@ -33842,7 +34527,7 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -33850,18 +34535,18 @@ ${r.docs ? `    ${r.docs}
         noAst: p.flags["no-ast"] === true
       });
       mkdirSync9(out2, { recursive: true });
-      writeFileSync10(join39(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
+      writeFileSync10(join38(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
       if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         say(formatScan(inv));
         note(`
-wrote ${join39(out2, "inventory.json")}
+wrote ${join38(out2, "inventory.json")}
 `);
       }
       return;
     }
     case "plan": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -33875,7 +34560,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -33934,7 +34619,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, {
         write: p.flags.write === true,
         recover: p.flags["no-recover"] !== true,
@@ -33948,17 +34633,17 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
-      const todoPath = join39(out2, "VERIFY.todo.json");
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const todoPath = join38(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
-          resolve5(String(p.flags.apply)),
+          resolve6(String(p.flags.apply)),
           "the verdicts file"
         );
         const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
         const result = applyVerdicts({ todo: todo2, verdicts: list });
-        writeJson(join39(out2, "VERIFY.json"), result);
+        writeJson(join38(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else {
           process.stdout.write(
@@ -33980,7 +34665,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
       });
       writeJson(todoPath, todo);
-      writeFileSync10(join39(out2, "VERIFY.md"), formatVerifyTodo(todo));
+      writeFileSync10(join38(out2, "VERIFY.md"), formatVerifyTodo(todo));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         process.stdout.write(`ultrai18n verify: ${todo.pairs.length} pair(s) to adjudicate
@@ -33993,8 +34678,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
-      const engine = resolve5(process.argv[1] ?? "ultrai18n.mjs");
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const engine = resolve6(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
         process.stdout.write(JSON.stringify(statuses, null, 2) + "\n");
@@ -34030,7 +34715,7 @@ join:     ${emitted.join}
       return;
     }
     case "dialects": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.check === true) {
         const problems2 = runCheck(repo, inventory);
@@ -34075,14 +34760,14 @@ join:     ${emitted.join}
       return;
     }
     case "plurals": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.apply !== void 0) {
         const returns = parsePluralReturns(readJson2(String(p.flags.apply), "the returns file"));
         if (!returns) usage("expected an array of {familyId, file, note}, or {returns: [...]}");
-        const todo = readJson2(join39(out2, "PLURALS.todo.json"), "PLURALS.todo.json");
+        const todo = readJson2(join38(out2, "PLURALS.todo.json"), "PLURALS.todo.json");
         const result = verifyPluralReturns({ returns, todo, inventory });
-        writeJson(join39(out2, "PLURALS.verify.json"), result);
+        writeJson(join38(out2, "PLURALS.verify.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
         else say(formatPluralVerify(result));
         if (!result.ok) process.exitCode = 1;
@@ -34120,13 +34805,13 @@ join:     ${emitted.join}
       return;
     }
     case "sync": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
         inventory,
         ...p.flags["source-locale"] ? { sourceLocale: String(p.flags["source-locale"]) } : {},
-        statePath: join39(out2, "catalog-state.json")
+        statePath: join38(out2, "catalog-state.json")
       });
       if (json) process.stdout.write(JSON.stringify(report, null, 2) + "\n");
       else say(formatSync(report));
@@ -34134,9 +34819,9 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const report = check({ repo, inventory, exceptions: readExceptions(join39(out2, "exceptions.json")) });
+      const report = check({ repo, inventory, exceptions: readExceptions(join38(out2, "exceptions.json")) });
       const result = init2({
         repo,
         out: out2,
@@ -34155,7 +34840,7 @@ join:     ${emitted.join}
       return;
     }
     case "sites": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.audit === true) {
         const view = auditCoverage(inventory, repo);
@@ -34209,7 +34894,7 @@ join:     ${emitted.join}
         else say(formatGuess(text, guess));
         return;
       }
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const prof = profile(inventory);
       if (json) process.stdout.write(JSON.stringify(prof, null, 2) + "\n");
@@ -34217,7 +34902,7 @@ join:     ${emitted.join}
       return;
     }
     case "adjudicate": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       const inventory = readJson2(dirs.inventory, "inventory.json");
       const planned = readJson2(dirs.plan, "PLAN.json");
@@ -34231,26 +34916,26 @@ join:     ${emitted.join}
         });
         let wrote = { exceptions: 0, unchanged: 0 };
         if (result.ok) {
-          const existing = existsSync23(dirs.exceptions) ? readJson2(dirs.exceptions, "exceptions.json") : { entries: [] };
+          const existing = existsSync25(dirs.exceptions) ? readJson2(dirs.exceptions, "exceptions.json") : { entries: [] };
           const merged = mergeExceptions(existing, result.accepted);
           writeJson(dirs.exceptions, merged.merged);
-          writeJson(join39(out2, "adjudications.json"), {
+          writeJson(join38(out2, "adjudications.json"), {
             schemaVersion: 1,
             entries: result.accepted
           });
           wrote = { exceptions: merged.wrote, unchanged: merged.unchanged };
         }
-        writeJson(join39(out2, "ADJUDICATE.json"), { ...result, wrote });
+        writeJson(join38(out2, "ADJUDICATE.json"), { ...result, wrote });
         if (json) process.stdout.write(JSON.stringify({ ...result, wrote }, null, 2) + "\n");
         else say(formatAdjudicate(result, wrote));
         if (!result.ok || result.blocked.length) process.exitCode = 1;
         return;
       }
       const todo = buildHazardTodo(inventory, planned);
-      const todoPath = join39(out2, "ADJUDICATE.todo.json");
+      const todoPath = join38(out2, "ADJUDICATE.todo.json");
       writeJson(todoPath, todo);
-      mkdirSync9(join39(out2, "agents"), { recursive: true });
-      writeFileSync10(join39(out2, "agents", "adjudicator.md"), contractFor("adjudicate"));
+      mkdirSync9(join38(out2, "agents"), { recursive: true });
+      writeFileSync10(join38(out2, "agents", "adjudicator.md"), contractFor("adjudicate"));
       if (json) process.stdout.write(JSON.stringify(todo, null, 2) + "\n");
       else {
         note(`  wrote ${todoPath} and agents/adjudicator.md
@@ -34266,14 +34951,14 @@ VERDICT  ${todo.hazards.length ? `${todo.hazards.length} hazard(s) awaiting a ru
       return;
     }
     case "glossary": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       if (p.flags.seed === true && p.flags.list === true) {
         usage("--seed rewrites the generated region; --list reads it. Pick one.");
       }
       if (p.flags.seed === true) {
         const planned = readJson2(dirs.plan, "PLAN.json");
-        const existing = existsSync23(dirs.glossary) ? readFileSync27(dirs.glossary, "utf8") : null;
+        const existing = existsSync25(dirs.glossary) ? readFileSync27(dirs.glossary, "utf8") : null;
         const next = writeGlossary(
           dirs.glossary,
           existing,
@@ -34323,11 +35008,11 @@ VERDICT  ok \u2014 proposals refreshed`
       return;
     }
     case "check": {
-      const out2 = resolve5(String(p.flags.out ?? join39(repo, ".ultrai18n")));
+      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
-      const exceptions = readExceptions(join39(out2, "exceptions.json"));
-      const baselinePath = join39(out2, "baseline.json");
-      const baseline = existsSync23(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
+      const exceptions = readExceptions(join38(out2, "exceptions.json"));
+      const baselinePath = join38(out2, "baseline.json");
+      const baseline = existsSync25(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({
         repo,
         inventory,
@@ -34336,13 +35021,13 @@ VERDICT  ok \u2014 proposals refreshed`
         ...baseline ? { baseline } : {}
       });
       if (p.flags.semantic) {
-        const todoPath = join39(out2, "VERIFY.todo.json");
-        const resultPath = join39(out2, "VERIFY.json");
+        const todoPath = join38(out2, "VERIFY.todo.json");
+        const resultPath = join38(out2, "VERIFY.json");
         const semantic = checkSemantic({
           repo,
           inventory,
-          todo: existsSync23(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
-          result: existsSync23(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
+          todo: existsSync25(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
+          result: existsSync25(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
         });
         if (!semantic.ok) {
           report.ok = false;
