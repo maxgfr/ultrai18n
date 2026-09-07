@@ -1,4 +1,4 @@
-// Vendored from @maxgfr/codeindex v2.28.4 (MIT), unmodified. See ./README.md.
+// Vendored from @maxgfr/codeindex v2.28.6 (MIT), unmodified. See ./README.md.
 //
 // .gitignore support for the walker. Semantics follow git's core rules: per-
 // directory files apply to their subtree, later rules win, `!` negates, a

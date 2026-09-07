@@ -1,4 +1,4 @@
-// Vendored from @maxgfr/codeindex v2.28.4 (MIT), with four marked divergences.
+// Vendored from @maxgfr/codeindex v2.28.6 (MIT), with four marked divergences.
 // See ./README.md.
 import {
   readdirSync,
