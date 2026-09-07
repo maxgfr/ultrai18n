@@ -1,6 +1,7 @@
 ---
 name: ultrai18n
-description: "Use when a repository's language must change and the result must be provable: translate a repo, switch its source language, extract hardcoded strings to i18n, synchronize locale catalogs, find missing keys or plural forms, translate PO files, or audit for untranslated text. The install-free engine inventories text sites with byte offsets, distinguishes rendered copy from identifiers and persisted values, and refuses to pass while sites remain unclassified, unadjudicated, or in the source language. The agent adjudicates ambiguous sites; translation models receive only id-to-text batches. Not for translating standalone prose."
+description: "Translate repository text, extract i18n strings, and verify locale catalogs and applied translations against source provenance."
+disable-model-invocation: true
 license: MIT
 metadata:
   version: 0.0.0
@@ -65,6 +66,9 @@ to fake; and a model does nothing but translate strings it is handed.
    is a live rendering bug and worth fixing before any translation happens. Families the engine
    cannot write mechanically land in `PLURALS.todo.json` with their forms already translated; the
    `pluralist` contract turns those into a code edit.
+
+8. **Apple `.strings` or Java `.properties`** — read [catalog readers](references/catalog-readers.md)
+   before applying: it defines the writable encodings, syntax subset and format-token contract.
 
 ## Command cheat-sheet
 
@@ -224,7 +228,7 @@ are parsed and ignored.
 Extraction covers TypeScript, JSX/TSX, **Python and shell** through tree-sitter — so a Python
 docstring is the first statement of a body rather than a string that happens to come first — and
 JSON, JSON Lines, YAML, Markdown, HTML, SVG, CSS, TOML, gettext `.po`, Fluent `.ftl`, Apple
-property lists, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
+property lists and `.strings`, Java `.properties`, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
 hand-written byte-indexed lexers. A residual sweep sits behind all of them, so a format with no
 extractor surfaces as `unclassified` rather than as nothing.
 

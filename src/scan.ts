@@ -21,6 +21,7 @@ import { extractHtml } from './extract/html'
 import { extractText, isPlainText } from './extract/text'
 import { extractPo } from './extract/po'
 import { extractToml } from './extract/toml'
+import { extractCatalog } from './extract/catalog'
 import { extractFtl } from './extract/ftl'
 import { extractDockerfile, isDockerfile } from './extract/dockerfile'
 import { isQtTranslation } from './extract/html'
@@ -227,6 +228,12 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
   return {
     schemaVersion: 1,
     repo,
+    scanOptions: {
+      from, to,
+      ...(opts.noAst !== undefined ? { noAst: opts.noAst } : {}),
+      ...(opts.pluralSidecar !== undefined ? { pluralSidecar: opts.pluralSidecar } : {}),
+      ...(opts.dialectsPath !== undefined ? { dialectsPath: opts.dialectsPath } : {}),
+    },
     sourceLanguage: from,
     targetLanguage: to,
     sites,
@@ -635,6 +642,30 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   const map = new OffsetMap(read.text)
   const ext = file.ext
 
+  if (ext === '.strings' || ext === '.properties') {
+    const format = ext === '.strings' ? 'strings' : 'properties'
+    const parsed = extractCatalog(file.rel, read.text, map, format)
+    for (const key of parsed.keys) tokens.identifiers.add(key)
+    const sites = parsed.complete ? parsed.sites : sweepFile(file.rel, read.text, map, [], {
+      identifiers: tokens.identifiers, extractor: 'none', reason: `${format}: ${parsed.problem}`,
+    })
+    if (!parsed.complete && sites.length === 0) {
+      const end = map.lineColOf(read.text.length)
+      sites.push({ file: file.rel, path: '#invalid-catalog', kind: 'scalar',
+        span: { start: 0, end: map.byteOf(read.text.length) }, valueSpan: { start: 0, end: map.byteOf(read.text.length) },
+        raw: read.text, value: read.text, quote: null, escapes: false, holes: [], line: 1, col: 1,
+        endLine: end.line, endCol: end.col, extractor: 'none', tier: 'sweep', container: { isKey: false },
+        whyUnclaimed: `${format}: ${parsed.problem}` })
+    }
+    // Only UTF8 BOM offsets can be mapped directly back to bytes for writing.
+    if (read.byteAddressable && read.bodyStart) for (const site of sites) {
+      site.span.start += read.bodyStart; site.span.end += read.bodyStart
+      site.valueSpan.start += read.bodyStart; site.valueSpan.end += read.bodyStart
+    }
+    return { ...base, sites, extractor: format, bytesClaimed: parsed.claimedBytes,
+      complete: parsed.complete, ...(parsed.problem ? { reason: parsed.problem } : {}) }
+  }
+
   // The one extension collision worth a content check.
   //
   // A Qt Linguist catalog and a TypeScript module genuinely share `.ts`, and
@@ -899,7 +930,7 @@ export function fileLocale(file: string): string | null {
   const patterns = [
     /(?:^|\/)(?:locales?|i18n|lang|langs|translations|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)(?:\/|\.)/,
     /(?:^|\/)_locales\/([a-z]{2}(?:[-_][A-Z]{2})?)\//,
-    /(?:^|\/)(?:locales?|i18n|lang|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)\.(?:json|ya?ml|arb|ftl|po)$/,
+    /(?:^|\/)(?:locales?|i18n|lang|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)\.(?:json|ya?ml|arb|ftl|po|properties|strings)$/,
     /(?:^|\/)res\/values-([a-z]{2})\//,
     /(?:^|\/)([a-z]{2})\.lproj\//,
   ]

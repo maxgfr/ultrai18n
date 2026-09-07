@@ -6,8 +6,11 @@
 // different one of those. So there is one escaper per syntax, and an UNKNOWN
 // syntax is never written: refusing is recoverable, writing a broken file is not.
 import type { SiteKind } from './types'
+import { decodeCatalog, encodeCatalog } from './extract/catalog'
 
 export type HostSyntax =
+  | 'strings'
+  | 'properties'
   | 'js-single'
   | 'js-double'
   | 'js-template'
@@ -54,6 +57,8 @@ export function syntaxFor(site: {
   raw: string
 }): HostSyntax {
   switch (site.extractor) {
+    case 'strings': return 'strings'
+    case 'properties': return 'properties'
     case 'ts-ast':
       if (site.kind === 'jsx-text') return 'jsx-text'
       if (site.kind === 'comment') return site.raw.startsWith('/*') ? 'block-comment' : 'line-comment'
@@ -145,6 +150,8 @@ export function escapeFor(syntax: HostSyntax, text: string, opts: EscapeOptions 
 
 function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): string {
   switch (syntax) {
+    case 'strings':
+    case 'properties': return encodeCatalog(text, syntax)
     case 'js-single':
       return text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '\\r')
     case 'js-double':
@@ -283,6 +290,8 @@ function toAscii(text: string, syntax: HostSyntax): string {
  */
 export function unescapeFor(syntax: HostSyntax, text: string, opts: EscapeOptions = {}): string {
   switch (syntax) {
+    case 'strings':
+    case 'properties': return decodeCatalog(text, syntax)
     case 'js-single':
     case 'js-double':
     case 'js-template':

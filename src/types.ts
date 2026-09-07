@@ -341,6 +341,8 @@ export interface CensusEntry {
 export interface Inventory {
   schemaVersion: 1
   repo: string
+  /** Original extraction options; resolved languages prevent post-write auto-detection. */
+  scanOptions?: Omit<import('./scan').ScanOptions, 'repo'>
   sourceLanguage: string | null
   targetLanguage: string
   sites: Site[]

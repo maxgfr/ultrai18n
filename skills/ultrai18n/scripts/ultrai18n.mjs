@@ -2,7 +2,7 @@
 
 // src/cli.ts
 import { mkdirSync as mkdirSync9, writeFileSync as writeFileSync10 } from "fs";
-import { join as join38, resolve as resolve6 } from "path";
+import { join as join38, resolve as resolve7 } from "path";
 
 // src/version.ts
 var VERSION = "0.0.0";
@@ -2266,13 +2266,13 @@ async function Module2(moduleArg = {}) {
       }
       readAsync = /* @__PURE__ */ __name(async (url) => {
         if (isFileURI(url)) {
-          return new Promise((resolve7, reject) => {
+          return new Promise((resolve8, reject) => {
             var xhr = new XMLHttpRequest();
             xhr.open("GET", url, true);
             xhr.responseType = "arraybuffer";
             xhr.onload = () => {
               if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                resolve7(xhr.response);
+                resolve8(xhr.response);
                 return;
               }
               reject(xhr.status);
@@ -2468,9 +2468,9 @@ async function Module2(moduleArg = {}) {
     __name(receiveInstantiationResult, "receiveInstantiationResult");
     var info2 = getWasmImports();
     if (Module["instantiateWasm"]) {
-      return new Promise((resolve7, reject) => {
+      return new Promise((resolve8, reject) => {
         Module["instantiateWasm"](info2, (mod, inst) => {
-          resolve7(receiveInstance(mod, inst));
+          resolve8(receiveInstance(mod, inst));
         });
       });
     }
@@ -3801,8 +3801,8 @@ async function Module2(moduleArg = {}) {
   if (runtimeInitialized) {
     moduleRtn = Module;
   } else {
-    moduleRtn = new Promise((resolve7, reject) => {
-      readyPromiseResolve = resolve7;
+    moduleRtn = new Promise((resolve8, reject) => {
+      readyPromiseResolve = resolve8;
       readyPromiseReject = reject;
     });
   }
@@ -25021,6 +25021,160 @@ function splitLines3(text) {
   return out2;
 }
 
+// src/extract/catalog.ts
+function decodeCatalog(raw, format) {
+  const text = format === "properties" ? raw.replace(/\\\r?\n[ \t\f]*/g, "") : raw;
+  let out2 = "";
+  for (let i2 = 0; i2 < text.length; i2++) {
+    const ch = text[i2];
+    if (ch !== "\\") {
+      out2 += ch;
+      continue;
+    }
+    const next = text[++i2];
+    if (next === void 0) throw new Error("unterminated escape");
+    if (next === "u" || format === "strings" && next === "U") {
+      const hex = text.slice(i2 + 1, i2 + 5);
+      if (!/^[0-9a-f]{4}$/i.test(hex)) throw new Error("invalid Unicode escape");
+      out2 += String.fromCharCode(parseInt(hex, 16));
+      i2 += 4;
+    } else if ("nrtf".includes(next)) {
+      out2 += { n: "\n", r: "\r", t: "	", f: "\f" }[next];
+    } else if (next === "b" && format === "strings") out2 += "\b";
+    else if (format === "properties" || next === '"' || next === "\\") out2 += next;
+    else throw new Error(`unsupported escape \\${next}`);
+  }
+  return out2;
+}
+function encodeCatalog(text, format) {
+  let out2 = "";
+  for (let i2 = 0; i2 < text.length; i2++) {
+    const ch = text[i2], code = text.charCodeAt(i2);
+    if (ch === "\\") out2 += "\\\\";
+    else if (ch === '"' && format === "strings") out2 += '\\"';
+    else if (ch === " " && format === "properties" && i2 === 0) out2 += "\\ ";
+    else if (code < 32 || code > 126) out2 += `\\${format === "strings" ? "U" : "u"}${code.toString(16).padStart(4, "0")}`;
+    else out2 += ch;
+  }
+  return out2;
+}
+function catalogPlaceholders(text) {
+  return (text.match(/%%|%(?:\d+\$)?[-+ #0]*(?:\d+|\*)?(?:\.(?:\d+|\*))?(?:hh|ll|[hlLzjtq])?[@diuoxXfFeEgGaAcCsSpn]|\{\d+(?:,[^{}]*)?\}/g) ?? []).sort();
+}
+function extractCatalog(file, text, map, format) {
+  const sites = [], keys = /* @__PURE__ */ new Set();
+  function emit2(key, start2, end, quote) {
+    if (keys.has(key)) throw new Error(`duplicate key ${JSON.stringify(key)}`);
+    keys.add(key);
+    const a = map.lineColOf(start2), b = map.lineColOf(end);
+    const valueStart = start2 + (quote ? 1 : 0), valueEnd = end - (quote ? 1 : 0);
+    sites.push({
+      file,
+      path: pointer([key]),
+      kind: "scalar",
+      span: { start: map.byteOf(start2), end: map.byteOf(end) },
+      valueSpan: { start: map.byteOf(valueStart), end: map.byteOf(valueEnd) },
+      raw: text.slice(start2, end),
+      value: decodeCatalog(text.slice(valueStart, valueEnd), format),
+      quote,
+      escapes: true,
+      holes: [],
+      line: a.line,
+      col: a.col,
+      endLine: b.line,
+      endCol: b.col,
+      extractor: format,
+      tier: "structural",
+      container: { isKey: false }
+    });
+  }
+  try {
+    if (format === "strings") {
+      let i2 = 0;
+      const skip = () => {
+        for (; ; ) {
+          while (/\s/.test(text[i2] ?? "") && i2 < text.length) i2++;
+          if (text.startsWith("//", i2)) {
+            i2 = text.indexOf("\n", i2);
+            if (i2 < 0) i2 = text.length;
+          } else if (text.startsWith("/*", i2)) {
+            const end = text.indexOf("*/", i2 + 2);
+            if (end < 0) throw new Error("unterminated comment");
+            i2 = end + 2;
+          } else break;
+        }
+      };
+      const quoted = () => {
+        const start2 = i2;
+        if (text[i2++] !== '"') throw new Error("expected a double-quoted string");
+        while (i2 < text.length) {
+          if (text[i2] === "\n" || text[i2] === "\r") throw new Error("literal multiline strings are unsupported; use escapes");
+          if (text[i2] === "\\") {
+            i2 += 2;
+            continue;
+          }
+          if (text[i2++] === '"') return { start: start2, end: i2 };
+        }
+        throw new Error("unterminated quoted string");
+      };
+      skip();
+      while (i2 < text.length) {
+        const key = quoted(), decoded = decodeCatalog(text.slice(key.start + 1, key.end - 1), format);
+        skip();
+        if (text[i2++] !== "=") throw new Error("expected =");
+        skip();
+        const value = quoted();
+        skip();
+        if (text[i2++] !== ";") throw new Error("expected ;");
+        emit2(decoded, value.start, value.end, '"');
+        skip();
+      }
+    } else {
+      if (/\r(?!\n)/.test(text)) throw new Error("CR-only properties lines are unsupported; use LF or CRLF");
+      let start2 = 0;
+      while (start2 < text.length) {
+        let end = text.indexOf("\n", start2);
+        if (end < 0) end = text.length;
+        let contentEnd = end > start2 && text[end - 1] === "\r" ? end - 1 : end;
+        const line = text.slice(start2, contentEnd);
+        if (/^[ \t\f]*(?:[#!]|$)/.test(line)) {
+          start2 = end + 1;
+          continue;
+        }
+        let i2 = start2;
+        while (/[ \t\f]/.test(text[i2] ?? "") && i2 < contentEnd) i2++;
+        const keyStart = i2;
+        while (i2 < contentEnd) {
+          if (text[i2] === "\\") {
+            i2 += 2;
+            continue;
+          }
+          if (/[=: \t\f]/.test(text[i2])) break;
+          i2++;
+        }
+        if (i2 > contentEnd) throw new Error("continued keys are unsupported");
+        if (i2 === contentEnd) throw new Error("properties keys without a separator are unsupported; use key=");
+        const key = decodeCatalog(text.slice(keyStart, i2), format);
+        while (i2 < contentEnd && /[ \t\f]/.test(text[i2])) i2++;
+        if (text[i2] === "=" || text[i2] === ":") i2++;
+        while (i2 < contentEnd && /[ \t\f]/.test(text[i2])) i2++;
+        const valueStart = i2;
+        while ((/\\+$/.exec(text.slice(start2, contentEnd))?.[0].length ?? 0) % 2 === 1) {
+          if (end === text.length) throw new Error("unterminated continuation");
+          end = text.indexOf("\n", end + 1);
+          if (end < 0) end = text.length;
+          contentEnd = text[end - 1] === "\r" ? end - 1 : end;
+        }
+        emit2(key, valueStart, contentEnd, null);
+        start2 = end + 1;
+      }
+    }
+    return { sites, keys, claimedBytes: map.byteOf(text.length), complete: true };
+  } catch (error) {
+    return { sites: [], keys: /* @__PURE__ */ new Set(), claimedBytes: 0, complete: false, problem: error.message };
+  }
+}
+
 // src/plural/fluent.ts
 function looksLikeFluentSelect(text) {
   return text.includes("->") && /\*\s*\[/.test(text);
@@ -27227,6 +27381,22 @@ var RULES17 = [
   },
   // ------------------------------------------------------------------- apple
   {
+    id: "java.properties.messages",
+    ecosystem: "java",
+    title: "Properties locale message bundle",
+    docs: "https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/PropertyResourceBundle.html",
+    when: { kind: "file", file: ["**/locales/**/*.properties", ...NOT_VENDORED] },
+    emit: { surface: "i18n.message", verdict: "translate" }
+  },
+  {
+    id: "apple.strings.values",
+    ecosystem: "apple",
+    title: "Apple strings catalog values",
+    docs: "https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/LoadingResources/Strings/Strings.html",
+    when: { kind: "pointer", file: ["**/*.strings", ...NOT_VENDORED], pointer: ["/**"] },
+    emit: { surface: "ui.string-literal", verdict: "translate" }
+  },
+  {
     id: "apple.plist.usage-description",
     ecosystem: "apple",
     title: "iOS permission prompt copy",
@@ -28716,6 +28886,10 @@ var UnknownSyntaxError = class extends Error {
 };
 function syntaxFor(site3) {
   switch (site3.extractor) {
+    case "strings":
+      return "strings";
+    case "properties":
+      return "properties";
     case "ts-ast":
       if (site3.kind === "jsx-text") return "jsx-text";
       if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
@@ -28768,6 +28942,9 @@ function escapeFor(syntax, text, opts = {}) {
 }
 function escapeRaw(syntax, text, opts) {
   switch (syntax) {
+    case "strings":
+    case "properties":
+      return encodeCatalog(text, syntax);
     case "js-single":
       return text.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "\\r");
     case "js-double":
@@ -28849,6 +29026,9 @@ function toAscii(text, syntax) {
 }
 function unescapeFor(syntax, text, opts = {}) {
   switch (syntax) {
+    case "strings":
+    case "properties":
+      return decodeCatalog(text, syntax);
     case "js-single":
     case "js-double":
     case "js-template":
@@ -29701,6 +29881,13 @@ async function scan2(opts) {
   return {
     schemaVersion: 1,
     repo,
+    scanOptions: {
+      from,
+      to,
+      ...opts.noAst !== void 0 ? { noAst: opts.noAst } : {},
+      ...opts.pluralSidecar !== void 0 ? { pluralSidecar: opts.pluralSidecar } : {},
+      ...opts.dialectsPath !== void 0 ? { dialectsPath: opts.dialectsPath } : {}
+    },
     sourceLanguage: from,
     targetLanguage: to,
     sites,
@@ -29920,6 +30107,53 @@ async function extractFile(file, tokens, opts) {
   if (read2.text === "") return { ...base, extractor: "empty", bytesClaimed: 0 };
   const map = new OffsetMap(read2.text);
   const ext = file.ext;
+  if (ext === ".strings" || ext === ".properties") {
+    const format = ext === ".strings" ? "strings" : "properties";
+    const parsed = extractCatalog(file.rel, read2.text, map, format);
+    for (const key of parsed.keys) tokens.identifiers.add(key);
+    const sites = parsed.complete ? parsed.sites : sweepFile(file.rel, read2.text, map, [], {
+      identifiers: tokens.identifiers,
+      extractor: "none",
+      reason: `${format}: ${parsed.problem}`
+    });
+    if (!parsed.complete && sites.length === 0) {
+      const end = map.lineColOf(read2.text.length);
+      sites.push({
+        file: file.rel,
+        path: "#invalid-catalog",
+        kind: "scalar",
+        span: { start: 0, end: map.byteOf(read2.text.length) },
+        valueSpan: { start: 0, end: map.byteOf(read2.text.length) },
+        raw: read2.text,
+        value: read2.text,
+        quote: null,
+        escapes: false,
+        holes: [],
+        line: 1,
+        col: 1,
+        endLine: end.line,
+        endCol: end.col,
+        extractor: "none",
+        tier: "sweep",
+        container: { isKey: false },
+        whyUnclaimed: `${format}: ${parsed.problem}`
+      });
+    }
+    if (read2.byteAddressable && read2.bodyStart) for (const site3 of sites) {
+      site3.span.start += read2.bodyStart;
+      site3.span.end += read2.bodyStart;
+      site3.valueSpan.start += read2.bodyStart;
+      site3.valueSpan.end += read2.bodyStart;
+    }
+    return {
+      ...base,
+      sites,
+      extractor: format,
+      bytesClaimed: parsed.claimedBytes,
+      complete: parsed.complete,
+      ...parsed.problem ? { reason: parsed.problem } : {}
+    };
+  }
   if (ext === ".ts" && isQtTranslation(read2.text)) {
     return markupResult(base, file, read2, map, tokens, opts, {
       reason: "Qt translation catalog: routed by content, because .ts is also TypeScript"
@@ -30101,7 +30335,7 @@ function fileLocale(file) {
   const patterns = [
     /(?:^|\/)(?:locales?|i18n|lang|langs|translations|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)(?:\/|\.)/,
     /(?:^|\/)_locales\/([a-z]{2}(?:[-_][A-Z]{2})?)\//,
-    /(?:^|\/)(?:locales?|i18n|lang|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)\.(?:json|ya?ml|arb|ftl|po)$/,
+    /(?:^|\/)(?:locales?|i18n|lang|messages)\/([a-z]{2}(?:[-_][A-Z]{2})?)\.(?:json|ya?ml|arb|ftl|po|properties|strings)$/,
     /(?:^|\/)res\/values-([a-z]{2})\//,
     /(?:^|\/)([a-z]{2})\.lproj\//
   ];
@@ -30713,9 +30947,20 @@ function formatPlan(p) {
 }
 
 // src/apply.ts
-import { readFileSync as readFileSync18, writeFileSync as writeFileSync5, renameSync as renameSync3, unlinkSync, mkdirSync as mkdirSync4 } from "fs";
+import {
+  readFileSync as readFileSync18,
+  writeFileSync as writeFileSync5,
+  renameSync as renameSync3,
+  unlinkSync,
+  mkdirSync as mkdirSync4,
+  statSync as statSync10,
+  openSync,
+  closeSync,
+  fstatSync,
+  fchmodSync
+} from "fs";
 import { join as join27, dirname as dirname7 } from "path";
-import { createHash as createHash5 } from "crypto";
+import { createHash as createHash5, randomBytes } from "crypto";
 function apply(opts) {
   const { repo, inventory } = opts;
   const write = opts.write ?? false;
@@ -30806,6 +31051,7 @@ function apply(opts) {
     }
     const abs = join27(repo, file);
     const before = readFileSync18(abs);
+    const mode = statSync10(abs).mode & MODE_BITS;
     let patched;
     try {
       patched = applyPatches(before, patches);
@@ -30829,22 +31075,12 @@ function apply(opts) {
     if (write && opts.backupDir) {
       const dest = join27(opts.backupDir, file);
       mkdirSync4(dirname7(dest), { recursive: true });
-      writeFileSync5(dest, before);
+      writeExactly(dest, before, mode);
       backups.push(dest);
     }
     if (write) {
-      const tmp = join27(dirname7(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`);
-      try {
-        writeFileSync5(tmp, patched);
-        renameSync3(tmp, abs);
-        filesWritten++;
-      } catch (err2) {
-        try {
-          unlinkSync(tmp);
-        } catch {
-        }
-        throw err2;
-      }
+      writeExactly(abs, patched, mode);
+      filesWritten++;
     }
   }
   const applied = appliedWrites;
@@ -30871,9 +31107,54 @@ function apply(opts) {
     ...opts.vcs ? { vcs: opts.vcs } : {}
   };
 }
+var MODE_BITS = 4095;
+var TEMP_ATTEMPTS = 8;
+function writeExactly(path, data, mode) {
+  const dir = dirname7(path);
+  let fd = -1;
+  let tmp = "";
+  for (let attempt = 0; ; attempt++) {
+    const candidate = join27(dir, `.ultrai18n-${randomBytes(9).toString("hex")}.tmp`);
+    try {
+      fd = openSync(candidate, "wx", mode & 384);
+      tmp = candidate;
+      break;
+    } catch (err2) {
+      if (err2.code !== "EEXIST" || attempt >= TEMP_ATTEMPTS) throw err2;
+    }
+  }
+  try {
+    writeFileSync5(fd, data);
+    if ((fstatSync(fd).mode & MODE_BITS) !== mode) fchmodSync(fd, mode);
+    closeSync(fd);
+    fd = -1;
+    renameSync3(tmp, path);
+    tmp = "";
+  } finally {
+    if (fd !== -1) {
+      try {
+        closeSync(fd);
+      } catch {
+      }
+    }
+    if (tmp) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+      }
+    }
+  }
+}
 function buildPatch(repo, site3, text, recover) {
   const buf = readFileSync18(join27(repo, site3.file));
   const syntax = syntaxFor(site3);
+  if (syntax === "strings" || syntax === "properties") {
+    const read2 = readTextEx(join27(repo, site3.file));
+    if (!read2.byteAddressable) throw new Error(`unsupported catalog write encoding: ${read2.encoding}; use UTF8 source files`);
+    if (JSON.stringify(catalogPlaceholders(site3.value)) !== JSON.stringify(catalogPlaceholders(text))) {
+      throw new Error("catalog placeholder multiset changed; preserve every format token");
+    }
+  }
   let start2 = site3.span.start;
   let end = site3.span.end;
   let recovered = false;
@@ -30926,7 +31207,7 @@ function buildPatch(repo, site3, text, recover) {
     site3.prefix !== void 0 ? forCheck.slice((site3.prefix ?? "").length, forCheck.length - (site3.suffix ?? "").length).split("\n").map((l, i2) => i2 === 0 || !site3.linePrefix ? l : l.slice(site3.linePrefix.length)).join("\n") : forCheck,
     { quote: site3.quote }
   );
-  if (decoded !== text && !asciiOnly) {
+  if (decoded !== text && (!asciiOnly || syntax === "strings" || syntax === "properties")) {
     throw new Error(
       `escaping ${site3.file}:${site3.line} as ${syntax} did not round-trip: wrote ${JSON.stringify(escaped)}, read back ${JSON.stringify(decoded)}`
     );
@@ -32732,14 +33013,51 @@ function formatCheck(r) {
 
 // src/verify.ts
 import { existsSync as existsSync20, readFileSync as readFileSync24 } from "fs";
-import { join as join31 } from "path";
+import { join as join31, resolve as resolve6 } from "path";
+
+// src/live.ts
+function scanOptionsFor(repo, inventory) {
+  return {
+    ...inventory.scanOptions,
+    repo,
+    from: inventory.sourceLanguage,
+    to: inventory.targetLanguage
+  };
+}
+async function refreshInventory(repo, inventory) {
+  return scan2(scanOptionsFor(repo, inventory));
+}
+function requirePlannedSites(live, plan2, original) {
+  const ids = new Set(live.sites.map((site3) => site3.id));
+  const source = new Map(original?.sites.map((site3) => [site3.id, site3]));
+  for (const group of plan2.groups) {
+    if (group.status !== "pending" && group.status !== "memo") continue;
+    for (const id of [...group.sites, ...group.mirrors]) {
+      if (!ids.has(id)) throw new Error(`${id}: selected site is no longer in the repository; review the changed structure`);
+      const before = source.get(id);
+      if (before?.siteKey.includes("#comment[")) {
+        const siblings = (inventory) => inventory.sites.filter((site3) => site3.file === before.file && site3.siteKey.includes("#comment[")).length;
+        if (siblings(original) !== siblings(live)) {
+          throw new Error(`${id}: comment structure changed; selected site correspondence is ambiguous`);
+        }
+      }
+    }
+  }
+}
+
+// src/verify.ts
 var VALID_VERDICTS = ["supported", "partial", "refuted", "unsupported"];
 var VERIFY_MAX = 40;
 function buildVerify(opts) {
   const { repo, inventory, plan: plan2 } = opts;
   const max = opts.maxVerify ?? VERIFY_MAX;
   const rate = opts.sampleRate ?? 0.1;
-  const bySite = new Map(inventory.sites.map((s) => [s.id, s]));
+  if (!Number.isFinite(rate) || rate < 0 || rate > 1 || !Number.isSafeInteger(max) || max < 1) {
+    throw new Error("verify requires sample-rate between 0 and 1 and a positive integer max-verify");
+  }
+  const live = opts.live ?? inventory;
+  requirePlannedSites(live, plan2, inventory);
+  const bySite = new Map(live.sites.map((s) => [s.id, s]));
   const translated = plan2.groups.filter((g) => g.status === "pending" || g.status === "memo");
   const census = [];
   const remainder = [];
@@ -32749,17 +33067,18 @@ function buildVerify(opts) {
     else remainder.push(group);
   }
   const step = rate > 0 ? Math.max(1, Math.ceil(1 / rate)) : Infinity;
-  const sampled = remainder.slice().sort((a, b) => a.id < b.id ? -1 : 1).filter((_, i2) => i2 % step === 0).map((group) => ({ group, because: `sampled 1 in ${step}` }));
+  const sampled = remainder.slice().sort((a, b) => a.id < b.id ? -1 : 1).filter((_, i2) => rate > 0 && i2 % step === 0).map((group) => ({ group, because: `sampled 1 in ${step}` }));
   const chosen = [...census, ...sampled].slice(0, max);
   const pairs = [];
   for (const { group, because } of chosen) {
     const siteId2 = group.sites[0];
     const site3 = siteId2 ? bySite.get(siteId2) : void 0;
-    if (!site3) continue;
+    if (!site3) throw new Error(`${group.id}: selected site is no longer in the repository`);
     const digest2 = readLive(repo, site3);
-    if (digest2 === null) continue;
+    if (digest2 === null) throw new Error(`${site3.id}: selected site could not be read from the repository`);
     pairs.push({
       claimId: group.id,
+      siteId: site3.id,
       claim: `${JSON.stringify(group.text)} \u2192 ${JSON.stringify(currentValue(repo, site3) ?? "?")} (${group.role}${group.holes.length ? `, holes ${group.holes.join(",")}` : ""}) is correct, complete and idiomatic, preserves every placeholder, and fits its host site`,
       src: group.text,
       tgt: currentValue(repo, site3) ?? "",
@@ -32778,6 +33097,7 @@ function buildVerify(opts) {
     repo,
     pair: `${plan2.sourceLang}\u2192${plan2.targetLang}`,
     pairs,
+    selection: { sampleRate: rate, maxVerify: max },
     notReviewed: {
       groups: translated.length - pairs.length,
       reason: dropped ? `the ${max}-pair cap was reached; ${census.length} high-risk groups were prioritised over ${remainder.length} low-risk ones` : `${remainder.length - sampled.length} low-risk group(s) were sampled out: placeholder-free, test-free, single-site`
@@ -32796,6 +33116,7 @@ function readLive(repo, site3) {
   if (!existsSync20(abs)) return null;
   const buf = readFileSync24(abs);
   const slice = buf.subarray(site3.span.start, site3.span.end).toString("utf8");
+  if (slice !== site3.raw) return null;
   return sha256(slice).slice(0, 16);
 }
 function currentValue(repo, site3) {
@@ -32805,13 +33126,30 @@ function currentValue(repo, site3) {
   return buf.subarray(site3.valueSpan.start, site3.valueSpan.end).toString("utf8");
 }
 function applyVerdicts(opts) {
+  const invalid = worklistProblems(opts.todo);
+  if (invalid.length) throw new Error(`verify --apply refused worklist: ${invalid.join("; ")}`);
+  if (!Array.isArray(opts.verdicts)) throw new Error("verify --apply requires a verdicts array");
   const byId = new Map(opts.todo.pairs.map((p) => [p.claimId, p]));
   const problems = [];
   const adjudicated = [];
+  const seen = /* @__PURE__ */ new Set();
   for (const v of opts.verdicts) {
+    if (!isRecord(v) || typeof v.claimId !== "string") {
+      problems.push("malformed verdict row: expected an object with a claimId");
+      continue;
+    }
     const pair = byId.get(v.claimId);
     if (!pair) {
       problems.push(`${v.claimId}: no such claim in this worklist`);
+      continue;
+    }
+    if (seen.has(v.claimId)) {
+      problems.push(`${v.claimId}: duplicate verdict`);
+      continue;
+    }
+    seen.add(v.claimId);
+    if (v.citation !== void 0 && v.citation !== pair.citation || v.siteId !== void 0 && v.siteId !== pair.siteId || v.note !== void 0 && typeof v.note !== "string") {
+      problems.push(`${v.claimId}: malformed or foreign worklist identity`);
       continue;
     }
     if (!VALID_VERDICTS.includes(v.verdict)) {
@@ -32834,7 +33172,7 @@ function applyVerdicts(opts) {
   for (const pair of adjudicated) counts[pair.verdict]++;
   counts.unadjudicated = opts.todo.pairs.length - adjudicated.length;
   const failures = adjudicated.filter((p) => p.verdict === "refuted" || p.verdict === "unsupported").map((p) => ({ claimId: p.claimId, citation: p.citation, note: p.note }));
-  return { schemaVersion: 1, ok: failures.length === 0, counts, failures, verdicts: adjudicated };
+  return { schemaVersion: 1, ok: failures.length === 0 && counts.unadjudicated === 0, counts, failures, verdicts: adjudicated };
 }
 function checkSemantic(opts) {
   const findings = [];
@@ -32847,45 +33185,108 @@ function checkSemantic(opts) {
   if (!Array.isArray(opts.result.verdicts)) {
     return { ok: false, findings: ["the review has no verdicts array"] };
   }
-  const recomputed = opts.result.verdicts.filter(
-    (p) => p.verdict === "refuted" || p.verdict === "unsupported"
-  );
-  if (recomputed.length !== opts.result.failures.length) {
-    findings.push(
-      `the stored summary claims ${opts.result.failures.length} failure(s); recomputing from the verdicts gives ${recomputed.length}. The recomputation wins.`
-    );
+  const problems = worklistProblems(opts.todo);
+  if (problems.length) return { ok: false, findings: problems };
+  if (opts.result.schemaVersion !== 1) findings.push("malformed verification result schema");
+  if (resolve6(opts.todo.repo) !== resolve6(opts.repo) || opts.todo.pair !== `${opts.inventory.sourceLanguage ?? "unknown"}\u2192${opts.inventory.targetLanguage}`) {
+    findings.push("the worklist belongs to a different repository or language pair");
   }
-  for (const failure of recomputed) {
-    findings.push(`${failure.claimId} (${failure.citation}): ${failure.verdict}${failure.note ? " \u2014 " + failure.note : ""}`);
+  if (opts.plan) {
+    try {
+      const required = buildVerify({
+        repo: opts.repo,
+        inventory: opts.inventory,
+        live: opts.live,
+        plan: opts.plan,
+        ...opts.todo.selection
+      });
+      const handedOut = new Map(opts.todo.pairs.map((pair) => [pair.claimId, pair]));
+      if (required.pairs.length !== handedOut.size || required.pairs.some((pair) => {
+        const old = handedOut.get(pair.claimId);
+        return !old || pair.siteId !== old.siteId || pair.src !== old.src || pair.digest !== old.digest;
+      })) {
+        findings.push("the worklist no longer matches the source plan and current repository; regenerate verify");
+      }
+    } catch (error) {
+      findings.push(`the worklist cannot be refreshed: ${error.message}`);
+    }
   }
-  const bySite = new Map(opts.inventory.sites.map((s) => [`${s.file}:${s.line}`, s]));
-  let matched = 0;
-  for (const pair of opts.result.verdicts) {
-    const site3 = bySite.get(pair.citation);
-    if (!site3) {
-      findings.push(`${pair.claimId}: its citation ${pair.citation} is not in the current inventory`);
+  const expected = new Map(opts.todo.pairs.map((pair) => [pair.claimId, pair]));
+  const sites = opts.live ?? opts.inventory;
+  const bySite = new Map(sites.sites.map((site3) => [site3.id, site3]));
+  const seen = /* @__PURE__ */ new Set();
+  const covered = /* @__PURE__ */ new Set();
+  let failures = 0;
+  for (const row of opts.result.verdicts) {
+    if (!isPair(row) || !VALID_VERDICTS.includes(row.verdict)) {
+      findings.push("malformed verdict row: expected a worklist pair with a valid verdict");
       continue;
     }
-    const live = readLive(opts.repo, site3);
-    if (live === null) {
-      findings.push(`${pair.claimId}: ${pair.path} could not be read`);
+    if (seen.has(row.claimId)) {
+      findings.push(`${row.claimId}: duplicate verdict (adjudicated twice)`);
       continue;
     }
-    if (live !== pair.digest) {
+    seen.add(row.claimId);
+    const pair = expected.get(row.claimId);
+    if (!pair || !samePair(pair, row)) {
+      findings.push(`${row.claimId}: no such pair in this worklist (foreign or stale review)`);
+      continue;
+    }
+    covered.add(row.claimId);
+    if (row.verdict === "refuted" || row.verdict === "unsupported") {
+      failures++;
+      findings.push(`${row.claimId} (${row.citation}): ${row.verdict}${row.note ? " \u2014 " + row.note : ""}`);
+    }
+    const legacy = pair.siteId ? [] : opts.inventory.sites.filter((site4) => `${site4.file}:${site4.line}` === pair.citation);
+    const id = pair.siteId ?? (legacy.length === 1 ? legacy[0].id : void 0);
+    const site3 = id ? bySite.get(id) : void 0;
+    if (!site3 || site3.file !== pair.path) {
+      findings.push(`${pair.claimId}: its site is not in the current inventory or its legacy citation is ambiguous; regenerate verify`);
+      continue;
+    }
+    if (readLive(opts.repo, site3) !== pair.digest) {
       findings.push(`${pair.claimId} (${pair.citation}): the cited excerpt no longer matches the repository`);
+    }
+  }
+  if (!Array.isArray(opts.result.failures) || failures !== opts.result.failures.length) {
+    findings.push(`the stored summary disagrees; recomputing from the verdicts gives ${failures} failure(s)`);
+  }
+  const missing = expected.size - covered.size;
+  if (missing) findings.push(`${missing} pair(s) in the worklist were never adjudicated`);
+  return { ok: findings.length === 0, findings };
+}
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function isPair(value) {
+  if (!isRecord(value)) return false;
+  return ["claimId", "claim", "src", "tgt", "role", "citation", "path", "digest", "because", "note"].every((key) => typeof value[key] === "string") && Boolean(value.claimId && value.citation && value.path && value.digest) && (value.siteId === void 0 || typeof value.siteId === "string" && value.siteId.length > 0);
+}
+function samePair(a, b) {
+  return ["claimId", "siteId", "claim", "src", "tgt", "role", "citation", "path", "digest", "because"].every((key) => a[key] === b[key]);
+}
+function worklistProblems(todo) {
+  if (!isRecord(todo) || todo.schemaVersion !== 1 || typeof todo.repo !== "string" || typeof todo.pair !== "string" || !Array.isArray(todo.pairs)) {
+    return ["malformed verification worklist"];
+  }
+  const findings = [];
+  if (todo.selection !== void 0 && (!isRecord(todo.selection) || typeof todo.selection.sampleRate !== "number" || !Number.isFinite(todo.selection.sampleRate) || todo.selection.sampleRate < 0 || todo.selection.sampleRate > 1 || typeof todo.selection.maxVerify !== "number" || !Number.isSafeInteger(todo.selection.maxVerify) || todo.selection.maxVerify < 1)) {
+    findings.push("malformed verification selection options");
+  }
+  const claims = /* @__PURE__ */ new Set();
+  const sites = /* @__PURE__ */ new Set();
+  for (const pair of todo.pairs) {
+    if (!isPair(pair)) {
+      findings.push("malformed pair in the verification worklist");
       continue;
     }
-    matched++;
+    if (claims.has(pair.claimId) || pair.siteId && sites.has(pair.siteId)) {
+      findings.push(`${pair.claimId}: duplicate claim or site in the worklist`);
+    }
+    claims.add(pair.claimId);
+    if (pair.siteId) sites.add(pair.siteId);
   }
-  if (opts.result.verdicts.length > 0 && matched === 0) {
-    findings.push(
-      `none of the ${opts.result.verdicts.length} adjudicated pairs match this repository \u2014 the translation was not actually verified (a stale or foreign review)`
-    );
-  }
-  if (opts.result.counts.unadjudicated > 0) {
-    findings.push(`${opts.result.counts.unadjudicated} pair(s) in the worklist were never adjudicated`);
-  }
-  return { ok: findings.length === 0, findings };
+  return findings;
 }
 function formatVerifyTodo(todo) {
   const lines = [
@@ -34468,7 +34869,7 @@ async function main() {
     process.exit(0);
   }
   if (!p.command) usage(`unknown command: ${p.positional[0]}`);
-  const repo = resolve6(String(p.flags.repo ?? process.cwd()));
+  const repo = resolve7(String(p.flags.repo ?? process.cwd()));
   const json = p.flags.json === true;
   const quiet = p.flags.quiet === true;
   const say = (full) => {
@@ -34527,7 +34928,7 @@ ${r.docs ? `    ${r.docs}
       return;
     }
     case "scan": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inv = await scan2({
         repo,
         from: p.flags.from === void 0 ? "auto" : String(p.flags.from),
@@ -34546,7 +34947,7 @@ wrote ${join38(out2, "inventory.json")}
       return;
     }
     case "plan": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const mode = String(p.flags.mode ?? "swap");
       const { plan: result, batches } = cmdPlan(out2, mode);
       if (json) process.stdout.write(JSON.stringify({ ...result, batches: batches.length }, null, 2) + "\n");
@@ -34560,7 +34961,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "translate": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       if (p.flags.apply !== void 0) {
         const folded = cmdTranslateApply(out2);
         if (json) process.stdout.write(JSON.stringify(folded, null, 2) + "\n");
@@ -34619,7 +35020,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "apply": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const report = cmdApply(repo, out2, {
         write: p.flags.write === true,
         recover: p.flags["no-recover"] !== true,
@@ -34633,15 +35034,15 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "verify": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const todoPath = join38(out2, "VERIFY.todo.json");
       if (p.flags.apply !== void 0) {
         const todo2 = readJson2(todoPath, "VERIFY.todo.json");
         const verdicts = readJson2(
-          resolve6(String(p.flags.apply)),
+          resolve7(String(p.flags.apply)),
           "the verdicts file"
         );
-        const list = Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? [];
+        const list = Array.isArray(verdicts) ? verdicts : verdicts?.verdicts;
         const result = applyVerdicts({ todo: todo2, verdicts: list });
         writeJson(join38(out2, "VERIFY.json"), result);
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + "\n");
@@ -34660,6 +35061,7 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       const todo = buildVerify({
         repo,
         inventory,
+        live: await refreshInventory(repo, inventory),
         plan: planned,
         ...p.flags["max-verify"] ? { maxVerify: Number(p.flags["max-verify"]) } : {},
         ...p.flags["sample-rate"] ? { sampleRate: Number(p.flags["sample-rate"]) } : {}
@@ -34678,8 +35080,8 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
       return;
     }
     case "orchestrate": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
-      const engine = resolve6(process.argv[1] ?? "ultrai18n.mjs");
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const engine = resolve7(process.argv[1] ?? "ultrai18n.mjs");
       if (p.flags.list) {
         const statuses = phaseStatuses(out2);
         process.stdout.write(JSON.stringify(statuses, null, 2) + "\n");
@@ -34715,7 +35117,7 @@ join:     ${emitted.join}
       return;
     }
     case "dialects": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.check === true) {
         const problems2 = runCheck(repo, inventory);
@@ -34760,7 +35162,7 @@ join:     ${emitted.join}
       return;
     }
     case "plurals": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.apply !== void 0) {
         const returns = parsePluralReturns(readJson2(String(p.flags.apply), "the returns file"));
@@ -34805,7 +35207,7 @@ join:     ${emitted.join}
       return;
     }
     case "sync": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = sync({
         repo,
@@ -34819,7 +35221,7 @@ join:     ${emitted.join}
       return;
     }
     case "init": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const report = check({ repo, inventory, exceptions: readExceptions(join38(out2, "exceptions.json")) });
       const result = init2({
@@ -34840,7 +35242,7 @@ join:     ${emitted.join}
       return;
     }
     case "sites": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       if (p.flags.audit === true) {
         const view = auditCoverage(inventory, repo);
@@ -34894,7 +35296,7 @@ join:     ${emitted.join}
         else say(formatGuess(text, guess));
         return;
       }
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
       const prof = profile(inventory);
       if (json) process.stdout.write(JSON.stringify(prof, null, 2) + "\n");
@@ -34902,7 +35304,7 @@ join:     ${emitted.join}
       return;
     }
     case "adjudicate": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       const inventory = readJson2(dirs.inventory, "inventory.json");
       const planned = readJson2(dirs.plan, "PLAN.json");
@@ -34951,7 +35353,7 @@ VERDICT  ${todo.hazards.length ? `${todo.hazards.length} hazard(s) awaiting a ru
       return;
     }
     case "glossary": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const dirs = runDir(out2);
       if (p.flags.seed === true && p.flags.list === true) {
         usage("--seed rewrites the generated region; --list reads it. Pick one.");
@@ -35008,14 +35410,17 @@ VERDICT  ok \u2014 proposals refreshed`
       return;
     }
     case "check": {
-      const out2 = resolve6(String(p.flags.out ?? join38(repo, ".ultrai18n")));
+      const out2 = resolve7(String(p.flags.out ?? join38(repo, ".ultrai18n")));
       const inventory = readJson2(runDir(out2).inventory, "inventory.json");
+      const live = await refreshInventory(repo, inventory);
+      const planned = existsSync25(runDir(out2).plan) ? readJson2(runDir(out2).plan, "PLAN.json") : void 0;
+      if (planned) requirePlannedSites(live, planned, inventory);
       const exceptions = readExceptions(join38(out2, "exceptions.json"));
       const baselinePath = join38(out2, "baseline.json");
       const baseline = existsSync25(baselinePath) ? loadBaseline(readJson2(baselinePath, "baseline.json")) : void 0;
       const report = check({
         repo,
-        inventory,
+        inventory: live,
         exceptions,
         strict: p.flags.strict === true,
         ...baseline ? { baseline } : {}
@@ -35026,6 +35431,8 @@ VERDICT  ok \u2014 proposals refreshed`
         const semantic = checkSemantic({
           repo,
           inventory,
+          live,
+          plan: planned,
           todo: existsSync25(todoPath) ? readJson2(todoPath, "VERIFY.todo.json") : null,
           result: existsSync25(resultPath) ? readJson2(resultPath, "VERIFY.json") : null
         });

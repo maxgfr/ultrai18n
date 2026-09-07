@@ -1,5 +1,12 @@
 # ultrai18n
 
+## Manual skill invocation
+
+Invoke `$ultrai18n` explicitly in Codex or `/ultrai18n` in Claude Code.
+The shipped skill disables automatic activation in both hosts; CLI commands
+remain unchanged. Other hosts may not honor these settings. Existing installed
+copies need to be updated to receive this invocation policy.
+
 Find every human-readable string in a repository, classify it, translate it with cheap models, and
 prove nothing was missed.
 
@@ -63,6 +70,14 @@ ultrai18n check  --repo .            # the gates: G1…G8
 That is the read-only audit, and it is a strict prefix of every other mode. To actually swap a
 language, continue: `plan` → `translate` → `apply --write` → `verify` → `check --semantic`.
 
+Fold the translator's batch results with `translate --apply '.ultrai18n/results/*.result.json'`
+before `apply --write`. `verify` refreshes the repository view, writes `VERIFY.todo.json`, and keeps the original
+`inventory.json` and `PLAN.json` as source provenance. Adjudicate each requested pair with
+`supported`, `partial`, `refuted`, or `unsupported`, then run `verify --apply verdicts.json`
+before `check --semantic`. Both gates read current sites with the original scan options;
+no manual rescan is needed. Missing sites and changed ordinal comment structure require review.
+The semantic gate checks unique worklist coverage and the reviewed bytes, not stored counters.
+
 ## Proving it
 
 Three instruments, and the first runs on **your** repository rather than on a benchmark.
@@ -112,7 +127,7 @@ TypeScript, JavaScript, JSX and TSX; **Python and shell on the same AST tier**, 
 the first statement of a body rather than a string that happens to come first; JSON, JSONC, JSON5
 and JSON Lines; YAML, including markdown nested in a block scalar; markdown; HTML, SVG and
 single-file components, down to the inline `<script>`; CSS; TOML; gettext `.po`; Fluent `.ftl`;
-Apple `.stringsdict`, `.xcstrings` and `.plist`; Qt `.ts`; Android `strings.xml`; Dockerfiles;
+Apple `.strings`, `.stringsdict`, `.xcstrings` and `.plist`; Java `.properties`; Qt `.ts`; Android `strings.xml`; Dockerfiles;
 `.sql`; and the `#`-comment ignore formats.
 
 `.sql` is the one reader that earns its place by **silencing** rather than finding: it reads the
@@ -224,7 +239,13 @@ engine working, not failing.
 - dependencies and text outside the repository are out of scope;
 - a shell script's *strings* are never emitted, only its comments — deliberately, because emitting
   shell arguments hands a translator a wall of paths, flags and package names;
-- `.strings`, and the `.ini`/`.conf`/`.properties` family, have no reader yet.
+- `.ini` and `.conf` have no reader yet.
+
+**Keyed catalogs:** `.strings` and `.properties` now use the normal scan → plan → translate →
+apply → verify → check lifecycle, with stable decoded-key identities. UTF-8 (with or without BOM)
+is writable; UTF-16/BOM and Latin1 are inventoried but writing is refused. Comments and keys are
+preserved. Duplicate keys, unsupported syntax or escapes become blocking residuals. The exact
+syntax subset and placeholder contract are in [catalog readers](skills/ultrai18n/references/catalog-readers.md).
 
 **Claims deliberately not made:**
 

@@ -9,9 +9,22 @@
 // one buffer, one rename, so a file is either fully patched or untouched. Per
 // group: every file is validated before any file is written, so a translation
 // landing in four files never lands in three.
-import { readFileSync, writeFileSync, renameSync, unlinkSync, mkdirSync } from 'node:fs'
+import {
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  unlinkSync,
+  mkdirSync,
+  statSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  fchmodSync,
+} from 'node:fs'
 import { join, dirname } from 'node:path'
-import { createHash } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { readTextEx } from './vendor/text'
+import { catalogPlaceholders } from './extract/catalog'
 import type { Inventory, Site } from './types'
 import { escapeFor, unescapeFor, syntaxFor, UnknownSyntaxError, type HostSyntax } from './escape'
 
@@ -230,6 +243,10 @@ export function apply(opts: ApplyOptions): ApplyReport {
 
     const abs = join(repo, file)
     const before = readFileSync(abs)
+    // Read alongside the bytes, because the rename below replaces the inode:
+    // whatever mode the original carried has to be carried over explicitly, or
+    // a translated `task.sh` comes back at the umask default and stops running.
+    const mode = statSync(abs).mode & MODE_BITS
     let patched: Buffer
     try {
       patched = applyPatches(before, patches)
@@ -260,28 +277,23 @@ export function apply(opts: ApplyOptions): ApplyReport {
       // backup sitting next to the file would be WALKED by the next scan,
       // producing phantom duplicate sites and a G6 duplicate-divergence finding
       // on a repository that is perfectly correct.
+      //
+      // Same bits as the original, too. A backup of a 0600 file that lands at
+      // 0644 is a copy of a secret that outlives the run, in a directory
+      // nobody thinks to go back and check.
       const dest = join(opts.backupDir, file)
       mkdirSync(dirname(dest), { recursive: true })
-      writeFileSync(dest, before)
+      writeExactly(dest, before, mode)
       backups.push(dest)
     }
 
     if (write) {
-      // Write to a temporary file in the same directory and rename: rename is
-      // atomic, so a reader sees the old file or the new one, never a partial.
-      const tmp = join(dirname(abs), `.ultrai18n-${process.pid}-${filesWritten}.tmp`)
-      try {
-        writeFileSync(tmp, patched)
-        renameSync(tmp, abs)
-        filesWritten++
-      } catch (err) {
-        try {
-          unlinkSync(tmp)
-        } catch {
-          /* the temp file may not exist */
-        }
-        throw err
-      }
+      // One buffer, one rename — inside `writeExactly`, which owns both the
+      // temporary file and the mode. A reader sees the old file or the new
+      // one, never a partial, and never a window in which the patched content
+      // sits at bits the original did not have.
+      writeExactly(abs, patched, mode)
+      filesWritten++
     }
   }
 
@@ -311,9 +323,97 @@ export function apply(opts: ApplyOptions): ApplyReport {
   }
 }
 
+/** The POSIX permission bits, setuid/setgid/sticky included. */
+const MODE_BITS = 0o7777
+
+/** How many taken temp names to walk past before giving up on the directory. */
+const TEMP_ATTEMPTS = 8
+
+/**
+ * Replace `path` with `data`, at exactly `mode`, atomically.
+ *
+ * Passing `mode` to `writeFileSync` is necessary and not sufficient. It is
+ * masked by the process umask, so under 077 a 0644 original comes back 0600
+ * and a file the rest of the team could read yesterday cannot be read today;
+ * and it is ignored outright for a path that already exists, which would leave
+ * an overwritten backup at whatever bits it happened to have.
+ *
+ * Removing the destination first would fix the mode and break something worse.
+ * Every failure between the unlink and the rewrite is then a LOSS: the backup
+ * of an earlier run is gone before the copy meant to supersede it exists, and
+ * the run reports a disk error over a directory it has already emptied. So
+ * nothing is unlinked. A fresh file is built beside the destination and renamed
+ * over it, which replaces it in one step or not at all.
+ *
+ * The temp is created with 'wx' — O_CREAT|O_EXCL — so the name is claimed by
+ * the create rather than assumed by the caller. A name that is already taken
+ * belongs to another writer, and this walks to the next name rather than
+ * removing theirs. Its creation bits are a subset of the mode being aimed at,
+ * so no extra permissions become visible while its bytes are written. The
+ * writable descriptor is then fchmod'd to the mode itself, on the file this call
+ * created and no other path. That chmod is conditional because a filesystem
+ * that does not implement one — a mounted FAT volume, say — reports the same
+ * fixed mode for source and copy, and refusing the write there would be a
+ * worse answer than the one this function exists to give.
+ *
+ * POSIX bits only. Ownership, ACLs and extended attributes are not preserved
+ * and are not claimed to be.
+ */
+function writeExactly(path: string, data: Buffer, mode: number): void {
+  const dir = dirname(path)
+  let fd = -1
+  // Owned strictly: set once the create succeeded, cleared once the rename
+  // took it away. Cleanup below acts on this and never on a name it only tried.
+  let tmp = ''
+  for (let attempt = 0; ; attempt++) {
+    // Random rather than derived from the pid: two runs in one process, or two
+    // processes that recycled a pid, otherwise pick the same name — and one of
+    // them is then writing over the other's file.
+    const candidate = join(dir, `.ultrai18n-${randomBytes(9).toString('hex')}.tmp`)
+    try {
+      fd = openSync(candidate, 'wx', mode & 0o600)
+      tmp = candidate
+      break
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= TEMP_ATTEMPTS) throw err
+    }
+  }
+  try {
+    writeFileSync(fd, data)
+    // Writing may clear setuid/setgid, so restore the final bits afterwards.
+    if ((fstatSync(fd).mode & MODE_BITS) !== mode) fchmodSync(fd, mode)
+    closeSync(fd)
+    fd = -1
+    renameSync(tmp, path)
+    tmp = ''
+  } finally {
+    if (fd !== -1) {
+      try {
+        closeSync(fd)
+      } catch {
+        /* the descriptor is being abandoned either way */
+      }
+    }
+    if (tmp) {
+      try {
+        unlinkSync(tmp)
+      } catch {
+        /* a temp this call created and could not remove is not worth failing over */
+      }
+    }
+  }
+}
+
 function buildPatch(repo: string, site: Site, text: string, recover: boolean): Patch {
   const buf = readFileSync(join(repo, site.file))
   const syntax = syntaxFor(site)
+  if (syntax === 'strings' || syntax === 'properties') {
+    const read = readTextEx(join(repo, site.file))
+    if (!read.byteAddressable) throw new Error(`unsupported catalog write encoding: ${read.encoding}; use UTF8 source files`)
+    if (JSON.stringify(catalogPlaceholders(site.value)) !== JSON.stringify(catalogPlaceholders(text))) {
+      throw new Error('catalog placeholder multiset changed; preserve every format token')
+    }
+  }
 
   let start = site.span.start
   let end = site.span.end
@@ -401,7 +501,7 @@ function buildPatch(repo: string, site: Site, text: string, recover: boolean): P
       : forCheck,
     { quote: site.quote },
   )
-  if (decoded !== text && !asciiOnly) {
+  if (decoded !== text && (!asciiOnly || syntax === 'strings' || syntax === 'properties')) {
     throw new Error(
       `escaping ${site.file}:${site.line} as ${syntax} did not round-trip: wrote ${JSON.stringify(escaped)}, read back ${JSON.stringify(decoded)}`,
     )

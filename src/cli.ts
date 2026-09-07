@@ -12,6 +12,7 @@ import { formatApply } from './apply'
 import { cmdPlan, cmdTranslate, cmdTranslateApi, cmdTranslateApply, cmdApply, runDir, readJson } from './commands'
 import { check, formatCheck, readExceptions } from './check'
 import { buildVerify, applyVerdicts, checkSemantic, formatVerifyTodo, type VerifyTodo, type VerifyResult } from './verify'
+import { refreshInventory, requirePlannedSites } from './live'
 import { contractFor, orchestrate, phaseStatuses, type PhaseName } from './orchestrate'
 import { sync, formatSync } from './sync'
 import { init, loadBaseline, type Baseline } from './init'
@@ -396,7 +397,7 @@ async function main(): Promise<void> {
           resolve(String(p.flags.apply)),
           'the verdicts file',
         )
-        const list = (Array.isArray(verdicts) ? verdicts : verdicts.verdicts ?? []) as never[]
+        const list = (Array.isArray(verdicts) ? verdicts : verdicts?.verdicts) as never[]
         const result = applyVerdicts({ todo, verdicts: list })
         writeJson(join(out, 'VERIFY.json'), result)
         if (json) process.stdout.write(JSON.stringify(result, null, 2) + '\n')
@@ -415,6 +416,7 @@ async function main(): Promise<void> {
       const todo = buildVerify({
         repo,
         inventory,
+        live: await refreshInventory(repo, inventory),
         plan: planned,
         ...(p.flags['max-verify'] ? { maxVerify: Number(p.flags['max-verify']) } : {}),
         ...(p.flags['sample-rate'] ? { sampleRate: Number(p.flags['sample-rate']) } : {}),
@@ -788,13 +790,16 @@ async function main(): Promise<void> {
     case 'check': {
       const out = resolve(String(p.flags.out ?? join(repo, '.ultrai18n')))
       const inventory = readJson<Inventory>(runDir(out).inventory, 'inventory.json')
+      const live = await refreshInventory(repo, inventory)
+      const planned = existsSync(runDir(out).plan) ? readJson<Plan>(runDir(out).plan, 'PLAN.json') : undefined
+      if (planned) requirePlannedSites(live, planned, inventory)
       const exceptions = readExceptions(join(out, 'exceptions.json'))
       const baselinePath = join(out, 'baseline.json')
       const baseline = existsSync(baselinePath)
         ? loadBaseline(readJson<Baseline>(baselinePath, 'baseline.json'))
         : undefined
       const report = check({
-        repo, inventory, exceptions,
+        repo, inventory: live, exceptions,
         strict: p.flags.strict === true,
         ...(baseline ? { baseline } : {}),
       })
@@ -805,6 +810,8 @@ async function main(): Promise<void> {
         const semantic = checkSemantic({
           repo,
           inventory,
+          live,
+          plan: planned,
           todo: existsSync(todoPath) ? readJson<VerifyTodo>(todoPath, 'VERIFY.todo.json') : null,
           result: existsSync(resultPath) ? readJson<VerifyResult>(resultPath, 'VERIFY.json') : null,
         })

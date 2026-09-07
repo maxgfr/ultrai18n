@@ -397,6 +397,22 @@ export const RULES: Rule[] = [
 
   // ------------------------------------------------------------------- apple
   {
+    id: 'java.properties.messages',
+    ecosystem: 'java',
+    title: 'Properties locale message bundle',
+    docs: 'https://docs.oracle.com/en/java/javase/17/docs/api/java.base/java/util/PropertyResourceBundle.html',
+    when: { kind: 'file', file: ['**/locales/**/*.properties', ...NOT_VENDORED] },
+    emit: { surface: 'i18n.message', verdict: 'translate' },
+  },
+  {
+    id: 'apple.strings.values',
+    ecosystem: 'apple',
+    title: 'Apple strings catalog values',
+    docs: 'https://developer.apple.com/library/archive/documentation/Cocoa/Conceptual/LoadingResources/Strings/Strings.html',
+    when: { kind: 'pointer', file: ['**/*.strings', ...NOT_VENDORED], pointer: ['/**'] },
+    emit: { surface: 'ui.string-literal', verdict: 'translate' },
+  },
+  {
     id: 'apple.plist.usage-description',
     ecosystem: 'apple',
     title: 'iOS permission prompt copy',
