@@ -41,7 +41,7 @@
     "sweep": "node bench/sweep.mjs"
   },
   "devDependencies": {
-    "@maxgfr/codeindex": "2.28.4",
+    "@maxgfr/codeindex": "2.28.6",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
