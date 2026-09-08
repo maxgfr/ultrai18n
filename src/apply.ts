@@ -23,7 +23,7 @@ import {
 } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
-import { readTextEx } from './vendor/text'
+import { readTextEx } from './text'
 import { catalogPlaceholders } from './extract/catalog'
 import type { Inventory, Site } from './types'
 import { escapeFor, unescapeFor, syntaxFor, UnknownSyntaxError, type HostSyntax } from './escape'

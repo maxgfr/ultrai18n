@@ -7,7 +7,7 @@
 // enough to be dangerous.
 import type { Span } from '../types'
 import { lineBytes, type RawSite } from './raw'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 import { extractHtml } from './html'
 
 export interface MarkdownExtractResult {

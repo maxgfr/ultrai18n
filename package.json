@@ -38,14 +38,19 @@
     "eval": "vitest run evals",
     "gen:evals": "ULTRAI18N_WRITE=1 vitest run evals/fixture-readme.test.ts",
     "bench": "node bench/run.mjs",
-    "sweep": "node bench/sweep.mjs"
+    "sweep": "node bench/sweep.mjs",
+    "check:build": "pnpm build && git diff --exit-code -- skills/ultrai18n/scripts && node scripts/sync-engine.mjs --check && node scripts/verify-engine-usage.mjs",
+    "verify:engine": "node scripts/verify-engine-usage.mjs",
+    "engine:prepare": "pnpm run build && pnpm bench --ci && node scripts/check-artifact-recall.mjs",
+    "engine:gate": "pnpm run typecheck && pnpm run test && pnpm run check:build && pnpm run eval && pnpm bench --ci && git diff --exit-code -- bench/REPORT.md bench/report.json && node skills/ultrai18n/scripts/ultrai18n.mjs census --repo . --json > /dev/null"
   },
   "devDependencies": {
-    "@maxgfr/codeindex": "2.28.6",
+    "@maxgfr/codeindex": "2.30.0",
     "@types/node": "^22.10.2",
     "tsup": "^8.3.5",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
-    "web-tree-sitter": "^0.26.11"
+    "web-tree-sitter": "^0.26.11",
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d"
   }
 }

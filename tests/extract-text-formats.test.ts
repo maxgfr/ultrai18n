@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { extractMarkdown, slugify } from '../src/extract/markdown'
 import { extractCss } from '../src/extract/css'
 import { extractHtml } from '../src/extract/html'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 
 const md = (src: string, file = 'README.md') => extractMarkdown(file, src, new OffsetMap(src))
 const css = (src: string, file = 'index.css') => extractCss(file, src, new OffsetMap(src))

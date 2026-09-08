@@ -9,8 +9,11 @@ importers:
   .:
     devDependencies:
       '@maxgfr/codeindex':
-        specifier: 2.28.6
-        version: 2.28.6
+        specifier: 2.30.0
+        version: 2.30.0
+      '@maxgfr/webindex':
+        specifier: https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d
+        version: webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.1
@@ -336,8 +339,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maxgfr/codeindex@2.28.6':
-    resolution: {integrity: sha512-hWrxj5kI1SZ1wRphPR1w7psraKKtPMYzq4LAVpI+L6PTzLbVzboUbAI9WFm7e65qne8DLuEn8S4eL0t9ovLEEQ==}
+  '@maxgfr/codeindex@2.30.0':
+    resolution: {integrity: sha512-dkHvT3YMBmEERC6s2iQD8uKCL6t55tHMBT5wHpoUEMWnx9/biHHoQArNI/Iyu8smmqllexfFjnW/eGP3HcDR8Q==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -859,6 +862,12 @@ packages:
   web-tree-sitter@0.26.11:
     resolution: {integrity: sha512-Q5Dm3YTIXSXuH6FxX6RuzX2Qwpc4DPGiYMU87Wg5Z8OIStiQFiUex4zMDc0vBTw78EphaYJacncJghCHzbZptg==}
 
+  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d:
+    resolution: {tarball: https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d}
+    version: 1.19.1
+    engines: {node: '>=18'}
+    hasBin: true
+
   why-is-node-running@2.3.0:
     resolution: {integrity: sha512-hUrmaWBdVDcxvYqnyh09zunKzROWjbZTiNy8dBEjkS7ehEDQibXJ7XvlmtbwuTclUiIyN+CyXQD4Vmko8fNm8w==}
     engines: {node: '>=8'}
@@ -1027,7 +1036,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@maxgfr/codeindex@2.28.6': {}
+  '@maxgfr/codeindex@2.30.0': {}
 
   '@rollup/rollup-android-arm-eabi@4.62.3':
     optional: true
@@ -1507,6 +1516,8 @@ snapshots:
       - terser
 
   web-tree-sitter@0.26.11: {}
+
+  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d: {}
 
   why-is-node-running@2.3.0:
     dependencies:

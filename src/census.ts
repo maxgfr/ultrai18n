@@ -9,8 +9,8 @@
 // exist and then asking it whether it read them is a tautology.
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { walk, TEXT_BEARING_BINARY_EXT, type Skipped } from './vendor/walk'
-import { readTextEx } from './vendor/text'
+import { walk, TEXT_BEARING_BINARY_EXT, type Skipped } from './walk'
+import { readTextEx } from './text'
 import type { CensusEntry } from './types'
 
 export interface CensusResult {

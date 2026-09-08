@@ -25,7 +25,7 @@ import {
 } from './shapes'
 import { DIALECTS_BY_ID } from './dialect/dialects'
 import type { PluralDialect, PrimitiveId } from './dialect/types'
-import { compileGlobs } from '../vendor/glob'
+import { compileGlobs } from '../glob'
 import { syntaxFor } from '../escape'
 import { splitPluralKey } from './shapes'
 import { readPragmas, readSidecar, type AnnotatedFamily } from './annotate'

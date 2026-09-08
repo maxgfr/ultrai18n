@@ -6,7 +6,7 @@
 // means a project can slot a dialect between two shipped ones without editing
 // this package.
 import type { Site } from '../../types'
-import { compileGlobs } from '../../vendor/glob'
+import { compileGlobs } from '../../glob'
 import type { PluralDialect, PrimitiveId } from '../dialect/types'
 import type { DetectedFamily } from '../shapes'
 import { detectFluent } from './fluent'

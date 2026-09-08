@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
   pull_request:
@@ -23,10 +24,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
-      # src/vendor/ is a FORK of four codeindex sources, and the package it was
-      # forked from is inlined into the shipped bundle. One pin covers both, and
-      # this is where a fork edited without being recorded, a stale version stamp
-      # or a caret creeping back onto the dependency stops.
+      # Verify the byte-identical engine pin and its actual source adoption.
+      - run: pnpm verify:engine
       - name: The codeindex pin holds
         run: pnpm check:engine
 

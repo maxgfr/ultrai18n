@@ -11,7 +11,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Parser, Language, type Node, type Tree } from 'web-tree-sitter'
-import { ensureGrammars, grammarKeyForExt, resolveGrammarsDir } from '@maxgfr/codeindex'
+import { ensureGrammars, grammarKeyForExt, resolveGrammarsDir } from '../vendor/codeindex-engine.mjs'
 
 export type { Node, Tree }
 
@@ -58,8 +58,10 @@ export function grammarStatus(): GrammarStatus {
  */
 function shippedGrammarsDir(): string | null {
   try {
-    const dir = join(dirname(fileURLToPath(import.meta.url)), 'grammars')
-    return existsSync(join(dir, 'tsx.wasm')) ? dir : null
+    const here = dirname(fileURLToPath(import.meta.url))
+    // Source tests use the same committed grammars that the standalone bundle ships.
+    const candidates = [join(here, 'grammars'), join(here, '../../skills/ultrai18n/scripts/grammars')]
+    return candidates.find(dir => existsSync(join(dir, 'tsx.wasm'))) ?? null
   } catch {
     return null
   }
@@ -118,7 +120,7 @@ export async function parserForExt(ext: string): Promise<Parser | null> {
   if (!key) return null
   if (cache.has(key)) return cache.get(key)!
 
-  const dir = status.dir ?? resolveGrammarsDir()
+  const dir = status.dir ?? shippedGrammarsDir() ?? resolveGrammarsDir()
   if (!dir) {
     cache.set(key, null)
     return null

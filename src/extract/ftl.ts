@@ -11,7 +11,7 @@ import { lineBytes } from './raw'
 import { pointer } from '../identity'
 import { parseFluent } from '../plural/fluent'
 import type { Span } from '../types'
-import type { OffsetMap } from '../vendor/text'
+import type { OffsetMap } from '../text'
 
 export interface FtlExtractResult {
   sites: RawSite[]

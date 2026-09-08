@@ -10,7 +10,7 @@
 import type { Span } from '../types'
 import type { Container, RawSite } from './raw'
 import { pointer } from '../identity'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface JsonExtractResult {
   sites: RawSite[]

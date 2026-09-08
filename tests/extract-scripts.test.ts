@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { scan } from '../src/scan'
 import { extractSql } from '../src/extract/sql'
 import { isCommentOnly } from '../src/extract/shell'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 import { auditCoverage } from '../src/audit'
 import type { Inventory, Site } from '../src/types'
 

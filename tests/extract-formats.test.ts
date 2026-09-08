@@ -6,7 +6,7 @@
 // what makes a plural readable is which key owns which value, and every one of
 // these formats expresses that differently.
 import { describe, it, expect } from 'vitest'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 import { extractPo } from '../src/extract/po'
 import { extractToml } from '../src/extract/toml'
 import { extractFtl } from '../src/extract/ftl'

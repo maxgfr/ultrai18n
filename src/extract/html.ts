@@ -9,7 +9,7 @@
 // <title> and <desc> — the accessible name of every icon in a UI.
 import type { Span } from '../types'
 import type { Container, RawSite } from './raw'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 import { pointer } from '../identity'
 import { extractCss } from './css'
 

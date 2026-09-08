@@ -1,0 +1,52 @@
+{
+  "name": "ultrai18n",
+  "vendorDir": "src/vendor",
+  "engines": {
+    "codeindex": {
+      "repo": "maxgfr/codeindex",
+      "minRef": "v2.30.0",
+      "meta": "engine.meta.json",
+      "dependency": "@maxgfr/codeindex",
+      "forks": {
+        "src/check.ts:clip": "Check table formatting folds whitespace and reserves space for an ellipsis.",
+        "src/classify.ts:classify": "I18n site classification and language decision policy.",
+        "src/extract/markdown.ts:extractMarkdown": "Extracts translatable sites with byte spans, containers and patch identities.",
+        "src/extract/markdown.ts:slugify": "Unicode heading anchors are persisted in translation site paths.",
+        "src/extract/python.ts:enclosingSymbol": "Walks tree-sitter ancestors to name a translation container.",
+        "src/langcmd.ts:clip": "Language command display folds whitespace and reserves an ellipsis.",
+        "src/report.ts:clip": "Report display uses JSON quoting after whitespace folding.",
+        "src/sites.ts:clip": "Site listing display uses JSON quoting and its own width.",
+        "src/scan.ts:MARKDOWN_EXT": "Translatable Markdown extension policy.",
+        "src/scan.ts:ScanOptions": "I18n extraction, language and coverage options.",
+        "src/types.ts:Tier": "Translation coverage tier vocabulary.",
+        "src/walk.ts:BINARY_EXT": "I18n scans SVG as text and records text-bearing binary coverage separately.",
+        "src/walk.ts:WalkOptions": "Consumer subset of shared traversal options.",
+        "src/walk.ts:WalkResult": "I18n coverage schema distinguishes skipped files and directories.",
+        "src/walk.ts:walk": "Shared traversal with binary policy and skip reasons mapped into the coverage census."
+      },
+      "usageFloor": 15
+    }
+  },
+  "repin": {
+    "artifacts": [
+      "src/vendor",
+      "scripts",
+      "skills",
+      "package.json",
+      "pnpm-lock.yaml",
+      "skill.json",
+      ".github/workflows/engine-repin.yml",
+      "bench/report.json",
+      "bench/REPORT.md"
+    ],
+    "workflows": [
+      "ci.yml"
+    ],
+    "recall": {
+      "paths": [
+        "bench/report.json",
+        "bench/REPORT.md"
+      ]
+    }
+  }
+}

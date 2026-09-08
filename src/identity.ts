@@ -12,9 +12,8 @@ export function siteId(siteKey: string): string {
   return 'ul_' + sha1(siteKey).slice(0, 12)
 }
 
-export function sha1(s: string): string {
-  return createHash('sha1').update(s, 'utf8').digest('hex')
-}
+export { sha1 };
+import { sha1 } from "./vendor/codeindex-engine.mjs";
 
 export function sha256(s: string): string {
   return createHash('sha256').update(s, 'utf8').digest('hex')

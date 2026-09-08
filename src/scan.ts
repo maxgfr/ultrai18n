@@ -7,8 +7,8 @@
 // file order is not a verdict.
 import { existsSync, readFileSync } from 'node:fs'
 import { extname, join } from 'node:path'
-import { walk, type WalkedFile } from './vendor/walk'
-import { readTextEx, OffsetMap } from './vendor/text'
+import { walk, type WalkedFile } from './walk'
+import { readTextEx, OffsetMap } from './text'
 import { extractTs } from './extract/ts'
 import { extractPython } from './extract/python'
 import { extractShell, isCommentOnly } from './extract/shell'

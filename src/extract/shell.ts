@@ -13,7 +13,7 @@
 import type { Span } from '../types'
 import type { RawSite, TokenIndex } from './raw'
 import { walkTree, type Node, type Tree } from '../ast/parse'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface ShellExtractResult {
   sites: RawSite[]

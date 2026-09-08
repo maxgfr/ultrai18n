@@ -11,7 +11,7 @@
 // guess: the scanner asserts it looked at those bytes and found no text.
 import type { Span } from '../types'
 import type { RawSite } from './raw'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface CssExtractResult {
   sites: RawSite[]

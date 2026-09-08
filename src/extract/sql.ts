@@ -17,7 +17,7 @@
 // unclaimed, so the sweep still covers them.
 import type { Span } from '../types'
 import type { RawSite } from './raw'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface SqlExtractResult {
   sites: RawSite[]

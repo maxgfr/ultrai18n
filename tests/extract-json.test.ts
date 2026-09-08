@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { extractJson } from '../src/extract/json'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 
 const run = (src: string, file = 'package.json') => extractJson(file, src, new OffsetMap(src))
 const byPath = (src: string, file?: string) =>

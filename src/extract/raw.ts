@@ -1,5 +1,5 @@
 import type { Hole, SiteKind, Span, Tier } from '../types'
-import type { OffsetMap } from '../vendor/text'
+import type { OffsetMap } from '../text'
 
 /**
  * How many BYTES a line occupies, its newline included.

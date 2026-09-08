@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { commentShape, extractTs } from '../src/extract/ts'
 import { prepareGrammars, parserForExt } from '../src/ast/parse'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 import type { RawSite } from '../src/extract/raw'
 
 let parse: (src: string, file?: string) => { sites: RawSite[]; tokens: ReturnType<typeof extractTs>['tokens'] }

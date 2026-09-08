@@ -1,7 +1,7 @@
 // Two keyed catalog formats. Parsing and encoding share the same escape
 // contract; unsupported syntax invalidates the file, never a guessed subset.
 import { pointer } from '../identity'
-import type { OffsetMap } from '../vendor/text'
+import type { OffsetMap } from '../text'
 import type { RawSite } from './raw'
 
 export type CatalogFormat = 'strings' | 'properties'

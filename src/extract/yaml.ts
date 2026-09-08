@@ -14,7 +14,7 @@
 import type { Span } from '../types'
 import { lineBytes, type Container, type RawSite } from './raw'
 import { pointer } from '../identity'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface YamlExtractResult {
   sites: RawSite[]

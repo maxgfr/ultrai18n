@@ -19,7 +19,7 @@
 // and `bench/locators.json` already use. A row can be wrong, and when it is,
 // the fix is a row rather than an argument.
 import { join } from 'node:path'
-import { readTextEx } from './vendor/text'
+import { readTextEx } from './text'
 import type { CensusEntry, Inventory, Site } from './types'
 
 /**

@@ -16,7 +16,7 @@ import type { Container, RawSite } from './raw'
 import { lineBytes } from './raw'
 import { pointer } from '../identity'
 import type { Span } from '../types'
-import type { OffsetMap } from '../vendor/text'
+import type { OffsetMap } from '../text'
 
 export interface PoExtractResult {
   sites: RawSite[]

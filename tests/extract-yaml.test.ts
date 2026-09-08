@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { extractYaml } from '../src/extract/yaml'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 
 const run = (src: string, file = 'a.yml') => extractYaml(file, src, new OffsetMap(src))
 const byPath = (src: string) =>

@@ -16,7 +16,7 @@ import type { Hole, Span } from '../types'
 import type { Container, RawSite, TokenIndex } from './raw'
 import { addToken } from './raw'
 import { walkTree, type Node, type Tree } from '../ast/parse'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface PythonExtractResult {
   sites: RawSite[]

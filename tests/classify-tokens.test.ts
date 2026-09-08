@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest'
 import { classify, isDesignToken } from '../src/classify'
 import { extractMarkdown } from '../src/extract/markdown'
-import { OffsetMap } from '../src/vendor/text'
+import { OffsetMap } from '../src/text'
 import { emptyTokenIndex, type RawSite } from '../src/extract/raw'
 
 const md = (src: string) => extractMarkdown('DESIGN.md', src, new OffsetMap(src)).sites

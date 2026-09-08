@@ -3,9 +3,9 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { walk, BINARY_EXT, TEXT_BEARING_BINARY_EXT } from '../src/vendor/walk'
-import { parseGitignore, isIgnored } from '../src/vendor/ignore'
-import { readTextEx, OffsetMap } from '../src/vendor/text'
+import { walk, BINARY_EXT, TEXT_BEARING_BINARY_EXT } from '../src/walk'
+import { parseGitignore, isIgnored } from '../src/ignore'
+import { readTextEx, OffsetMap } from '../src/text'
 
 let root: string
 

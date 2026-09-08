@@ -8,7 +8,7 @@
 // (exit 0, `sites` is a view and `check` is the gate), while a token outside a
 // closed vocabulary is a usage error (exit 2). "Your repository has none of
 // these" and "you typed something that does not exist" must not look alike.
-import { compileGlobs } from './vendor/glob'
+import { compileGlobs } from './glob'
 import { reconcile, type MatchTier } from './identity'
 import type { Inventory, Site } from './types'
 

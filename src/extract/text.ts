@@ -6,7 +6,7 @@
 // "never translate this file" cannot fire on a file no extractor ever opened.
 import type { Span } from '../types'
 import type { RawSite } from './raw'
-import { OffsetMap } from '../vendor/text'
+import { OffsetMap } from '../text'
 
 export interface TextExtractResult {
   sites: RawSite[]

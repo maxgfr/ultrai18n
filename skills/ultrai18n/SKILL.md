@@ -9,6 +9,8 @@ metadata:
 
 # ultrai18n — find every human-readable string, and prove nothing was missed
 
+For engine evidence and coverage limits, read [engine-evidence](references/engine-evidence.md).
+
 The hard part of changing a repository's language is not translating. It is **recall**. An agent's
 model of "the UI" is components plus HTML plus README, and whatever falls outside that model is
 invisible — not translated badly, simply never looked at. Prompting harder does not fix a blind spot.

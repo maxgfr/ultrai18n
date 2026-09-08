@@ -11,7 +11,7 @@
 // other one it can be tested.
 import type { Span } from './types'
 import type { RawSite } from './extract/raw'
-import { OffsetMap } from './vendor/text'
+import { OffsetMap } from './text'
 
 export interface SweepOptions {
   /**

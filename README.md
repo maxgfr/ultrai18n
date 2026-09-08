@@ -263,3 +263,5 @@ syntax subset and placeholder contract are in [catalog readers](skills/ultrai18n
 ## License
 
 MIT
+
+See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption checks and the daily repin workflow.
