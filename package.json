@@ -51,6 +51,6 @@
     "typescript": "^5.7.2",
     "vitest": "^2.1.8",
     "web-tree-sitter": "^0.26.11",
-    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/5789560fa2b8c9a34326292e50f8f0fa951fa79d"
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/fc7fefb59fb8df265d9d072f08f013c32449c6f5"
   }
 }
