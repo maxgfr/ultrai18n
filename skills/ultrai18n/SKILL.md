@@ -116,6 +116,32 @@ beside the source, where the next scan would read them as new sites), `--allow-d
 `--no-sweep`: the residual sweep is what makes G2 checkable, so a run with it disabled looks clean
 and proves nothing.
 
+## Backends and translation providers
+
+**The model, the endpoint and the key are all configurable, and the default tier is SMALL.** Eight
+short strings and a one-page contract per batch is not work a frontier model does better, and paying
+frontier prices per batch is how a cheap operation becomes an expensive one.
+
+```sh
+ultrai18n translate --backend api                       # anthropic, claude-haiku-4-5
+ultrai18n translate --backend api --provider openai     # openai, gpt-4o-mini
+ultrai18n translate --backend api --provider openai --model <any>
+ultrai18n translate --backend api --provider openai-compatible \
+  --endpoint http://localhost:11434/v1/chat/completions --model qwen2.5:3b
+```
+
+Precedence is `--flag` > `ULTRAI18N_*` env > `.ultrai18n/config.json` > the provider preset, and the
+resolved settings are PRINTED with their source before a single request is sent — except under
+`--json`, and under `--quiet`, which suppress the note along with every other non-payload line. The two wire formats
+differ in where the system prompt goes, what the token cap is called and where the answer sits; the
+provider row carries all three, so pointing at an OpenAI-compatible gateway is one flag rather than a
+400 that reads like a bad key. A localhost endpoint needs no key at all.
+
+Backends: `--translator '<command>'` (batch JSON on stdin, result JSON on stdout — ollama, a Python
+script, anything), `--backend api` (direct HTTP on `fetch`, key from the environment), and
+`--backend manual`. `--backend subagent` writes the batches and the agent contract for the host's
+native subagent capability (including Codex or Claude Code); the engine itself never pretends it can spawn an agent.
+
 ## Coverage
 
 Text is found by **rule**, not by guessing which files look like UI. The catalog covers npm,
@@ -169,6 +195,86 @@ Formats without comments use `.ultrai18n/plurals.json`, keyed by `siteKey`. Both
 `write`, `keyTemplate` and `category`; the default is decided by the FORMAT, so a declaration landing
 on a JSON or YAML scalar is inserted like any detected family rather than deferred to a code edit.
 
+Extraction covers TypeScript, JSX/TSX, **Python and shell** through tree-sitter — so a Python
+docstring is the first statement of a body rather than a string that happens to come first — and
+JSON, JSON Lines, YAML, Markdown, HTML, SVG, CSS, TOML, gettext `.po`, Fluent `.ftl`, Apple
+property lists and `.strings`, Java `.properties`, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
+hand-written byte-indexed lexers. A residual sweep sits behind all of them, so a format with no
+extractor surfaces as `unclassified` rather than as nothing.
+
+`.sql` is the one reader that earns its place by SILENCING rather than finding: it reads the
+comments and claims the DDL as looked-at and non-textual, which turns hundreds of refusals into
+none.
+
+Recall is measured, not asserted — and the instrument SHIPS, so you can re-measure rather than
+trust a number. `sites --audit` runs the same check offline against your own repository: it asks,
+for every file whose extractor claimed it read all of itself, whether any line holding text is
+covered by no site. Its own scope is reported rather than assumed — a file whose extractor has
+no locator row is counted as `noLocator` and excused, not audited, so read the excused counts
+before reading a clean result. Run it when you want the recall claim checked rather than believed.
+
+On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
+`scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed
+back for judgment, and one locale marker to retarget. Among them are the four French comments in a
+stylesheet that two separate human translation passes both left behind.
+
+## Orchestration — route by harness
+
+The judgment phases fan out over independent per-item worklists. `orchestrate`
+emits the fan-out from the run's **current** state, with the absolute engine,
+repo, run and worklist paths baked into the script:
+
+```
+node scripts/ultrai18n.mjs orchestrate [--phase <name>] [--eco] [--list]
+```
+
+`--list` prints every phase with its worklist, its item count and whether it is
+ready. A phase asked for before it is ready exits 2 and prints that phase's
+`reason` — read it rather than assuming the worklist is missing: a phase is
+just as often not ready because its worklist exists and is empty, or because it
+is gated behind `apply --write`. Six phases, each with one contract under
+`<out>/orchestration/agents/`:
+
+| Phase | Contract | Worklist | The agents |
+|---|---|---|---|
+| `dialect` | `dialectician.md` | `dialects.todo.json` | **write** `.ultrai18n/dialects.json` rows |
+| `adjudicate` | `adjudicator.md` | `PLAN.json` hazards | return rulings |
+| `translate` | `translator.md` | `batches/` | return `{id, text}` — or `{id, forms}` for a plural family, `{id, refuse}` when the string cannot move |
+| `review` | `reviewer.md` | `VERIFY.todo.json` | return verdicts |
+| `plural` | `pluralist.md` | `PLURALS.todo.json` | **write** the code edits |
+| `structural` | `structuralist.md` | `PLAN.json` structural | **write** the code edits |
+
+| Your harness | How to run a phase |
+|---|---|
+| Claude Code exposes Workflow | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<out>/orchestration/<p>.workflow.mjs" })` — the emitted `launch` line gives you the exact call. |
+| Codex or another host exposes subagents | Same `orchestrate`; dispatch one subagent per batch following `<out>/orchestration/agents/<role>.md`. The workflow script shows the batches and the prompts. |
+| Eco mode, or no subagents | `orchestrate --eco` writes no workflow script → follow `<out>/orchestration/RUNBOOK.md`, playing each role yourself. Same artifacts as the fan-out; only wall-clock differs. Note the RUNBOOK spells out the WHOLE pipeline rather than this phase alone, and its commands carry `--repo`/`--out` but not `--from`/`--to`: re-run its steps with the language flags this run used, or a rescan retargets the inventory to the defaults. |
+
+Then run the printed `join` command: it is the same fold in every mode, because
+eco changes who plays the roles and never what reduces their output. One
+exception, and it is the phase most likely to bite: `adjudicate`'s printed join
+is `plan` alone, because only you know where you saved the rulings — fold them
+yourself with `adjudicate --apply <rulings.json>` first, exactly as situation 4
+above says, and then run the printed command.
+
+Two rules the emitted scripts carry, and that hold however you dispatch:
+
+- **In the translation pipeline, `apply` is the sole writer and runs exactly
+  once, after the join.** That is why `adjudicate`, `translate` and `review`
+  hand back fragments and the fold stays with you: one group's translation lands
+  in several files and two groups share a file, so a fan-out of writers would
+  have the second rename silently drop the first. `dialect` writes declarations
+  and `plural`/`structural` write code edits, both outside that pipeline —
+  `plural` and `structural` are gated to run only after `apply --write` has
+  finished, which is what keeps the single-writer rule true where it applies.
+- **Never run `scan` or `plan` while a fan-out is in flight.** Replanning
+  re-derives group ids, and results would fold into the wrong groups.
+
+Fan-out is an optimization, never a requirement: the gates are
+harness-independent and every phase has a sequential fallback producing
+identical artifacts. Below three items `orchestrate` says so itself, and the
+sequential path is cheaper.
+
 ## Scope notes
 
 - **Determinism is a product guarantee.** Same repo, same inventory, byte for byte. No timestamps in
@@ -221,68 +327,12 @@ on a JSON or YAML scalar is inserted like any detected family rather than deferr
   because the repair that looks obvious — dividing decoded by decoded — mints a 1.0, and a 1.0 is
   read downstream as the extractor ASSERTING it accounted for every byte. That is the single claim
   such a file cannot make.
-
-## Status
-
-Every command in the cheat-sheet works. There are no declared-but-unbuilt commands and no flags that
-are parsed and ignored.
-
-Extraction covers TypeScript, JSX/TSX, **Python and shell** through tree-sitter — so a Python
-docstring is the first statement of a body rather than a string that happens to come first — and
-JSON, JSON Lines, YAML, Markdown, HTML, SVG, CSS, TOML, gettext `.po`, Fluent `.ftl`, Apple
-property lists and `.strings`, Java `.properties`, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
-hand-written byte-indexed lexers. A residual sweep sits behind all of them, so a format with no
-extractor surfaces as `unclassified` rather than as nothing.
-
-`.sql` is the one reader that earns its place by SILENCING rather than finding: it reads the
-comments and claims the DDL as looked-at and non-textual, which turns hundreds of refusals into
-none.
-
-Recall is measured, not asserted — and the instrument SHIPS, so you can re-measure rather than
-trust a number. `sites --audit` runs the same check offline against your own repository and comes
-back clean on this project across 201 files that claim to have read all of themselves.
-
-Every hole that measurement has found is closed: hard-wrapped markdown paragraphs, where only the
-last line of each block reached the inventory; inline `<style>` and `<script>`, whose bytes were
-counted as read while their text reached nothing; an inline code span that WRAPS a line, which
-desynchronised the markdown mask and ate the line below it; and a YAML flow collection, recorded as
-skipped and claimed anyway.
-
-**The model, the endpoint and the key are all configurable, and the default tier is SMALL.** Eight
-short strings and a one-page contract per batch is not work a frontier model does better, and paying
-frontier prices per batch is how a cheap operation becomes an expensive one.
-
-```sh
-ultrai18n translate --backend api                       # anthropic, claude-haiku-4-5
-ultrai18n translate --backend api --provider openai     # openai, gpt-4o-mini
-ultrai18n translate --backend api --provider openai --model <any>
-ultrai18n translate --backend api --provider openai-compatible \
-  --endpoint http://localhost:11434/v1/chat/completions --model qwen2.5:3b
-```
-
-Precedence is `--flag` > `ULTRAI18N_*` env > `.ultrai18n/config.json` > the provider preset, and the
-resolved settings are PRINTED with their source before a single request is sent. The two wire formats
-differ in where the system prompt goes, what the token cap is called and where the answer sits; the
-provider row carries all three, so pointing at an OpenAI-compatible gateway is one flag rather than a
-400 that reads like a bad key. A localhost endpoint needs no key at all.
-
-Backends: `--translator '<command>'` (batch JSON on stdin, result JSON on stdout — ollama, a Python
-script, anything), `--backend api` (direct HTTP on `fetch`, key from the environment), and
-`--backend manual`. `--backend subagent` writes the batches and the agent contract for the host's
-native subagent capability (including Codex or Claude Code); the engine itself never pretends it can spawn an agent.
-
-Paths are a surface too: a filename written in the source language is found, its referrers are
-resolved, and it is **reported rather than renamed** — a rename that misses one referrer is a broken
-build, and no static tool can prove it found the last one.
-
-Two sites may never share an anchor, because a shared anchor is a shared site id and `apply`
-resolves a translation through it — one translation would land on another site's bytes. An anonymous
-node (a comment, a union member, an import specifier, a statement in a function body) is anchored by
-its POSITION in its container, emitted in place of the name it does not have; named paths are
-untouched. Where even that is not enough, the later sites are suffixed `~n` and the collision is
-reported.
-
-On a fully French reference repository — 106 files, a pnpm monorepo with a browser extension —
-`scan` finds 2956 sites across 91 files: 832 to translate, 1439 protected as identifiers, 684 handed
-back for judgment, and one locale marker to retarget. Among them are the four French comments in a
-stylesheet that two separate human translation passes both left behind.
+- **Paths are a surface too.** A filename written in the source language is found, its referrers are
+  resolved, and it is **reported rather than renamed** — a rename that misses one referrer is a broken
+  build, and no static tool can prove it found the last one.
+- **Two sites may never share an anchor**, because a shared anchor is a shared site id and `apply`
+  resolves a translation through it — one translation would land on another site's bytes. An anonymous
+  node (a comment, a union member, an import specifier, a statement in a function body) is anchored by
+  its POSITION in its container, emitted in place of the name it does not have; named paths are
+  untouched. Where even that is not enough, the later sites are suffixed `~n` and the collision is
+  reported.
