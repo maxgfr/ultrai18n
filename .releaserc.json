@@ -16,6 +16,7 @@
         "assets": [
           "CHANGELOG.md",
           "package.json",
+          "src/version.ts",
           "skills/ultrai18n/SKILL.md",
           "skills/ultrai18n/scripts/ultrai18n.mjs"
         ]

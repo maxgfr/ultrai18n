@@ -12,6 +12,14 @@ if (!version || !/^\d+\.\d+\.\d+/.test(version)) {
 
 const edits = [
   {
+    // The comment above says three strings, and package.json is the one the
+    // registry, the lockfile and every `npm view` read — it has to be in the
+    // list, not implied by it.
+    file: 'package.json',
+    re: /^(\s*"version":\s*")[^"]*(")/m,
+    to: `$1${version}$2`,
+  },
+  {
     file: 'src/version.ts',
     re: /^export const VERSION = '.*'$/m,
     to: `export const VERSION = '${version}'`,
