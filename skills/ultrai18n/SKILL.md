@@ -4,7 +4,7 @@ description: "Translate repository text, extract i18n strings, and verify locale
 disable-model-invocation: true
 license: MIT
 metadata:
-  version: 0.0.0
+  version: 1.0.0
 ---
 
 # ultrai18n — find every human-readable string, and prove nothing was missed
