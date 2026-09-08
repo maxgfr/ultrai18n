@@ -10,7 +10,7 @@
 // in several files and two groups share a file, so a fan-out of writers would
 // have the second rename silently drop the first — and the atomic-group
 // guarantee with it.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { TRANSLATOR_CONTRACT } from './translate'
 import { DIALECTICIAN_CONTRACT } from './dialects'
@@ -49,7 +49,13 @@ export function phaseStatuses(out: string): PhaseStatus[] {
 
   const batches = existsSync(join(out, 'batches'))
   const todo = existsSync(join(out, 'VERIFY.todo.json'))
-  const applied = existsSync(join(out, 'APPLY.json'))
+  // `apply` writes APPLY.json on a DRY RUN too — guarding the dry run would be
+  // theatre, so the file's existence proves the command ran and never that it
+  // wrote. `plural` and `structural` edit files and must not race `apply
+  // --write`, so the gate reads the report's own `write` flag rather than the
+  // presence of the report. An existence check here would open both phases the
+  // moment someone previewed an apply.
+  const applied = wroteFiles(join(out, 'APPLY.json'))
 
   const dialectPath = join(out, 'dialects.todo.json')
   const dialectTodo = existsSync(dialectPath)
@@ -80,7 +86,14 @@ export function phaseStatuses(out: string): PhaseStatus[] {
     {
       name: 'adjudicate',
       ready: !!plan && hazards > 0,
-      ...(plan ? {} : { reason: `no plan yet — run: ${'`plan`'}` }),
+      // A plan with no hazard is not a missing worklist. Leaving `reason` unset
+      // there let the caller fall back to "its worklist does not exist", which
+      // sends the reader looking for a file that is present and correct.
+      ...(plan
+        ? hazards === 0
+          ? { reason: 'no open hazard in this plan — nothing to adjudicate' }
+          : {}
+        : { reason: `no plan yet — run: ${'`plan`'}` }),
       worklist: planPath,
       items: hazards,
       writes: false,
@@ -94,7 +107,12 @@ export function phaseStatuses(out: string): PhaseStatus[] {
         ? { reason: `${hazards} open hazard(s) — adjudicate them first` }
         : !batches
           ? { reason: 'no batches yet — run `plan`' }
-          : {}),
+          : pending === 0
+            // Not "already translated": a plan of purely structural groups
+            // reaches this branch with nothing ever having been translated.
+            // The reason states what was observed, not what it implies.
+            ? { reason: 'no pending group in this plan' }
+            : {}),
       worklist: join(out, 'batches'),
       items: Math.ceil(pending / BATCH_SIZE),
       writes: false,
@@ -166,9 +184,18 @@ export function orchestrate(opts: OrchestrateOptions): Emitted {
   writeFileSync(contractPath, contract.body)
   files.push(contractPath)
 
+  // `--eco` is the sequential low-token path: the RUNBOOK below is the whole
+  // deliverable, so the fan-out script is not written — and a stale one from an
+  // earlier non-eco emission is removed rather than left to be launched by
+  // mistake. Emission stays idempotent: what is on disk after a run is exactly
+  // what that run asked for.
   const workflowPath = join(dir, `${phase}.workflow.mjs`)
-  writeFileSync(workflowPath, workflowScript(phase, opts, status, contract.role))
-  files.push(workflowPath)
+  if (opts.eco) {
+    rmSync(workflowPath, { force: true })
+  } else {
+    writeFileSync(workflowPath, workflowScript(phase, opts, status, contract.role))
+    files.push(workflowPath)
+  }
 
   const runbookPath = join(dir, 'RUNBOOK.md')
   writeFileSync(runbookPath, runbook(statuses, opts))
@@ -177,7 +204,9 @@ export function orchestrate(opts: OrchestrateOptions): Emitted {
   return {
     phase,
     files,
-    launch: `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
+    launch: opts.eco
+      ? `follow ${runbookPath} sequentially, playing each role yourself`
+      : `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
     join: JOINS[phase](opts),
     ...(status.items < SMALL_WORKLIST
       ? { advice: `only ${status.items} item(s) — the sequential path in RUNBOOK.md is cheaper than a fan-out` }
@@ -361,7 +390,7 @@ const AGENTS = OUT + '/orchestration/agents'
 // Do not run \`scan\` or \`plan\` while this fan-out is in flight — replanning
 // re-derives group ids, and results would fold into the wrong groups.
 
-const ITEMS = ${JSON.stringify(chunkHint(status.items))}
+const ITEMS = ${JSON.stringify(fanOutUnits(status))}
 
 const results = await parallel(
   ITEMS.map((item, i) => () =>
@@ -380,12 +409,49 @@ return results.filter(Boolean)
 `
 }
 
-function chunkHint(items: number): string[] {
+/**
+ * How many units this phase dispatches. `translate` is the odd one out: its
+ * `items` is already a BATCH count (`phaseStatuses` divided the pending groups
+ * by BATCH_SIZE), so chunking it again drops every batch after the first — 16
+ * pending groups are two batches, and a second division emits one. Every other
+ * phase reports raw work items and is chunked here.
+ */
+function fanOutUnits(status: PhaseStatus): string[] {
+  return chunkHint(status.name === 'translate' ? status.items : Math.ceil(status.items / BATCH_SIZE))
+}
+
+/** One label per unit the fan-out dispatches, zero-padded so they sort. */
+function chunkHint(units: number): string[] {
   const out: string[] = []
-  for (let i = 0; i < Math.max(1, Math.ceil(items / BATCH_SIZE)); i++) {
+  for (let i = 0; i < Math.max(1, units); i++) {
     out.push(String(i).padStart(3, '0'))
   }
   return out
+}
+
+/**
+ * Did `apply` actually WRITE, or was it a preview?
+ *
+ * The report is written on a dry run too — guarding a dry run would be theatre
+ * — so its existence proves the command ran and never that it wrote. `plural`
+ * and `structural` edit files and must not race `apply --write`, so they gate
+ * on the report's own `write` flag. Every failure to establish that flag reads
+ * as "not applied": an unreadable, empty, malformed or `null` report is not
+ * evidence that a write happened, and it must not take `orchestrate --list`
+ * down with it either — a status command that throws on a corrupt artefact
+ * hides every other phase's state behind one bad file.
+ */
+function wroteFiles(reportPath: string): boolean {
+  try {
+    // `existsSync` is inside the guard on purpose: under a permission model it
+    // throws rather than returning false, and a stat that throws would take the
+    // status command down exactly like a bad parse.
+    if (!existsSync(reportPath)) return false
+    const parsed: unknown = JSON.parse(readOr(reportPath, '{}'))
+    return typeof parsed === 'object' && parsed !== null && (parsed as { write?: unknown }).write === true
+  } catch {
+    return false
+  }
 }
 
 function runbook(statuses: PhaseStatus[], o: OrchestrateOptions): string {

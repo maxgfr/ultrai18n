@@ -33387,7 +33387,7 @@ function formatVerifyTodo(todo) {
 }
 
 // src/orchestrate.ts
-import { existsSync as existsSync22, mkdirSync as mkdirSync7, readFileSync as readFileSync26, writeFileSync as writeFileSync8 } from "fs";
+import { existsSync as existsSync22, mkdirSync as mkdirSync7, readFileSync as readFileSync26, rmSync as rmSync4, writeFileSync as writeFileSync8 } from "fs";
 import { join as join35 } from "path";
 
 // src/dialects.ts
@@ -33616,7 +33616,7 @@ function phaseStatuses(out2) {
   const plan2 = existsSync22(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
   const batches = existsSync22(join35(out2, "batches"));
   const todo = existsSync22(join35(out2, "VERIFY.todo.json"));
-  const applied = existsSync22(join35(out2, "APPLY.json"));
+  const applied = wroteFiles(join35(out2, "APPLY.json"));
   const dialectPath = join35(out2, "dialects.todo.json");
   const dialectTodo = existsSync22(dialectPath) ? (JSON.parse(readOr(dialectPath, '{"residual":[]}')).residual ?? []).length : 0;
   const pluralPath = join35(out2, "PLURALS.todo.json");
@@ -33639,7 +33639,10 @@ function phaseStatuses(out2) {
     {
       name: "adjudicate",
       ready: !!plan2 && hazards > 0,
-      ...plan2 ? {} : { reason: `no plan yet \u2014 run: ${"`plan`"}` },
+      // A plan with no hazard is not a missing worklist. Leaving `reason` unset
+      // there let the caller fall back to "its worklist does not exist", which
+      // sends the reader looking for a file that is present and correct.
+      ...plan2 ? hazards === 0 ? { reason: "no open hazard in this plan \u2014 nothing to adjudicate" } : {} : { reason: `no plan yet \u2014 run: ${"`plan`"}` },
       worklist: planPath,
       items: hazards,
       writes: false
@@ -33649,7 +33652,7 @@ function phaseStatuses(out2) {
       // Blocked, not merely unready: a hazard reaching a batch is the failure
       // the hazard rule exists to prevent.
       ready: !!plan2 && batches && hazards === 0 && pending > 0,
-      ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : {},
+      ...hazards > 0 ? { reason: `${hazards} open hazard(s) \u2014 adjudicate them first` } : !batches ? { reason: "no batches yet \u2014 run `plan`" } : pending === 0 ? { reason: "no pending group in this plan" } : {},
       worklist: join35(out2, "batches"),
       items: Math.ceil(pending / BATCH_SIZE2),
       writes: false
@@ -33701,15 +33704,19 @@ function orchestrate(opts) {
   writeFileSync8(contractPath, contract.body);
   files.push(contractPath);
   const workflowPath = join35(dir, `${phase}.workflow.mjs`);
-  writeFileSync8(workflowPath, workflowScript(phase, opts, status2, contract.role));
-  files.push(workflowPath);
+  if (opts.eco) {
+    rmSync4(workflowPath, { force: true });
+  } else {
+    writeFileSync8(workflowPath, workflowScript(phase, opts, status2, contract.role));
+    files.push(workflowPath);
+  }
   const runbookPath = join35(dir, "RUNBOOK.md");
   writeFileSync8(runbookPath, runbook(statuses, opts));
   files.push(runbookPath);
   return {
     phase,
     files,
-    launch: `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
+    launch: opts.eco ? `follow ${runbookPath} sequentially, playing each role yourself` : `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
     join: JOINS[phase](opts),
     ...status2.items < SMALL_WORKLIST ? { advice: `only ${status2.items} item(s) \u2014 the sequential path in RUNBOOK.md is cheaper than a fan-out` } : {}
   };
@@ -33880,7 +33887,7 @@ const AGENTS = OUT + '/orchestration/agents'
 // Do not run \`scan\` or \`plan\` while this fan-out is in flight \u2014 replanning
 // re-derives group ids, and results would fold into the wrong groups.
 
-const ITEMS = ${JSON.stringify(chunkHint(status2.items))}
+const ITEMS = ${JSON.stringify(fanOutUnits(status2))}
 
 const results = await parallel(
   ITEMS.map((item, i) => () =>
@@ -33898,12 +33905,24 @@ const results = await parallel(
 return results.filter(Boolean)
 `;
 }
-function chunkHint(items) {
+function fanOutUnits(status2) {
+  return chunkHint(status2.name === "translate" ? status2.items : Math.ceil(status2.items / BATCH_SIZE2));
+}
+function chunkHint(units) {
   const out2 = [];
-  for (let i2 = 0; i2 < Math.max(1, Math.ceil(items / BATCH_SIZE2)); i2++) {
+  for (let i2 = 0; i2 < Math.max(1, units); i2++) {
     out2.push(String(i2).padStart(3, "0"));
   }
   return out2;
+}
+function wroteFiles(reportPath) {
+  try {
+    if (!existsSync22(reportPath)) return false;
+    const parsed = JSON.parse(readOr(reportPath, "{}"));
+    return typeof parsed === "object" && parsed !== null && parsed.write === true;
+  } catch {
+    return false;
+  }
 }
 function runbook(statuses, o) {
   const rows = statuses.map((s) => `| ${s.name} | ${s.ready ? "ready" : "not ready"} | ${s.items} | ${s.reason ?? ""} |`).join("\n");
