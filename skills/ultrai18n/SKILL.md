@@ -45,8 +45,10 @@ to fake; and a model does nothing but translate strings it is handed.
 
 ## Route by situation
 
-1. **You want to know what is there, and change nothing** — run `census`, then `scan --json`, then
-   read the report. Audit mode is a strict prefix of every other mode, so this is never wasted work.
+1. **You want to know what is there, and change nothing** — run `census`, then
+   `scan --summary --out <external-run-dir>`. Use its counts and limits from that
+   one inventory; inspect specific records with `sites`, not the full JSON dump.
+   Include extraction limits in the final report, even when `recallClaim` is full.
 2. **A tracked file is unaccounted for** — `census` failed gate G1. That is a walker or extractor
    bug, not a user error; the reason field names which.
 3. **You are swapping the repository's language** — `scan` → `plan` → `translate` → `apply --write`

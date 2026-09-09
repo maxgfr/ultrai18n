@@ -30578,6 +30578,30 @@ function round2(n) {
 
 // src/report.ts
 var ORDER = ["translate", "needs-judgment", "unclassified", "locale-marker", "do-not-translate"];
+function inventoryOverview(inv) {
+  const counts = tally(inv.sites);
+  const skipped = inv.census.filter((c2) => c2.bucket === "skipped");
+  return {
+    schemaVersion: 1,
+    inventorySha256: sha256(JSON.stringify(inv, null, 2) + "\n"),
+    repo: inv.repo,
+    sourceLanguage: inv.sourceLanguage,
+    targetLanguage: inv.targetLanguage,
+    sites: inv.sites.length,
+    classificationCounts: Object.fromEntries(ORDER.map((v) => [v, counts.get(v) ?? 0])),
+    files: {
+      total: inv.census.length,
+      scanned: inv.census.filter((c2) => c2.bucket !== "skipped").length,
+      skipped: skipped.length
+    },
+    skippedExamples: skipped.slice(0, 20).map((c2) => ({ file: c2.file, reason: c2.reason })),
+    skippedExamplesTruncated: skipped.length > 20,
+    advisoryCount: inv.advisories.length,
+    recallClaim: inv.recallClaim,
+    interpretation: "File/byte accounting does not prove classification accuracy, translation quality, or runtime/image completeness.",
+    limits: inv.limits
+  };
+}
 function formatScan(inv, opts = {}) {
   const limit = opts.limit ?? 20;
   const lines = [];
@@ -34775,7 +34799,7 @@ function clip5(s, n = 70) {
 var HELP2 = `ultrai18n v${VERSION} \u2014 find every human-readable string, and prove nothing was missed
 
 Usage:
-  ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json]
+  ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json|--summary]
   ultrai18n census     [--repo <dir>] [--json]
   ultrai18n sites      [--verdict <v>] [--surface <glob>] [--file <glob>] [--dup] [--json]
                        [--audit] [--drift <inventory.json>]
@@ -34920,6 +34944,7 @@ var VALUE_FLAGS2 = /* @__PURE__ */ new Set([
   "kind"
 ]);
 var BOOL_FLAGS = /* @__PURE__ */ new Set([
+  "summary",
   "json",
   "dup",
   "test",
@@ -35055,7 +35080,8 @@ ${r.docs ? `    ${r.docs}
       });
       mkdirSync9(out2, { recursive: true });
       writeFileSync10(join39(out2, "inventory.json"), JSON.stringify(inv, null, 2) + "\n");
-      if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
+      if (p.flags.summary) process.stdout.write(JSON.stringify(inventoryOverview(inv), null, 2) + "\n");
+      else if (json) process.stdout.write(JSON.stringify(inv, null, 2) + "\n");
       else {
         say(formatScan(inv));
         note(`

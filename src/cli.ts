@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { VERSION } from './version'
 import { runCensus, formatCensus } from './census'
 import { scan } from './scan'
-import { formatScan, formatPlurals } from './report'
+import { formatScan, formatPlurals, inventoryOverview } from './report'
 import { DIALECTS, ordered, pluralTier, type PluralFamily } from './plural'
 import { checkCatalog, matchRules } from './catalog/match'
 import { RULES } from './catalog/rules'
@@ -36,7 +36,7 @@ import { buildTodo, explainFile, formatDialects, formatProblems, formatTodo, run
 const HELP = `ultrai18n v${VERSION} — find every human-readable string, and prove nothing was missed
 
 Usage:
-  ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json]
+  ultrai18n scan       [--repo <dir>] [--from auto|<lang>] [--to <lang>] [--out <dir>] [--json|--summary]
   ultrai18n census     [--repo <dir>] [--json]
   ultrai18n sites      [--verdict <v>] [--surface <glob>] [--file <glob>] [--dup] [--json]
                        [--audit] [--drift <inventory.json>]
@@ -142,6 +142,7 @@ const VALUE_FLAGS = new Set([
 ])
 
 const BOOL_FLAGS = new Set([
+  'summary',
   'json', 'dup', 'test', 'write', 'semantic', 'new-only', 'seed', 'list', 'eco',
   'ci', 'hook', 'baseline', 'quiet', 'allow-dirty', 'no-git', 'backup',
   'strict', 'help', 'no-ast', 'no-recover', 'propose', 'check', 'audit',
@@ -292,7 +293,8 @@ async function main(): Promise<void> {
       // Sorted keys and no timestamp: an unchanged repo must produce a
       // byte-identical inventory, or "nothing changed" is unprovable.
       writeFileSync(join(out, 'inventory.json'), JSON.stringify(inv, null, 2) + '\n')
-      if (json) process.stdout.write(JSON.stringify(inv, null, 2) + '\n')
+      if (p.flags.summary) process.stdout.write(JSON.stringify(inventoryOverview(inv), null, 2) + '\n')
+      else if (json) process.stdout.write(JSON.stringify(inv, null, 2) + '\n')
       else {
         say(formatScan(inv))
         note(`\nwrote ${join(out, 'inventory.json')}\n`)

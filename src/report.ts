@@ -1,7 +1,34 @@
 import type { Inventory, Site, Verdict } from './types'
 import { DIALECTS, ordered, pluralTier, type PluralFamily } from './plural'
+import { sha256 } from './identity'
 
 const ORDER: Verdict[] = ['translate', 'needs-judgment', 'unclassified', 'locale-marker', 'do-not-translate']
+
+/** Compact accounting from one inventory; the full evidence stays on disk. */
+export function inventoryOverview(inv: Inventory) {
+  const counts = tally(inv.sites)
+  const skipped = inv.census.filter(c => c.bucket === 'skipped')
+  return {
+    schemaVersion: 1,
+    inventorySha256: sha256(JSON.stringify(inv, null, 2) + '\n'),
+    repo: inv.repo,
+    sourceLanguage: inv.sourceLanguage,
+    targetLanguage: inv.targetLanguage,
+    sites: inv.sites.length,
+    classificationCounts: Object.fromEntries(ORDER.map(v => [v, counts.get(v) ?? 0])),
+    files: {
+      total: inv.census.length,
+      scanned: inv.census.filter(c => c.bucket !== 'skipped').length,
+      skipped: skipped.length,
+    },
+    skippedExamples: skipped.slice(0, 20).map(c => ({ file: c.file, reason: c.reason })),
+    skippedExamplesTruncated: skipped.length > 20,
+    advisoryCount: inv.advisories.length,
+    recallClaim: inv.recallClaim,
+    interpretation: 'File/byte accounting does not prove classification accuracy, translation quality, or runtime/image completeness.',
+    limits: inv.limits,
+  }
+}
 
 export function formatScan(inv: Inventory, opts: { limit?: number } = {}): string {
   const limit = opts.limit ?? 20
