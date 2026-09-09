@@ -1,5 +1,16 @@
 # Engine evidence
 
-Use bundled CodeIndex results to locate evidence. Inspect sources and report coverage limits before concluding that something is absent.
+Use the engine's census, inventory, extraction spans and verification reports to
+assess coverage. Keep those reports separate from the translator input: a
+translator receives only the approved string records and returns translations.
+The engine owns source-file reads, byte offsets and writes.
 
-The skill owns its domain decisions and output. Engine results provide evidence: check the cited file or fetched passage before making a claim. Record file caps, skipped paths, unavailable grammars or extractors, and blocked web sources alongside the result. Narrow or retry a partial search when the missing coverage matters.
+For a missing or disputed string, inspect its inventory record and the engine's
+reported reason. Re-run the relevant extractor or verification command when the
+record is incomplete. Record skipped paths, unsupported formats and extraction
+limits alongside the result; a complete file census alone does not establish
+complete string extraction.
+
+If resolving an extractor defect requires reading source code, report that as
+engine debugging outside the translation run. Do not expand a translator's file
+access to compensate for missing engine evidence.
