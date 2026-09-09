@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/maxgfr/ultrai18n/compare/v1.1.0...v1.1.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **skills:** preserve manual invocation across agent hosts ([38e0df5](https://github.com/maxgfr/ultrai18n/commit/38e0df5b1a1232fe8cb732f75f5d125161b78654))
+
 # [1.1.0](https://github.com/maxgfr/ultrai18n/compare/v1.0.2...v1.1.0) (2026-09-09)
 
 
