@@ -46,7 +46,7 @@
   },
   "devDependencies": {
     "@maxgfr/codeindex": "2.30.0",
-    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/fc7fefb59fb8df265d9d072f08f013c32449c6f5",
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/e98ac12f7e0011e6f02f13d14818ecd8b5a890fb",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
