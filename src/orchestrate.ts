@@ -41,14 +41,16 @@ const SMALL_WORKLIST = 3
 
 export function phaseStatuses(out: string): PhaseStatus[] {
   const planPath = join(out, 'PLAN.json')
-  const plan = existsSync(planPath) ? (JSON.parse(readOr(planPath, '{}')) as {
-    hazards?: unknown[]
-    structural?: unknown[]
-    groups?: { status: string }[]
-  }) : null
+  const plan = readObject<{
+    hazards?: unknown
+    structural?: unknown
+    groups?: unknown
+  }>(planPath)
 
-  const batches = existsSync(join(out, 'batches'))
-  const todo = existsSync(join(out, 'VERIFY.todo.json'))
+  const batches = exists(join(out, 'batches'))
+  const verifyPath = join(out, 'VERIFY.todo.json')
+  const verify = readObject<{ pairs?: unknown }>(verifyPath)
+  const verifyPairs = countOf(verify?.pairs)
   // `apply` writes APPLY.json on a DRY RUN too — guarding the dry run would be
   // theatre, so the file's existence proves the command ran and never that it
   // wrote. `plural` and `structural` edit files and must not race `apply
@@ -58,18 +60,15 @@ export function phaseStatuses(out: string): PhaseStatus[] {
   const applied = wroteFiles(join(out, 'APPLY.json'))
 
   const dialectPath = join(out, 'dialects.todo.json')
-  const dialectTodo = existsSync(dialectPath)
-    ? ((JSON.parse(readOr(dialectPath, '{"residual":[]}')) as { residual?: unknown[] }).residual ?? []).length
-    : 0
+  const dialectTodo = countOf(readObject<{ residual?: unknown }>(dialectPath)?.residual)
+  const pluralTodo = countOf(readObject<{ families?: unknown }>(join(out, 'PLURALS.todo.json'))?.families)
 
-  const pluralPath = join(out, 'PLURALS.todo.json')
-  const pluralTodo = existsSync(pluralPath)
-    ? ((JSON.parse(readOr(pluralPath, '{"families":[]}')) as { families?: unknown[] }).families ?? []).length
-    : 0
-
-  const pending = plan?.groups?.filter((g) => g.status === 'pending').length ?? 0
-  const hazards = plan?.hazards?.length ?? 0
-  const structural = plan?.structural?.length ?? 0
+  const groups: unknown[] = Array.isArray(plan?.groups) ? plan.groups : []
+  const pending = groups.filter(
+    (g) => typeof g === 'object' && g !== null && (g as { status?: unknown }).status === 'pending',
+  ).length
+  const hazards = countOf(plan?.hazards)
+  const structural = countOf(plan?.structural)
 
   return [
     {
@@ -119,10 +118,18 @@ export function phaseStatuses(out: string): PhaseStatus[] {
     },
     {
       name: 'review',
-      ready: todo,
-      ...(todo ? {} : { reason: 'no review worklist — run `verify` after `apply --write`' }),
-      worklist: join(out, 'VERIFY.todo.json'),
-      items: todo ? (JSON.parse(readOr(join(out, 'VERIFY.todo.json'), '{"pairs":[]}')) as { pairs: unknown[] }).pairs.length : 0,
+      // Ready means there is work, as it does for every other phase — not that
+      // the file exists. An empty worklist does not fan out to nothing: the
+      // batch labels are floored at one, so it dispatches a single agent with
+      // no work, which is worse than not dispatching.
+      ready: verifyPairs > 0,
+      ...(verifyPairs > 0
+        ? {}
+        : verify === null
+          ? { reason: 'no review worklist — run `verify` after `apply --write`' }
+          : { reason: 'no claim/citation pair in the review worklist' }),
+      worklist: verifyPath,
+      items: verifyPairs,
       writes: false,
     },
     {
@@ -356,17 +363,17 @@ site id comes from the anchor rather than from the text, so it survives the edit
 
 const JOINS: Record<PhaseName, (o: OrchestrateOptions) => string> = {
   dialect: (o) =>
-    `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}`,
+    `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)}`,
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
   // Re-scan, THEN verify the claims against what the re-scan sees. Re-scanning
   // and not comparing is what let a reported edit nobody made pass.
   plural: (o) =>
-    `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && ` +
+    `node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)} && ` +
     `node ${o.engine} plurals --repo ${o.repo} --out ${o.out} --apply ${o.out}/PLURALS.returns.json`,
   structural: (o) =>
-    `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`,
+    `node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`,
 }
 
 function workflowScript(phase: PhaseName, o: OrchestrateOptions, status: PhaseStatus, role: string): string {
@@ -430,6 +437,51 @@ function chunkHint(units: number): string[] {
 }
 
 /**
+ * The `--from`/`--to` this run was scanned with, as flags ready to paste.
+ *
+ * Every command this module prints for a human to run is executed in a shell
+ * that holds none of the run's state, so an omitted flag is silently
+ * re-defaulted at the moment the command is pasted. A rescan without these
+ * rebuilds the inventory against the DEFAULT target: a run translated into
+ * Russian, rescanned bare, comes back as if it had targeted the default, and
+ * the plan is overwritten on top of it. The commands run, they exit 0, and the
+ * damage is a retargeted run rather than an error.
+ *
+ * Read through `readObject`, like every artefact this module reads: a missing,
+ * unreadable or malformed inventory yields no flags rather than throwing,
+ * because this is called while building the text of a status command.
+ */
+function languageFlags(out: string): string {
+  const inv = readObject<{ sourceLanguage?: unknown; targetLanguage?: unknown }>(join(out, 'inventory.json'))
+  const from = languageTag(inv?.sourceLanguage)
+  const to = languageTag(inv?.targetLanguage)
+  return (from ? ` --from ${from}` : '') + (to ? ` --to ${to}` : '')
+}
+
+/**
+ * A value is a language tag only if it LOOKS like one.
+ *
+ * These flags are interpolated into a command string a human pastes into a
+ * shell, so the type check is not the check that matters: `"ru; rm -rf ."` and
+ * `"ru --out /elsewhere"` are both strings, and both survive a `typeof` guard
+ * to become a second command or a second option at paste time. A BCP-47 tag is
+ * letters, digits and separators and nothing else, so accepting exactly that
+ * shape removes the class rather than escaping around it. The underscore is in
+ * the separator set deliberately: `scan --to ru_RU` is accepted and stored, so
+ * a hyphen-only pattern would drop a tag the run really was scanned with and
+ * silently hand back a rescan that reverts to the default. An underscore is not
+ * a shell metacharacter, so widening here costs nothing.
+ *
+ * A value outside the shape is omitted rather than escaped. `scan` stores what
+ * it is given without this validation, so such a tag can genuinely be the run's
+ * — dropping it degrades the printed command to the bare form the caller can
+ * complete, which is the safe direction to fail in.
+ */
+function languageTag(value: unknown): string | null {
+  return typeof value === 'string' && /^[A-Za-z0-9]{1,8}([-_][A-Za-z0-9]{1,8})*$/.test(value) ? value : null
+}
+
+/**
  * Did `apply` actually WRITE, or was it a preview?
  *
  * The report is written on a dry run too — guarding a dry run would be theatre
@@ -442,16 +494,7 @@ function chunkHint(units: number): string[] {
  * hides every other phase's state behind one bad file.
  */
 function wroteFiles(reportPath: string): boolean {
-  try {
-    // `existsSync` is inside the guard on purpose: under a permission model it
-    // throws rather than returning false, and a stat that throws would take the
-    // status command down exactly like a bad parse.
-    if (!existsSync(reportPath)) return false
-    const parsed: unknown = JSON.parse(readOr(reportPath, '{}'))
-    return typeof parsed === 'object' && parsed !== null && (parsed as { write?: unknown }).write === true
-  } catch {
-    return false
-  }
+  return readObject<{ write?: unknown }>(reportPath)?.write === true
 }
 
 function runbook(statuses: PhaseStatus[], o: OrchestrateOptions): string {
@@ -470,7 +513,7 @@ ${rows}
 
 ## Sequential
 
-1. \`node ${o.engine} scan --repo ${o.repo} --out ${o.out}\`
+1. \`node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)}\`
 2. \`node ${o.engine} plan --repo ${o.repo} --out ${o.out}\`
 3. Resolve anything under HAZARDS. The engine will not guess these: a text that
    is both a label and an identifier has two correct readings and one of them
@@ -489,10 +532,50 @@ ${rows}
 `
 }
 
-function readOr(path: string, fallback: string): string {
+/**
+ * Read a JSON object, or nothing.
+ *
+ * `phaseStatuses` is what `orchestrate --list` calls to report the state of a
+ * run, so it is the one function that must survive a corrupt artefact: a
+ * malformed PLAN.json taking the whole status path down hides every other
+ * phase's state behind one bad file, at exactly the moment someone is trying to
+ * find out what went wrong. Absent, unreadable, malformed, `null`, array and
+ * non-object bodies all read the same way — as nothing — because none of them
+ * is evidence that the phase is ready.
+ */
+function readObject<T>(path: string): T | null {
   try {
-    return readFileSync(path, 'utf8')
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) ? (parsed as T) : null
   } catch {
-    return fallback
+    return null
   }
+}
+
+/** `existsSync` cannot be trusted to return rather than throw under a permission model. */
+function exists(path: string): boolean {
+  try {
+    return existsSync(path)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * How many entries a worklist field holds.
+ *
+ * Only an array is a worklist, and only its non-null entries are counted. A
+ * string has a `length`, so does an object that happens to carry one, and both
+ * used to be counted — turning a malformed artefact into a phase that looks
+ * ready with a plausible item count. `[null]` is the same defect one level
+ * down: an array of holes is length 1 and no work at all.
+ *
+ * The filter stops there, deliberately: it does not validate what an entry
+ * CONTAINS, so `["", false, 0]` still counts three. Deciding whether an entry
+ * is a usable work item belongs to the phase that consumes it, and a count
+ * that silently dropped malformed entries would report a worklist shorter than
+ * the one the agents are handed.
+ */
+function countOf(value: unknown): number {
+  return Array.isArray(value) ? value.filter((entry) => entry !== null && entry !== undefined).length : 0
 }

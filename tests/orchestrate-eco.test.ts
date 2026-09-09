@@ -180,3 +180,145 @@ describe('an empty worklist says it is empty, not that it is missing', () => {
     expect(reason('translate')).not.toMatch(/already translated/)
   })
 })
+
+// Every command this module prints is pasted into a shell that holds none of
+// the run's state, so an omitted flag is re-defaulted at that moment. A rescan
+// without --from/--to rebuilt the inventory against the DEFAULT target: a run
+// translated into Russian came back as if it had targeted the default, and the
+// plan was overwritten on top of it. No error, exit 0, a retargeted run.
+describe('emitted rescans carry the run own languages', () => {
+  const runWith = (inventory: unknown | null) => {
+    const out = mkdtempSync(join(tmpdir(), 'ultrai18n-lang-'))
+    writeFileSync(
+      join(out, 'PLAN.json'),
+      JSON.stringify({ hazards: [], structural: [{ id: 'S1' }], groups: [] }),
+    )
+    writeFileSync(join(out, 'APPLY.json'), JSON.stringify({ write: true, ok: true }))
+    if (inventory !== null) writeFileSync(join(out, 'inventory.json'), JSON.stringify(inventory))
+    return { out, opts: { repo: out, out, engine: '/abs/ultrai18n.mjs' } }
+  }
+
+  it('puts --from/--to on the scan in the join and in the runbook', () => {
+    const { out, opts } = runWith({ sourceLanguage: 'fr', targetLanguage: 'ru' })
+    const emitted = orchestrate({ ...opts, phase: 'structural' })
+
+    expect(emitted.join).toContain('scan --repo')
+    expect(emitted.join).toContain('--from fr --to ru')
+    expect(readFileSync(join(out, 'orchestration', 'RUNBOOK.md'), 'utf8')).toContain('--from fr --to ru')
+  })
+
+  it('emits only --to when the source language was never resolved', () => {
+    const { opts } = runWith({ sourceLanguage: null, targetLanguage: 'ja' })
+    const join_ = orchestrate({ ...opts, phase: 'structural' }).join
+    expect(join_).toContain('--to ja')
+    expect(join_).not.toContain('--from')
+  })
+
+  // The flags are a convenience, never a precondition: a run with no inventory
+  // yet, or a corrupt one, still has to produce a usable command rather than
+  // take the whole status path down.
+  // `undefined` means "write no inventory file at all"; every other entry is
+  // written verbatim. The distinction matters: a JSON `null` body and a missing
+  // file take different branches, and spelling both as `null` made one of these
+  // cases silently duplicate the other.
+  for (const [label, body] of [
+    ['no inventory', undefined],
+    ['malformed inventory', '{not json'],
+    ['a JSON null body', 'null'],
+    ['an empty file', ''],
+    ['non-string language fields', '{"sourceLanguage":7,"targetLanguage":{}}'],
+    ['a language tag carrying a shell command', '{"targetLanguage":"ru; printf INJECTED"}'],
+    ['a language tag carrying another option', '{"targetLanguage":"ru --out /elsewhere"}'],
+    ['a language tag with a space', '{"targetLanguage":"ru RU"}'],
+    ['a blank language tag', '{"targetLanguage":"   "}'],
+  ] as const) {
+    it(`emits a bare scan and does not throw with ${label}`, () => {
+      const out = mkdtempSync(join(tmpdir(), 'ultrai18n-lang2-'))
+      writeFileSync(join(out, 'PLAN.json'), JSON.stringify({ hazards: [], structural: [{ id: 'S1' }], groups: [] }))
+      writeFileSync(join(out, 'APPLY.json'), JSON.stringify({ write: true, ok: true }))
+      if (body !== undefined) writeFileSync(join(out, 'inventory.json'), body)
+
+      const emitted = orchestrate({ repo: out, out, engine: '/abs/ultrai18n.mjs', phase: 'structural' })
+      expect(emitted.join).toContain('scan --repo')
+      expect(emitted.join).not.toContain('--from')
+      expect(emitted.join).not.toContain('--to')
+      // The printed string is pasted into a shell, so nothing that would become
+      // a second command or a second option may survive into it.
+      expect(emitted.join).not.toContain('INJECTED')
+      expect(emitted.join).not.toContain(';')
+      expect(emitted.join).not.toContain('/elsewhere')
+    })
+  }
+
+  it('accepts a real BCP-47 tag with a region subtag', () => {
+    const { opts } = runWith({ sourceLanguage: 'pt-BR', targetLanguage: 'zh-Hant' })
+    expect(orchestrate({ ...opts, phase: 'structural' }).join).toContain('--from pt-BR --to zh-Hant')
+  })
+
+  // `scan --to ru_RU` is accepted and stored, so a hyphen-only guard would drop
+  // a tag the run really was scanned with — and hand back a rescan that quietly
+  // reverts to the default, which is the exact failure this change exists to fix.
+  it('accepts the POSIX underscore spelling that scan itself stores', () => {
+    const { opts } = runWith({ sourceLanguage: 'fr_FR', targetLanguage: 'ru_RU' })
+    expect(orchestrate({ ...opts, phase: 'structural' }).join).toContain('--from fr_FR --to ru_RU')
+  })
+})
+
+// `orchestrate --list` is what you run to find out what state a run is in, so
+// it is the one path that must survive a corrupt artefact. A malformed
+// PLAN.json used to throw out of `phaseStatuses`, hiding every phase's state
+// behind one bad file at exactly the moment someone is diagnosing the run.
+describe('phaseStatuses survives every artefact it reads being corrupt', () => {
+  const FILES = ['PLAN.json', 'dialects.todo.json', 'PLURALS.todo.json', 'VERIFY.todo.json', 'APPLY.json'] as const
+  const BODIES = ['{not json', 'null', '[]', '', '{"residual":"abc","families":{"length":2},"groups":{},"pairs":7}'] as const
+  for (const [file, body] of FILES.flatMap((f) => BODIES.map((b) => [f, b] as const))) {
+    it(`does not throw on a ${body === '' ? 'empty' : body.slice(0, 14)} ${file}`, () => {
+      const out = mkdtempSync(join(tmpdir(), 'ultrai18n-corrupt2-'))
+      writeFileSync(join(out, file), body)
+      const s = phaseStatuses(out)
+      expect(s).toHaveLength(6)
+      // Nothing is ready off a file that could not be read: an unreadable
+      // artefact is not evidence that the work behind it is done.
+      expect(s.every((p) => p.ready === false)).toBe(true)
+    })
+  }
+})
+
+// `review` used to be ready on the file EXISTING. Every other phase is ready on
+// having work, and an empty worklist does not fan out to nothing: the batch
+// labels are floored at one, so it dispatched a single agent with no work.
+describe('review is ready on having pairs, not on having a file', () => {
+  const runWithVerify = (body: string) => {
+    const out = mkdtempSync(join(tmpdir(), 'ultrai18n-review-'))
+    writeFileSync(join(out, 'VERIFY.todo.json'), body)
+    return phaseStatuses(out).find((p) => p.name === 'review')!
+  }
+
+  it('is ready with pairs', () => {
+    const s = runWithVerify(JSON.stringify({ pairs: [{ id: 'p1' }, { id: 'p2' }] }))
+    expect(s.ready).toBe(true)
+    expect(s.items).toBe(2)
+  })
+
+  // An array of holes is length 1 and no work at all — the same defect as a
+  // string with a `length`, one level down.
+  it('is not ready with a pair list of holes', () => {
+    const s = runWithVerify(JSON.stringify({ pairs: [null, null] }))
+    expect(s.ready).toBe(false)
+    expect(s.items).toBe(0)
+  })
+
+  it('is not ready with an empty pair list, and says so', () => {
+    const s = runWithVerify(JSON.stringify({ pairs: [] }))
+    expect(s.ready).toBe(false)
+    expect(s.items).toBe(0)
+    expect(s.reason).toMatch(/no claim\/citation pair/)
+  })
+
+  it('still names the producing command when the worklist is absent', () => {
+    const out = mkdtempSync(join(tmpdir(), 'ultrai18n-review2-'))
+    const s = phaseStatuses(out).find((p) => p.name === 'review')!
+    expect(s.ready).toBe(false)
+    expect(s.reason).toMatch(/run `verify`/)
+  })
+})

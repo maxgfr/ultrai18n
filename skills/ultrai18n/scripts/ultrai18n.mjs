@@ -33613,17 +33613,21 @@ var BATCH_SIZE2 = 8;
 var SMALL_WORKLIST = 3;
 function phaseStatuses(out2) {
   const planPath = join35(out2, "PLAN.json");
-  const plan2 = existsSync22(planPath) ? JSON.parse(readOr(planPath, "{}")) : null;
-  const batches = existsSync22(join35(out2, "batches"));
-  const todo = existsSync22(join35(out2, "VERIFY.todo.json"));
+  const plan2 = readObject(planPath);
+  const batches = exists(join35(out2, "batches"));
+  const verifyPath = join35(out2, "VERIFY.todo.json");
+  const verify = readObject(verifyPath);
+  const verifyPairs = countOf(verify?.pairs);
   const applied = wroteFiles(join35(out2, "APPLY.json"));
   const dialectPath = join35(out2, "dialects.todo.json");
-  const dialectTodo = existsSync22(dialectPath) ? (JSON.parse(readOr(dialectPath, '{"residual":[]}')).residual ?? []).length : 0;
-  const pluralPath = join35(out2, "PLURALS.todo.json");
-  const pluralTodo = existsSync22(pluralPath) ? (JSON.parse(readOr(pluralPath, '{"families":[]}')).families ?? []).length : 0;
-  const pending = plan2?.groups?.filter((g) => g.status === "pending").length ?? 0;
-  const hazards = plan2?.hazards?.length ?? 0;
-  const structural = plan2?.structural?.length ?? 0;
+  const dialectTodo = countOf(readObject(dialectPath)?.residual);
+  const pluralTodo = countOf(readObject(join35(out2, "PLURALS.todo.json"))?.families);
+  const groups = Array.isArray(plan2?.groups) ? plan2.groups : [];
+  const pending = groups.filter(
+    (g) => typeof g === "object" && g !== null && g.status === "pending"
+  ).length;
+  const hazards = countOf(plan2?.hazards);
+  const structural = countOf(plan2?.structural);
   return [
     {
       // First in the list on purpose: an arrangement nobody claimed is a gap in
@@ -33659,10 +33663,14 @@ function phaseStatuses(out2) {
     },
     {
       name: "review",
-      ready: todo,
-      ...todo ? {} : { reason: "no review worklist \u2014 run `verify` after `apply --write`" },
-      worklist: join35(out2, "VERIFY.todo.json"),
-      items: todo ? JSON.parse(readOr(join35(out2, "VERIFY.todo.json"), '{"pairs":[]}')).pairs.length : 0,
+      // Ready means there is work, as it does for every other phase — not that
+      // the file exists. An empty worklist does not fan out to nothing: the
+      // batch labels are floored at one, so it dispatches a single agent with
+      // no work, which is worse than not dispatching.
+      ready: verifyPairs > 0,
+      ...verifyPairs > 0 ? {} : verify === null ? { reason: "no review worklist \u2014 run `verify` after `apply --write`" } : { reason: "no claim/citation pair in the review worklist" },
+      worklist: verifyPath,
+      items: verifyPairs,
       writes: false
     },
     {
@@ -33859,14 +33867,14 @@ site id comes from the anchor rather than from the text, so it survives the edit
   }
 };
 var JOINS = {
-  dialect: (o) => `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}`,
+  dialect: (o) => `node ${o.engine} dialects --check --repo ${o.repo} --out ${o.out} && node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)}`,
   adjudicate: (o) => `node ${o.engine} plan --repo ${o.repo} --out ${o.out}`,
   translate: (o) => `node ${o.engine} translate --repo ${o.repo} --out ${o.out} --apply results`,
   review: (o) => `node ${o.engine} verify --repo ${o.repo} --out ${o.out} --apply verdicts.json`,
   // Re-scan, THEN verify the claims against what the re-scan sees. Re-scanning
   // and not comparing is what let a reported edit nobody made pass.
-  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out} --apply ${o.out}/PLURALS.returns.json`,
-  structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
+  plural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)} && node ${o.engine} plurals --repo ${o.repo} --out ${o.out} --apply ${o.out}/PLURALS.returns.json`,
+  structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
 };
 function workflowScript(phase, o, status2, role) {
   return `export const meta = {
@@ -33915,14 +33923,17 @@ function chunkHint(units) {
   }
   return out2;
 }
+function languageFlags(out2) {
+  const inv = readObject(join35(out2, "inventory.json"));
+  const from = languageTag(inv?.sourceLanguage);
+  const to = languageTag(inv?.targetLanguage);
+  return (from ? ` --from ${from}` : "") + (to ? ` --to ${to}` : "");
+}
+function languageTag(value) {
+  return typeof value === "string" && /^[A-Za-z0-9]{1,8}([-_][A-Za-z0-9]{1,8})*$/.test(value) ? value : null;
+}
 function wroteFiles(reportPath) {
-  try {
-    if (!existsSync22(reportPath)) return false;
-    const parsed = JSON.parse(readOr(reportPath, "{}"));
-    return typeof parsed === "object" && parsed !== null && parsed.write === true;
-  } catch {
-    return false;
-  }
+  return readObject(reportPath)?.write === true;
 }
 function runbook(statuses, o) {
   const rows = statuses.map((s) => `| ${s.name} | ${s.ready ? "ready" : "not ready"} | ${s.items} | ${s.reason ?? ""} |`).join("\n");
@@ -33938,7 +33949,7 @@ ${rows}
 
 ## Sequential
 
-1. \`node ${o.engine} scan --repo ${o.repo} --out ${o.out}\`
+1. \`node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)}\`
 2. \`node ${o.engine} plan --repo ${o.repo} --out ${o.out}\`
 3. Resolve anything under HAZARDS. The engine will not guess these: a text that
    is both a label and an identifier has two correct readings and one of them
@@ -33956,12 +33967,23 @@ ${rows}
 9. \`node ${o.engine} check --repo ${o.repo} --out ${o.out} --semantic\`
 `;
 }
-function readOr(path, fallback) {
+function readObject(path) {
   try {
-    return readFileSync26(path, "utf8");
+    const parsed = JSON.parse(readFileSync26(path, "utf8"));
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) ? parsed : null;
   } catch {
-    return fallback;
+    return null;
   }
+}
+function exists(path) {
+  try {
+    return existsSync22(path);
+  } catch {
+    return false;
+  }
+}
+function countOf(value) {
+  return Array.isArray(value) ? value.filter((entry2) => entry2 !== null && entry2 !== void 0).length : 0;
 }
 
 // src/sync.ts
