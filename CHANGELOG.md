@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/maxgfr/ultrai18n/compare/v1.0.2...v1.1.0) (2026-09-09)
+
+
+### Features
+
+* expose compact scan counts with inventory provenance ([cdccbf2](https://github.com/maxgfr/ultrai18n/commit/cdccbf282c8905aaef57b2d5e4aefa7f932ef377))
+
 ## [1.0.2](https://github.com/maxgfr/ultrai18n/compare/v1.0.1...v1.0.2) (2026-09-09)
 
 

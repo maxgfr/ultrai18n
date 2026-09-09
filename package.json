@@ -1,6 +1,6 @@
 {
   "name": "@maxgfr/ultrai18n",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Find every human-readable string in a repository, classify it, translate it with cheap models, and prove nothing was missed.",
   "keywords": [
     "i18n",
