@@ -1,10 +1,11 @@
 ---
 name: ultrai18n
-description: "Translate repository text, extract i18n strings, and verify locale catalogs and applied translations against source provenance."
+description: Translate repository text, extract i18n strings, and verify locale catalogs and applied translations against source provenance.
 disable-model-invocation: true
 license: MIT
 metadata:
   version: 1.1.0
+  opencode/autoinvoke: 'false'
 ---
 
 # ultrai18n — find every human-readable string, and prove nothing was missed
