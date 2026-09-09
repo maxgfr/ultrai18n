@@ -248,10 +248,18 @@ is gated behind `apply --write`. Six phases, each with one contract under
 |---|---|
 | Claude Code exposes Workflow | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<out>/orchestration/<p>.workflow.mjs" })` — the emitted `launch` line gives you the exact call. |
 | Codex or another host exposes subagents | Same `orchestrate`; dispatch one subagent per batch following `<out>/orchestration/agents/<role>.md`. The workflow script shows the batches and the prompts. |
-| Eco mode, or no subagents | `orchestrate --eco` writes no workflow script → follow `<out>/orchestration/RUNBOOK.md`, playing each role yourself. Same artifacts as the fan-out; only wall-clock differs. Note the RUNBOOK spells out the WHOLE pipeline rather than this phase alone, and its commands carry `--repo`/`--out` but not `--from`/`--to`: re-run its steps with the language flags this run used, or a rescan retargets the inventory to the defaults. |
+| Eco mode, or no subagents | `orchestrate --eco` writes no workflow script → follow `<out>/orchestration/RUNBOOK.md`, playing each role yourself. Same artifacts as the fan-out; only wall-clock differs. Note the RUNBOOK spells out the WHOLE pipeline rather than this phase alone, so read past the step you are on. |
 
 Then run the printed `join` command: it is the same fold in every mode, because
-eco changes who plays the roles and never what reduces their output. One
+eco changes who plays the roles and never what reduces their output. Run it as
+printed rather than retyping it: where a join rescans, the printed command
+carries the `--from`/`--to` this run was scanned with — unless the recorded tag
+is not alphanumeric segments of one to eight characters joined by `-` or `_`,
+in which case it is left out rather than pasted and you pass it yourself. That
+shape covers what `scan` normally stores (`ru`, `pt-BR`, `ru_RU`) and omits
+what it will also accept but this cannot safely paste (`ru_RU.UTF-8`). Retyped bare, `scan` re-detects the languages
+against the defaults, and the next `plan` is then rebuilt on that inventory —
+two commands that can both succeed while leaving the run retargeted. One
 exception, and it is the phase most likely to bite: `adjudicate`'s printed join
 is `plan` alone, because only you know where you saved the rulings — fold them
 yourself with `adjudicate --apply <rulings.json>` first, exactly as situation 4
