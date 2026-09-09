@@ -51,6 +51,9 @@ to fake; and a model does nothing but translate strings it is handed.
    bug, not a user error; the reason field names which.
 3. **You are swapping the repository's language** — `scan` → `plan` → `translate` → `apply --write`
    → `verify` → `check --semantic`.
+   **Adding a locale while preserving the source catalog** is a different task:
+   follow [catalog staging](references/catalog-staging.md). Never rewrite the source
+   catalog and restore it afterward, or edit inventory/plan records to force a write.
 4. **The engine reported a hazard** — a text that is both copy and a persisted value. Run
    `adjudicate` for the worklist and the contract, dispatch an agent on it, then `adjudicate --apply
    <rulings.json>` and `plan` again. Rule per *site*, not per string: both roles are legitimate, and
