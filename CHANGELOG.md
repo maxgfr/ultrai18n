@@ -1,3 +1,12 @@
+## [1.0.2](https://github.com/maxgfr/ultrai18n/compare/v1.0.1...v1.0.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **engine:** update shared engines and maintenance tool ([ca12321](https://github.com/maxgfr/ultrai18n/commit/ca12321dfd7685cb7f7c8c001d24e83783ff71ce))
+* ground localization warnings in actual consumers ([1714b3f](https://github.com/maxgfr/ultrai18n/commit/1714b3faba9be064c4e3a9b1496da687ced93c54))
+* stage new locale catalogs before translating ([64188ab](https://github.com/maxgfr/ultrai18n/commit/64188ab268f32a0496dea4fb17eed313e9e7b1d7))
+
 ## [1.0.1](https://github.com/maxgfr/ultrai18n/compare/v1.0.0...v1.0.1) (2026-09-09)
 
 
