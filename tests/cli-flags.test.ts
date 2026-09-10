@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { guardWorkingTree, gitState } from '../src/git'
 import { check } from '../src/check'
@@ -144,4 +144,30 @@ describe('--backup', () => {
     expect(existsSync(join(repo, 'src/app.ts.bak'))).toBe(false)
     expect(readFileSync(join(repo, 'src/app.ts'), 'utf8')).toContain('Enregistrer')
   })
+})
+
+it('rejects a missing --repo path', () => {
+  const engine = resolve('skills/ultrai18n/scripts/ultrai18n.mjs')
+  const missing = join(repo, 'definitely-missing-luna')
+  const result = spawnSync(process.execPath, [engine, 'census', '--repo', missing, '--json'], {
+    encoding: 'utf8',
+  })
+  expect(result.status).toBe(2)
+  expect(`${result.stdout}\n${result.stderr}`).toContain('repo not found')
+})
+
+it('rejects a regular file as --repo', () => {
+  const engine = resolve('skills/ultrai18n/scripts/ultrai18n.mjs')
+  const file = join(repo, 'not-a-repo.txt')
+  writeFileSync(file, 'fixture')
+  const result = spawnSync(process.execPath, [engine, 'census', '--repo', file, '--json'], { encoding: 'utf8' })
+  expect(result.status).toBe(2)
+  expect(`${result.stdout}\n${result.stderr}`).toContain('repo not found')
+})
+
+it('keeps repo-independent version available with a missing --repo', () => {
+  const engine = resolve('skills/ultrai18n/scripts/ultrai18n.mjs')
+  const result = spawnSync(process.execPath, [engine, 'version', '--repo', join(repo, 'missing-version-repo')], { encoding: 'utf8' })
+  expect(result.status).toBe(0)
+  expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/)
 })

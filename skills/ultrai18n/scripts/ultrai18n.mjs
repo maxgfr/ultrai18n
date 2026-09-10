@@ -34319,7 +34319,7 @@ node "$ENGINE" check --repo . || {
 `;
 
 // src/cli.ts
-import { existsSync as existsSync24, readFileSync as readFileSync28 } from "fs";
+import { existsSync as existsSync24, readFileSync as readFileSync28, statSync as statSync11 } from "fs";
 
 // src/sites.ts
 var VERDICTS = /* @__PURE__ */ new Set(["translate", "do-not-translate", "locale-marker", "needs-judgment", "unclassified"]);
@@ -35013,6 +35013,25 @@ async function main() {
   }
   if (!p.command) usage(`unknown command: ${p.positional[0]}`);
   const repo = resolve7(String(p.flags.repo ?? process.cwd()));
+  const repoCommands = /* @__PURE__ */ new Set([
+    "scan",
+    "census",
+    "sites",
+    "adjudicate",
+    "plan",
+    "translate",
+    "apply",
+    "verify",
+    "check",
+    "plurals",
+    "dialects",
+    "sync",
+    "orchestrate",
+    "init"
+  ]);
+  if (repoCommands.has(p.command) && (!existsSync24(repo) || !statSync11(repo).isDirectory())) {
+    usage(`repo not found: ${repo}`);
+  }
   const json = p.flags.json === true;
   const quiet = p.flags.quiet === true;
   const say = (full) => {

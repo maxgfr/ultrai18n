@@ -19,7 +19,7 @@ import { init, loadBaseline, type Baseline } from './init'
 import { writeJson } from './commands'
 import type { Plan } from './plan'
 import type { Inventory } from './types'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { readGlossary, writeGlossary } from './commands'
 import { selectSites, formatSites, driftAgainst, formatDrift, UnknownTokenError } from './sites'
 import { auditCoverage, formatAudit, locatorTable } from './audit'
@@ -217,6 +217,13 @@ async function main(): Promise<void> {
   if (!p.command) usage(`unknown command: ${p.positional[0]}`)
 
   const repo = resolve(String(p.flags.repo ?? process.cwd()))
+  const repoCommands = new Set([
+    'scan', 'census', 'sites', 'adjudicate', 'plan', 'translate', 'apply', 'verify',
+    'check', 'plurals', 'dialects', 'sync', 'orchestrate', 'init',
+  ])
+  if (repoCommands.has(p.command) && (!existsSync(repo) || !statSync(repo).isDirectory())) {
+    usage(`repo not found: ${repo}`)
+  }
   const json = p.flags.json === true
   const quiet = p.flags.quiet === true
 
