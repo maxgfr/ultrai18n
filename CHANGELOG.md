@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/maxgfr/ultrai18n/compare/v1.1.1...v1.1.2) (2026-09-10)
+
+
+### Bug Fixes
+
+* reject invalid repository paths in ultrai18n CLI ([0fe6a0d](https://github.com/maxgfr/ultrai18n/commit/0fe6a0de9e14972e72b7f45b657744d59315c4d2))
+
 ## [1.1.1](https://github.com/maxgfr/ultrai18n/compare/v1.1.0...v1.1.1) (2026-09-09)
 
 
