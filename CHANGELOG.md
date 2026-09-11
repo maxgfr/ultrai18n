@@ -1,3 +1,10 @@
+## [1.1.3](https://github.com/maxgfr/ultrai18n/compare/v1.1.2...v1.1.3) (2026-09-11)
+
+
+### Bug Fixes
+
+* **engine:** update shared engines and maintenance tool ([85e4bdc](https://github.com/maxgfr/ultrai18n/commit/85e4bdce87e64221b646bfbb526417c93f180e0b))
+
 ## [1.1.2](https://github.com/maxgfr/ultrai18n/compare/v1.1.1...v1.1.2) (2026-09-10)
 
 

@@ -4,7 +4,7 @@ description: Translate repository text, extract i18n strings, and verify locale 
 disable-model-invocation: true
 license: MIT
 metadata:
-  version: 1.1.2
+  version: 1.1.3
   opencode/autoinvoke: 'false'
 ---
 
