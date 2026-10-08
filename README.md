@@ -2,10 +2,11 @@
 
 ## Invocation
 
-**Manual by default.** `ultrai18n` runs when you ask for it: `$ultrai18n` in Codex,
-`/ultrai18n` in Claude Code or OpenCode. The agent never starts it on its own, and
-CLI commands are unchanged. One setting per host makes it automatic — see
-[Manual or automatic](#manual-or-automatic).
+**On request by default.** `ultrai18n` runs when you ask for it: `$ultrai18n` in Codex,
+`/ultrai18n` in Claude Code or OpenCode, or just asking the agent to translate or
+audit the repository's i18n. The agent can call it for you, but never picks it up
+on its own, and CLI commands are unchanged. One setting per host makes it
+explicit-only — see [On request or explicit-only](#on-request-or-explicit-only).
 
 Find every human-readable string in a repository, classify it, translate it with cheap models, and
 prove nothing was missed.
@@ -266,32 +267,33 @@ MIT
 
 See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption checks and the daily repin workflow.
 
-## Manual or automatic
+## On request or explicit-only
 
-`ultrai18n` ships **explicit-only**, and `skills add` installs it that way: it runs
-when you invoke it, never when the agent feels like it. Use `$ultrai18n` in Codex,
-`/ultrai18n` in Claude Code or OpenCode, prefixing the plugin namespace when it is
-installed as a Claude plugin.
+`ultrai18n` ships **model-invocable, on request**, and `skills add` installs it
+that way: the agent may call it through its skill tool, but the skill's
+description restricts it to explicit requests, so the agent calls it when you
+ask, not on its own. Use `$ultrai18n` in Codex, `/ultrai18n` in Claude Code or
+OpenCode (prefixing the plugin namespace when it is installed as a Claude
+plugin), or simply ask for a translation or an i18n audit.
 
-Letting the agent choose it is one setting per host, applied to the
-**installed** copy of the skill:
+Making it explicit-only is one setting per host, applied to the **installed**
+copy of the skill:
 
-| Host | Shipped, manual | Automatic |
+| Host | Shipped, on request | Explicit-only |
 | --- | --- | --- |
-| Claude Code | `disable-model-invocation: true` in `SKILL.md` | delete that line, or set it to `false` |
-| Codex | `allow_implicit_invocation: false` under `policy:` in `agents/openai.yaml` | set it to `true` |
-| OpenCode | `metadata.opencode/autoinvoke: 'false'` in `SKILL.md` | delete that entry, or set it to `'true'` |
+| Claude Code | no `disable-model-invocation` in `SKILL.md` | add `disable-model-invocation: true` |
+| Codex | `allow_implicit_invocation: true` under `policy:` in `agents/openai.yaml` | set it to `false` |
+| OpenCode | `metadata.opencode/autoinvoke: 'true'` in `SKILL.md` | set it to `'false'` |
 
-Claude Code can do it without touching the file: put
-`"skillOverrides": { "ultrai18n": "on" }` in `settings.json`, where
-`"user-invocable-only"` forces manual mode back. Plugin installs ignore
-`skillOverrides`, so edit the frontmatter there. Updating or reinstalling the
-skill restores the shipped default, so reapply the change afterwards.
+Claude Code can do it without touching the file:
+`"skillOverrides": { "ultrai18n": "user-invocable-only" }` in `settings.json`
+leaves `/ultrai18n` working while hiding the skill from the model. Plugin installs
+ignore `skillOverrides`, so edit the frontmatter there. Updating or reinstalling
+the skill restores the shipped default, so reapply the change afterwards.
 
-OpenCode V1 reads no `autoinvoke` metadata. Keep it manual with
-`permission.skill` in `~/.config/opencode/opencode.json` or the project
-configuration, retaining unrelated permissions; dropping the entry, or setting
-`"allow"`, is what lets the agent reach it:
+OpenCode V1 reads no `autoinvoke` metadata; `permission.skill` in
+`~/.config/opencode/opencode.json` or the project configuration is how you force
+explicit-only there. Retain unrelated permissions:
 
 ```json
 {
