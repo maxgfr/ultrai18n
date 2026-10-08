@@ -3,7 +3,7 @@ name: ultrai18n
 description: Translate repository text, extract i18n strings, and verify locale catalogs and applied translations against source provenance. Use only when the user explicitly asks for ultrai18n or a repository translation or i18n audit.
 license: MIT
 metadata:
-  version: 1.1.4
+  version: 1.2.0
   opencode/autoinvoke: 'true'
 ---
 

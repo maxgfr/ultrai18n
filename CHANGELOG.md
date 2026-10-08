@@ -1,3 +1,18 @@
+# [1.2.0](https://github.com/maxgfr/ultrai18n/compare/v1.1.4...v1.2.0) (2026-10-08)
+
+
+### Bug Fixes
+
+* **engine:** update shared engines and maintenance tool ([0bde2db](https://github.com/maxgfr/ultrai18n/commit/0bde2db5455df02e8b9ad5cc788ea49dcc984865))
+* **engine:** update shared engines and maintenance tool ([ae89109](https://github.com/maxgfr/ultrai18n/commit/ae891099ea705afa4e77898a1ef6c7a6e08a8885))
+* **engine:** update shared engines and maintenance tool ([d216122](https://github.com/maxgfr/ultrai18n/commit/d216122e10d8999583c607425d5e032e9306755c))
+* **engine:** update shared engines and maintenance tool ([858aa41](https://github.com/maxgfr/ultrai18n/commit/858aa419ef9c8b67f30d9b3bdb691b7b698ded2e))
+
+
+### Features
+
+* **skill:** let the agent invoke ultrai18n on request ([c991a90](https://github.com/maxgfr/ultrai18n/commit/c991a900527da89382d8b9caf72e703cd045f09e))
+
 ## [1.1.4](https://github.com/maxgfr/ultrai18n/compare/v1.1.3...v1.1.4) (2026-10-01)
 
 
