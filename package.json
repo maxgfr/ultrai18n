@@ -45,8 +45,8 @@
     "engine:gate": "pnpm run typecheck && pnpm run test && pnpm run check:build && pnpm run eval && pnpm bench --ci && git diff --exit-code -- bench/REPORT.md bench/report.json && node skills/ultrai18n/scripts/ultrai18n.mjs census --repo . --json > /dev/null"
   },
   "devDependencies": {
-    "@maxgfr/codeindex": "2.31.4",
-    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/844bb81c9868f54e996e444797ad3cf54b61ded5",
+    "@maxgfr/codeindex": "2.31.5",
+    "@maxgfr/webindex": "https://codeload.github.com/maxgfr/webindex/tar.gz/ec4470a2359508cd6b3c4215db02c349bb80289f",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/exec": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
