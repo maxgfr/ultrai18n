@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@maxgfr/codeindex':
-        specifier: 2.31.9
-        version: 2.31.9
+        specifier: 2.31.10
+        version: 2.31.10
       '@maxgfr/webindex':
         specifier: https://codeload.github.com/maxgfr/webindex/tar.gz/f65006190489aada6cf956efff8cc0567367e512
         version: webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/f65006190489aada6cf956efff8cc0567367e512
@@ -363,8 +363,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maxgfr/codeindex@2.31.9':
-    resolution: {integrity: sha512-KBpci6yHvAcxrjYRTmHZ62yUOMxjgq4LSGVaR+RmwLUuR5azLp8uCFLQMQEWmk1CQDwzN8FjkLt2cl5zArE4TQ==}
+  '@maxgfr/codeindex@2.31.10':
+    resolution: {integrity: sha512-QsRZbS0O/J4BZeetXhZhLqWdz6PMn8sXvvmKho3iYyhW//atJ2HmGWhvbRtwI19plAbiC0Go50ofKW13AiDeNw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -2186,7 +2186,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@maxgfr/codeindex@2.31.9': {}
+  '@maxgfr/codeindex@2.31.10': {}
 
   '@octokit/auth-token@6.0.0': {}
 
