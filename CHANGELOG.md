@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/maxgfr/ultrai18n/compare/v1.2.1...v1.3.0) (2026-10-20)
+
+
+### Features
+
+* make orchestration hand-off agent-neutral ([#10](https://github.com/maxgfr/ultrai18n/issues/10)) ([ab3056e](https://github.com/maxgfr/ultrai18n/commit/ab3056ed4ed6528c51392a6c2317c1e0adc1e0b5))
+
 ## [1.2.1](https://github.com/maxgfr/ultrai18n/compare/v1.2.0...v1.2.1) (2026-10-20)
 
 
