@@ -4,7 +4,6 @@ description: Translate repository text, extract i18n strings, and verify locale 
 license: MIT
 metadata:
   version: 1.2.0
-  opencode/autoinvoke: 'true'
 ---
 
 # ultrai18n — find every human-readable string, and prove nothing was missed
