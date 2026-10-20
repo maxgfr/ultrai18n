@@ -43639,7 +43639,10 @@ function orchestrate(opts) {
   return {
     phase,
     files,
-    launch: opts.eco ? `follow ${runbookPath} sequentially, playing each role yourself` : `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
+    launch: opts.eco ? `follow ${runbookPath} sequentially, playing each role yourself` : `dispatch one native subagent per batch following ${contractPath} \u2014 or, with a single agent, follow ${runbookPath} sequentially`,
+    ...opts.eco ? {} : {
+      workflow: `optional \u2014 Claude Code: Workflow({ scriptPath: ${JSON.stringify(workflowPath)} }) for one-call parallel fan-out`
+    },
     join: JOINS[phase](opts),
     ...status2.items < SMALL_WORKLIST ? { advice: `only ${status2.items} item(s) \u2014 the sequential path in RUNBOOK.md is cheaper than a fan-out` } : {}
   };
@@ -43792,7 +43795,10 @@ var JOINS = {
   structural: (o) => `node ${o.engine} scan --repo ${o.repo} --out ${o.out}${languageFlags(o.out)} && node ${o.engine} check --repo ${o.repo} --out ${o.out}`
 };
 function workflowScript(phase, o, status2, role) {
-  return `export const meta = {
+  return `// Optional \u2014 Claude Code: launch this with the Workflow tool for a one-call
+// parallel fan-out. Any other host: dispatch the sibling agents/*.md contract to
+// native subagents, one per item below; a single agent follows RUNBOOK.md.
+export const meta = {
   name: 'ultrai18n-${phase}',
   description: 'ultrai18n ${phase} phase \u2014 ${status2.items} item(s)',
   phases: [{ title: '${phase}' }],
@@ -45158,10 +45164,13 @@ wrote ${batches.length} batch(es) to ${runDir(out2).batches}
           if (emitted.advice) process.stdout.write(`  ${emitted.advice}
 `);
         }
-        note(`
+        note(
+          `
 launch:   ${emitted.launch}
-join:     ${emitted.join}
-`);
+` + (emitted.workflow ? `workflow: ${emitted.workflow}
+` : "") + `join:     ${emitted.join}
+`
+        );
       } catch (err2) {
         const code = err2.exitCode ?? 1;
         process.stderr.write(`ultrai18n: ${err2.message}

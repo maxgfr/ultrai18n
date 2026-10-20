@@ -25,14 +25,18 @@ function readyRun(): { out: string; opts: { repo: string; out: string; engine: s
 }
 
 describe('orchestrate --eco', () => {
-  it('emits the workflow script by default, and launches it', () => {
+  it('emits the workflow script by default, as the optional route behind the host-neutral one', () => {
     const { out, opts } = readyRun()
     const emitted = orchestrate({ ...opts, phase: 'adjudicate' })
     const workflow = join(out, 'orchestration', 'adjudicate.workflow.mjs')
 
     expect(existsSync(workflow)).toBe(true)
     expect(emitted.files).toContain(workflow)
-    expect(emitted.launch).toContain('Workflow({')
+    // The primary route is the agent contract, runnable by any host's subagents.
+    expect(emitted.launch).toContain(join(out, 'orchestration', 'agents', 'adjudicator.md'))
+    expect(emitted.launch).not.toContain('Workflow({')
+    expect(emitted.workflow).toContain('Workflow({')
+    expect(emitted.workflow).toContain(workflow)
   })
 
   it('writes no workflow script under --eco, and launches the runbook instead', () => {
@@ -44,6 +48,7 @@ describe('orchestrate --eco', () => {
     expect(existsSync(workflow)).toBe(false)
     expect(emitted.files).not.toContain(workflow)
     expect(emitted.launch).not.toContain('Workflow({')
+    expect(emitted.workflow).toBeUndefined()
     expect(emitted.launch).toContain(runbook)
 
     // The contract and the runbook are the eco deliverable, so both still ship.

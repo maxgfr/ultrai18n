@@ -463,7 +463,11 @@ async function main(): Promise<void> {
           for (const f of emitted.files) process.stdout.write(`  wrote ${f}\n`)
           if (emitted.advice) process.stdout.write(`  ${emitted.advice}\n`)
         }
-        note(`\nlaunch:   ${emitted.launch}\njoin:     ${emitted.join}\n`)
+        note(
+          `\nlaunch:   ${emitted.launch}\n` +
+            (emitted.workflow ? `workflow: ${emitted.workflow}\n` : '') +
+            `join:     ${emitted.join}\n`,
+        )
       } catch (err) {
         const code = (err as Error & { exitCode?: number }).exitCode ?? 1
         process.stderr.write(`ultrai18n: ${(err as Error).message}\n`)

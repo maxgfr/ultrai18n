@@ -7,7 +7,7 @@ const skill = readFileSync(new URL("SKILL.md", skillDir), "utf8");
 const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---/.exec(skill)?.[1] ?? "";
 
 describe("model-invocable skill, on request", () => {
-  it("lets Claude Code load the skill when asked", () => {
+  it("lets the host agent load the skill when asked", () => {
     expect(frontmatter).not.toMatch(/^disable-model-invocation:\s*true\s*$/m);
     expect(frontmatter).toMatch(/^description:\s*\S/m);
   });

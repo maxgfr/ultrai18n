@@ -16,6 +16,9 @@ npx skills add maxgfr/ultrai18n            # this project
 npx skills add maxgfr/ultrai18n --global   # every project
 ```
 
+The `skills` CLI installs into every agent it detects (Codex, Claude Code, OpenCode, Cursor, …);
+add `-a <agent>` to pick one.
+
 No build step, no API key, no network. The tree-sitter grammars ship with the engine.
 
 ## Why
@@ -188,7 +191,7 @@ exact, so the same run is reproducible whether a workflow tool, a person, or a s
 
 ```sh
 ultrai18n plan        --repo .                      # 3747 groups — exits 1 on an open hazard
-ultrai18n orchestrate --repo .                      # the workflow + contract for the READY phase
+ultrai18n orchestrate --repo .                      # the agent contract for the READY phase
 ultrai18n translate   --repo . --backend subagent   # 468 batches + agents/translator.md
 ```
 
