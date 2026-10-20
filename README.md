@@ -279,12 +279,12 @@ ask, not on its own. Use `$ultrai18n` in Codex, `/ultrai18n` in Claude Code or
 OpenCode (prefixing the plugin namespace when it is installed as a Claude
 plugin), or simply ask for a translation or an i18n audit.
 
-Making it explicit-only is one setting per host, applied to the **installed**
-copy of the skill:
+Making it explicit-only is one setting, read by Claude Code and OpenCode,
+applied to the **installed** copy of the skill:
 
 | Host | Shipped, on request | Explicit-only |
 | --- | --- | --- |
-| Claude Code | no `disable-model-invocation` in `SKILL.md` | add `disable-model-invocation: true` |
+| Claude Code, OpenCode | no `disable-model-invocation` in `SKILL.md` | add `disable-model-invocation: true` |
 
 Claude Code can do it without touching the file:
 `"skillOverrides": { "ultrai18n": "user-invocable-only" }` in `settings.json`
