@@ -285,7 +285,7 @@ export function cmdTranslate(opts: TranslateOptions): TranslateOutcome {
   }
 
   // subagent and manual both stop here, and for the same honest reason: the
-  // engine cannot dispatch a Claude Code subagent, and it will not pretend to.
+  // engine cannot dispatch a host's subagent, and it will not pretend to.
   // The artifacts are complete and usable either way.
   return {
     backend: opts.backend,

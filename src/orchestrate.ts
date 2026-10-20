@@ -164,7 +164,10 @@ export function phaseStatuses(out: string): PhaseStatus[] {
 export interface Emitted {
   phase: PhaseName
   files: string[]
+  /** The host-neutral way to run this phase: native subagents, or the RUNBOOK. */
   launch: string
+  /** Optional — Claude Code only: the Workflow tool call for a one-call parallel fan-out. */
+  workflow?: string
   join: string
   advice?: string
 }
@@ -213,7 +216,12 @@ export function orchestrate(opts: OrchestrateOptions): Emitted {
     files,
     launch: opts.eco
       ? `follow ${runbookPath} sequentially, playing each role yourself`
-      : `Workflow({ scriptPath: ${JSON.stringify(workflowPath)} })`,
+      : `dispatch one native subagent per batch following ${contractPath} — or, with a single agent, follow ${runbookPath} sequentially`,
+    ...(opts.eco
+      ? {}
+      : {
+          workflow: `optional — Claude Code: Workflow({ scriptPath: ${JSON.stringify(workflowPath)} }) for one-call parallel fan-out`,
+        }),
     join: JOINS[phase](opts),
     ...(status.items < SMALL_WORKLIST
       ? { advice: `only ${status.items} item(s) — the sequential path in RUNBOOK.md is cheaper than a fan-out` }
@@ -377,7 +385,10 @@ const JOINS: Record<PhaseName, (o: OrchestrateOptions) => string> = {
 }
 
 function workflowScript(phase: PhaseName, o: OrchestrateOptions, status: PhaseStatus, role: string): string {
-  return `export const meta = {
+  return `// Optional — Claude Code: launch this with the Workflow tool for a one-call
+// parallel fan-out. Any other host: dispatch the sibling agents/*.md contract to
+// native subagents, one per item below; a single agent follows RUNBOOK.md.
+export const meta = {
   name: 'ultrai18n-${phase}',
   description: 'ultrai18n ${phase} phase — ${status.items} item(s)',
   phases: [{ title: '${phase}' }],

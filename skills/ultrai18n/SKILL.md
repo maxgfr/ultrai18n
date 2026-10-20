@@ -93,7 +93,7 @@ to fake; and a model does nothing but translate strings it is handed.
   the manifest line supporting each. `--propose` writes the unclaimed sites for an agent; `--check`
   validates what it wrote. Exit 1 on any problem.
 - `sync [--source-locale <lang>]` — diff locale catalogs; placeholder arity fails closed.
-- `orchestrate [--phase <p>] [--list]` — emit the workflow and contracts for a phase.
+- `orchestrate [--phase <p>] [--list]` — emit the agent contracts (plus an optional Claude Code workflow) for a phase.
 - `sites [--verdict <v>] [--surface <glob>] [--file <glob>] [--rule <id>] [--ecosystem <id>]
   [--value <text>] [--dup] [--limit <n>] [--drift <inventory.json>] [--audit]` — filtered views of
   the inventory. Exit 0 even with no matches — it is a view, `check` is the gate — and exit 2 on a
@@ -250,9 +250,9 @@ is gated behind `apply --write`. Six phases, each with one contract under
 
 | Your harness | How to run a phase |
 |---|---|
-| Claude Code exposes Workflow | `orchestrate --phase <p>`, then `Workflow({ scriptPath: "<out>/orchestration/<p>.workflow.mjs" })` — the emitted `launch` line gives you the exact call. |
-| Codex or another host exposes subagents | Same `orchestrate`; dispatch one subagent per batch following `<out>/orchestration/agents/<role>.md`. The workflow script shows the batches and the prompts. |
+| Any host with subagents (Codex, Claude Code, OpenCode, …) | `orchestrate --phase <p>`, then dispatch one native subagent per batch following `<out>/orchestration/agents/<role>.md` — the emitted `launch` line names the contract. The workflow script shows the batches and the prompts. |
 | Eco mode, or no subagents | `orchestrate --eco` writes no workflow script → follow `<out>/orchestration/RUNBOOK.md`, playing each role yourself. Same artifacts as the fan-out; only wall-clock differs. Note the RUNBOOK spells out the WHOLE pipeline rather than this phase alone, so read past the step you are on. |
+| Optional — Claude Code | Launch `<out>/orchestration/<p>.workflow.mjs` with the Workflow tool (`Workflow({ scriptPath: … })`) for one-call parallel fan-out — the emitted `workflow` line gives you the exact call. Same contracts, same `join`. |
 
 Then run the printed `join` command: it is the same fold in every mode, because
 eco changes who plays the roles and never what reduces their output. Run it as
