@@ -282,7 +282,6 @@ copy of the skill:
 | Host | Shipped, on request | Explicit-only |
 | --- | --- | --- |
 | Claude Code | no `disable-model-invocation` in `SKILL.md` | add `disable-model-invocation: true` |
-| Codex | `allow_implicit_invocation: true` under `policy:` in `agents/openai.yaml` | set it to `false` |
 
 Claude Code can do it without touching the file:
 `"skillOverrides": { "ultrai18n": "user-invocable-only" }` in `settings.json`
