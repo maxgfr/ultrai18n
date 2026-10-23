@@ -276,8 +276,7 @@ See [shared engine maintenance](ENGINE-MAINTENANCE.md) for pins, source adoption
 that way: the agent may call it through its skill tool, but the skill's
 description restricts it to explicit requests, so the agent calls it when you
 ask, not on its own. Use `$ultrai18n` in Codex, `/ultrai18n` in Claude Code or
-OpenCode (prefixing the plugin namespace when it is installed as a Claude
-plugin), or simply ask for a translation or an i18n audit.
+OpenCode, or simply ask for a translation or an i18n audit.
 
 Making it explicit-only is one setting, read by Claude Code and OpenCode,
 applied to the **installed** copy of the skill:
@@ -288,6 +287,5 @@ applied to the **installed** copy of the skill:
 
 Claude Code can do it without touching the file:
 `"skillOverrides": { "ultrai18n": "user-invocable-only" }` in `settings.json`
-leaves `/ultrai18n` working while hiding the skill from the model. Plugin installs
-ignore `skillOverrides`, so edit the frontmatter there. Updating or reinstalling
-the skill restores the shipped default, so reapply the change afterwards.
+leaves `/ultrai18n` working while hiding the skill from the model.
+Updating or reinstalling the skill restores the shipped default, so reapply the change afterwards.
