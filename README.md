@@ -5,7 +5,7 @@
 **On request by default.** `ultrai18n` runs when you ask for it: `$ultrai18n` in Codex,
 `/ultrai18n` in Claude Code or OpenCode, or just asking the agent to translate or
 audit the repository's i18n. The agent can call it for you, but never picks it up
-on its own, and CLI commands are unchanged. One setting per host makes it
+on its own, and CLI commands are unchanged. One setting makes it
 explicit-only — see [On request or explicit-only](#on-request-or-explicit-only).
 
 Find every human-readable string in a repository, classify it, translate it with cheap models, and
