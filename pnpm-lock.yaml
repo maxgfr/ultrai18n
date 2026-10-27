@@ -9,11 +9,11 @@ importers:
   .:
     devDependencies:
       '@maxgfr/codeindex':
-        specifier: 2.31.12
-        version: 2.31.12
+        specifier: 2.31.13
+        version: 2.31.13
       '@maxgfr/webindex':
-        specifier: https://codeload.github.com/maxgfr/webindex/tar.gz/313698c39307d7bc8a80e649b0dc22495d870060
-        version: webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/313698c39307d7bc8a80e649b0dc22495d870060
+        specifier: https://codeload.github.com/maxgfr/webindex/tar.gz/b2f1722222cc0faea4da3c7d7323b587841d7db6
+        version: webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/b2f1722222cc0faea4da3c7d7323b587841d7db6
       '@semantic-release/changelog':
         specifier: ^6.0.3
         version: 6.0.3(semantic-release@24.2.9(typescript@5.9.3))
@@ -363,8 +363,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@maxgfr/codeindex@2.31.12':
-    resolution: {integrity: sha512-6OSgfzxNeoBFqptyl+Mh8LTz/fS81ip26/sYiy3ihbrgksBygkvpE00ZkYncmDlK1o6Zv8TX8zh3bj0OhHEupw==}
+  '@maxgfr/codeindex@2.31.13':
+    resolution: {integrity: sha512-Ic3YgZdkPGeLU5knG98FGq9Drbox4PFMWG8Sn+610KjYtM+CI2BO7M0XRlHtu+CFBnO8tCTRk94/wb1DYIbUXw==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -1961,9 +1961,9 @@ packages:
   web-worker@1.5.0:
     resolution: {integrity: sha512-RiMReJrTAiA+mBjGONMnjVDP2u3p9R1vkcGz6gDIrOMT3oGuYwX2WRMYI9ipkphSuE5XKEhydbhNEJh4NY9mlw==}
 
-  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/313698c39307d7bc8a80e649b0dc22495d870060:
-    resolution: {tarball: https://codeload.github.com/maxgfr/webindex/tar.gz/313698c39307d7bc8a80e649b0dc22495d870060}
-    version: 1.34.2
+  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/b2f1722222cc0faea4da3c7d7323b587841d7db6:
+    resolution: {tarball: https://codeload.github.com/maxgfr/webindex/tar.gz/b2f1722222cc0faea4da3c7d7323b587841d7db6}
+    version: 1.36.0
     engines: {node: '>=18'}
     hasBin: true
 
@@ -2186,7 +2186,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@maxgfr/codeindex@2.31.12': {}
+  '@maxgfr/codeindex@2.31.13': {}
 
   '@octokit/auth-token@6.0.0': {}
 
@@ -3697,7 +3697,7 @@ snapshots:
 
   web-worker@1.5.0: {}
 
-  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/313698c39307d7bc8a80e649b0dc22495d870060: {}
+  webindex@https://codeload.github.com/maxgfr/webindex/tar.gz/b2f1722222cc0faea4da3c7d7323b587841d7db6: {}
 
   which@2.0.2:
     dependencies:
