@@ -5,7 +5,7 @@
 // unusual — in French it is the common case — and each host syntax breaks on a
 // different one of those. So there is one escaper per syntax, and an UNKNOWN
 // syntax is never written: refusing is recoverable, writing a broken file is not.
-import type { SiteKind } from './types'
+import type { Hole, SiteKind } from './types'
 import { decodeCatalog, encodeCatalog } from './extract/catalog'
 
 export type HostSyntax =
@@ -40,6 +40,11 @@ export type HostSyntax =
    */
   | 'py-triple'
   | 'sql-string'
+  | 'rust-string'
+  /** No escape mechanism at all; the delimiter is the only thing it cannot hold. */
+  | 'rust-raw'
+  /** A block comment that nests, so a stray opener is as fatal as a stray closer. */
+  | 'rust-block-comment'
   | 'plain'
 
 export class UnknownSyntaxError extends Error {
@@ -108,6 +113,9 @@ export function syntaxFor(site: {
     case 'sql':
       if (site.kind === 'comment') return site.raw.startsWith('/*') ? 'block-comment' : 'line-comment'
       return 'sql-string'
+    case 'rust':
+      if (site.kind === 'comment') return site.raw.startsWith('/*') ? 'rust-block-comment' : 'line-comment'
+      return site.quote?.startsWith('r') ? 'rust-raw' : 'rust-string'
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site.extractor}"`)
   }
@@ -236,9 +244,64 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
       // Standard SQL has exactly one escape and it is doubling the quote. There
       // is no backslash mechanism, so introducing one would write a backslash.
       return text.replace(/'/g, "''").replace(/\r?\n/g, ' ')
+    case 'rust-string':
+      return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
+    case 'rust-raw': {
+      // Thrown here rather than left to the round-trip check, which `apply`
+      // skips for a file written in `\u` escapes.
+      const closer = '"' + (opts.quote ?? '').replace(/[^#]/g, '')
+      if (text.includes(closer)) {
+        throw new Error(`a raw string delimited by ${closer} cannot contain it; refusing to end the string early`)
+      }
+      return text
+    }
+    case 'rust-block-comment': {
+      // Balanced nesting is legal and is how a comment holding a comment reads
+      // back. Anything else would swallow the rest of the file, or close early.
+      let depth = 0
+      for (const m of text.matchAll(/\/\*|\*\//g)) {
+        depth += m[0] === '/*' ? 1 : -1
+        if (depth < 0) break
+      }
+      if (depth !== 0) throw new Error('unbalanced block-comment markers would change where this Rust comment ends')
+      return text
+    }
     case 'plain':
       return text
   }
+}
+
+const RUST_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g
+
+/**
+ * Put a Rust format string's placeholders back over a translation's ordinals.
+ *
+ * A translator may move a placeholder, and for `{}` that is not free: an
+ * implicit placeholder takes the NEXT argument, so swapping two of them swaps
+ * what they print. When the order changes they are written with their explicit
+ * position, `{1}` and `{0:?}`. `{:.*}` consumes two arguments and has no
+ * explicit spelling for the pair, so that one case is refused.
+ */
+export function spliceRustHoles(escaped: string, holes: Hole[]): string {
+  const implicit = holes
+    .filter((h) => h.expr === '' || h.expr.startsWith(':'))
+    .sort((a, b) => a.index - b.index)
+  const seen: number[] = []
+  for (const m of escaped.matchAll(RUST_ORDINAL)) {
+    if (m[1] !== undefined && implicit.some((h) => h.index === Number(m[1]))) seen.push(Number(m[1]))
+  }
+  const inOrder = seen.length === implicit.length && seen.every((v, i) => v === implicit[i]!.index)
+  if (!inOrder && implicit.some((h) => h.expr.includes('.*'))) {
+    throw new Error('a `{:.*}` placeholder takes two arguments and cannot be reordered; keep the source order')
+  }
+  const position = new Map(implicit.map((h, i) => [h.index, i]))
+  return escaped.replace(RUST_ORDINAL, (whole, n: string | undefined) => {
+    if (n === undefined) return whole
+    const hole = holes.find((h) => h.index === Number(n))
+    if (!hole) return whole
+    const at = inOrder ? undefined : position.get(hole.index)
+    return `{${at ?? ''}${hole.expr}}`
+  })
 }
 
 function needsYamlQuoting(text: string): boolean {
@@ -269,6 +332,8 @@ function toAscii(text: string, syntax: HostSyntax): string {
             : '\\u' + code.toString(16).padStart(4, '0')
         })
         .join('')
+    case 'rust-string':
+      return [...text].map((c) => (c.codePointAt(0)! < 128 ? c : `\\u{${c.codePointAt(0)!.toString(16)}}`)).join('')
     case 'html-text':
     case 'html-attr':
     case 'jsx-text':
@@ -370,6 +435,18 @@ export function unescapeFor(syntax: HostSyntax, text: string, opts: EscapeOption
     }
     case 'sql-string':
       return text.replace(/''/g, "'")
+    case 'rust-string':
+      // One pass: chained replaces would read the `\\n` of a literal backslash
+      // followed by an n as a newline.
+      return text.replace(/\\(u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|[\s\S])/g, (_, esc: string) => {
+        if (esc.startsWith('u{')) return String.fromCodePoint(parseInt(esc.slice(2, -1).replace(/_/g, ''), 16))
+        if (esc.length === 3 && esc[0] === 'x') return String.fromCharCode(parseInt(esc.slice(1), 16))
+        const simple: Record<string, string> = { n: '\n', r: '\r', t: '\t', '0': '\0' }
+        return simple[esc] ?? esc
+      })
+    case 'rust-raw':
+    case 'rust-block-comment':
+      return text
     case 'plain':
       return text
   }

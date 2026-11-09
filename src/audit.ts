@@ -135,6 +135,24 @@ export const LOCATORS: TextLocator[] = [
     not: /^\s*#!|shellcheck|eslint-|prettier-|@ts-|noqa|pylint|type:\s|https?:\/\//,
     why: 'A comment on its own line. The file of comments nobody opened is the classic residue of a translation pass, and four French ones in a stylesheet survived two separate human passes on the reference repository.',
   },
+  {
+    // Its own row because `#` starts an attribute in Rust, and the `comment` row
+    // would read `#[allow(dead_code, unused)]` as a sentence.
+    id: 'rust-comment',
+    extractors: ['rust'],
+    re: /^\s*(?:\/\/+[!/]?|\/\*+!?)\s*(.+?)(?:\*\/)?\s*$/,
+    not: /rustfmt::|clippy::|cargo:|https?:\/\//,
+    why: 'A Rust comment on its own line, doc comments included: the prose a Rust codebase keeps closest to the code.',
+  },
+  {
+    // Only `"`, because `'` is a lifetime here. A byte or C string is masked:
+    // the reader claims those without emitting them.
+    id: 'rust-string',
+    extractors: ['rust'],
+    re: /"(?<text>(?:[^"\\\n]|\\.)*)"/g,
+    mask: [/\b(?:b|br|c|cr)#*"(?:[^"\\\n]|\\.)*"#*/g],
+    why: 'A double-quoted Rust literal holding two or more words. A line the lexer read past without a site is the signature of a lost sync.',
+  },
 ]
 
 export interface AuditFinding {

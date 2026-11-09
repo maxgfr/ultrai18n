@@ -202,7 +202,7 @@ on a JSON or YAML scalar is inserted like any detected family rather than deferr
 Extraction covers TypeScript, JSX/TSX, **Python and shell** through tree-sitter — so a Python
 docstring is the first statement of a body rather than a string that happens to come first — and
 JSON, JSON Lines, YAML, Markdown, HTML, SVG, CSS, TOML, gettext `.po`, Fluent `.ftl`, Apple
-property lists and `.strings`, Java `.properties`, **`.sql`**, Dockerfiles, the `#`-comment ignore formats and plain text through
+property lists and `.strings`, Java `.properties`, **`.sql`**, **Rust**, Dockerfiles, the `#`-comment ignore formats and plain text through
 hand-written byte-indexed lexers. A residual sweep sits behind all of them, so a format with no
 extractor surfaces as `unclassified` rather than as nothing.
 

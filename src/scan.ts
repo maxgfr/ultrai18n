@@ -13,6 +13,7 @@ import { extractTs } from './extract/ts'
 import { extractPython } from './extract/python'
 import { extractShell, isCommentOnly } from './extract/shell'
 import { extractSql } from './extract/sql'
+import { extractRust } from './extract/rust'
 import { extractJson } from './extract/json'
 import { extractYaml } from './extract/yaml'
 import { extractMarkdown } from './extract/markdown'
@@ -67,6 +68,7 @@ const PO_EXT = new Set(['.po', '.pot'])
 const TOML_EXT = new Set(['.toml'])
 const FTL_EXT = new Set(['.ftl'])
 const SQL_EXT = new Set(['.sql', '.ddl', '.psql'])
+const RUST_EXT = new Set(['.rs'])
 // JSON Lines: one JSON document per line, and nothing at the file level. Split
 // and route each line to the JSON reader at its own offset, which is what
 // `extractYaml` already does for a block scalar's body.
@@ -821,6 +823,26 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
   if (SQL_EXT.has(ext)) {
     const { sites, claimedBytes, complete } = extractSql(file.rel, read.text, map)
     return { ...base, sites, extractor: 'sql', bytesClaimed: claimedBytes, complete }
+  }
+
+  if (RUST_EXT.has(ext)) {
+    const { sites, claimedBytes, complete } = extractRust(file.rel, read.text, map)
+    // Past the point the lexer lost sync, nothing was read: an unterminated
+    // string would otherwise take the rest of the file out of the inventory.
+    const residual = complete
+      ? []
+      : sweepFile(file.rel, read.text, map, [{ start: 0, end: claimedBytes }, ...sites.map((s) => s.span)], {
+          identifiers: tokens.identifiers,
+          extractor: 'rust',
+          reason: 'the Rust lexer lost sync before this span; found by the residual sweep',
+        })
+    return {
+      ...base,
+      sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+      extractor: 'rust',
+      bytesClaimed: claimedBytes,
+      complete,
+    }
   }
 
   if (YAML_EXT.has(ext)) {

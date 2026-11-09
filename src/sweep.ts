@@ -94,6 +94,7 @@ interface Run {
  */
 export function humanLookingRuns(text: string, identifiers: Set<string>): Run[] {
   const out: Run[] = []
+  const parts = compoundParts(identifiers)
   let offset = 0
   for (const chunk of text.split(SEPARATOR)) {
     const at = text.indexOf(chunk, offset)
@@ -113,9 +114,7 @@ export function humanLookingRuns(text: string, identifiers: Set<string>): Run[] 
     // are split before comparing, so `btn-primary` does not read as the two
     // ordinary words `btn` and `primary` once the hyphen breaks it up.
     const known = (w: string): boolean =>
-      identifiers.has(w) ||
-      identifiers.has(w.toLowerCase()) ||
-      [...identifiers].some((id) => id.length > w.length && id.split(/[-_.]/).includes(w))
+      identifiers.has(w) || identifiers.has(w.toLowerCase()) || parts.has(w)
     const prose = words.filter((w) => !known(w))
 
     if (words.length === 1) {
@@ -134,6 +133,27 @@ export function humanLookingRuns(text: string, identifiers: Set<string>): Run[] 
     out.push({ text: trimmed, at: start })
   }
   return out
+}
+
+const COMPOUND_PARTS = new WeakMap<Set<string>, { size: number; parts: Set<string> }>()
+
+/**
+ * Every segment of every compound identifier, built once per identifier set.
+ *
+ * Testing each word against each identifier made a large repository's sweep
+ * words × identifiers. The set only grows while a scan runs, so its size is
+ * enough to tell whether the cache is still good.
+ */
+function compoundParts(identifiers: Set<string>): Set<string> {
+  const cached = COMPOUND_PARTS.get(identifiers)
+  if (cached?.size === identifiers.size) return cached.parts
+  const parts = new Set<string>()
+  for (const id of identifiers) {
+    const split = id.split(/[-_.]/)
+    if (split.length > 1) for (const part of split) parts.add(part)
+  }
+  COMPOUND_PARTS.set(identifiers, { size: identifiers.size, parts })
+  return parts
 }
 
 export function merge(spans: Span[]): Span[] {

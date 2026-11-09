@@ -132,7 +132,8 @@ the first statement of a body rather than a string that happens to come first; J
 and JSON Lines; YAML, including markdown nested in a block scalar; markdown; HTML, SVG and
 single-file components, down to the inline `<script>`; CSS; TOML; gettext `.po`; Fluent `.ftl`;
 Apple `.strings`, `.stringsdict`, `.xcstrings` and `.plist`; Java `.properties`; Qt `.ts`; Android `strings.xml`; Dockerfiles;
-`.sql`; and the `#`-comment ignore formats.
+`.sql`; **Rust**, comments and strings, with nested block comments, raw strings, lifetimes and
+`{}` format placeholders held as holes; and the `#`-comment ignore formats.
 
 `.sql` is the one reader that earns its place by **silencing** rather than finding: it reads the
 comments and claims the DDL as looked-at and non-textual, which turns hundreds of refusals into

@@ -33409,6 +33409,267 @@ function indexOfOr(text, needle, from, fallback) {
   return idx === -1 ? fallback : idx;
 }
 
+// src/extract/rust.ts
+var DIRECTIVE4 = /^(?:rustfmt::|clippy::|cargo:)/;
+var PLACEHOLDER = new RegExp("\\{(?:[\\p{XID_Start}_]\\p{XID_Continue}*|\\d+)?(?::[^{}\\n]*)?\\}", "uy");
+var SIMPLE_ESCAPES = {
+  n: "\n",
+  r: "\r",
+  t: "	",
+  "0": "\0",
+  "\\": "\\",
+  "'": "'",
+  '"': '"'
+};
+function isWordChar(code) {
+  return code >= 48 && code <= 57 || code >= 65 && code <= 90 || code >= 97 && code <= 122 || code === 95 || code >= 128;
+}
+function isWordStart(code) {
+  return isWordChar(code) && !(code >= 48 && code <= 57);
+}
+function extractRust(file, text, map) {
+  const sites = [];
+  const n = text.length;
+  let index2 = 0;
+  let i2 = 0;
+  let complete = true;
+  let attrDepth = 0;
+  const push = (kind, startChar, endChar, valueStartChar, valueEndChar, value, quote, escapes, holes, shape) => {
+    const span = { start: map.byteOf(startChar), end: map.byteOf(endChar) };
+    const s = map.lineColOf(startChar);
+    const e = map.lineColOf(endChar);
+    sites.push({
+      file,
+      path: `${kind === "comment" ? "#comment" : "string"}[${index2++}]`,
+      kind,
+      span,
+      valueSpan: { start: map.byteOf(valueStartChar), end: map.byteOf(valueEndChar) },
+      raw: text.slice(startChar, endChar),
+      value,
+      quote,
+      escapes,
+      holes,
+      line: s.line,
+      col: s.col,
+      endLine: e.line,
+      endCol: e.col,
+      extractor: "rust",
+      tier: "structural",
+      container: { isKey: false },
+      ...shape ?? {}
+    });
+  };
+  const pushComment = (start2, end) => {
+    const shape = commentShape(text.slice(start2, end));
+    if (DIRECTIVE4.test(shape.body)) return;
+    if (!new RegExp("\\p{L}{2,}", "u").test(shape.body)) return;
+    push("comment", start2, end, start2, end, shape.body, null, false, [], shape);
+  };
+  const decode2 = (from, to, raw) => {
+    const holes = [];
+    let value = "";
+    let k = from;
+    while (k < to) {
+      const c2 = text[k];
+      if (c2 === "\\" && !raw) {
+        const next = text[k + 1];
+        if (next === "\n" || next === "\r") {
+          k += 2;
+          while (k < to && /\s/.test(text[k])) k++;
+          continue;
+        }
+        if (next === "x") {
+          value += String.fromCharCode(parseInt(text.slice(k + 2, k + 4), 16));
+          k += 4;
+          continue;
+        }
+        if (next === "u" && text[k + 2] === "{") {
+          const close = text.indexOf("}", k + 3);
+          value += String.fromCodePoint(parseInt(text.slice(k + 3, close).replace(/_/g, ""), 16));
+          k = close + 1;
+          continue;
+        }
+        value += SIMPLE_ESCAPES[next ?? ""] ?? next ?? "";
+        k += 2;
+        continue;
+      }
+      if (c2 === "{" && text[k + 1] === "{" || c2 === "}" && text[k + 1] === "}") {
+        value += c2 + c2;
+        k += 2;
+        continue;
+      }
+      if (c2 === "{") {
+        PLACEHOLDER.lastIndex = k;
+        const m = PLACEHOLDER.exec(text);
+        if (m && k + m[0].length <= to) {
+          const end = k + m[0].length;
+          holes.push({
+            index: holes.length,
+            span: { start: map.byteOf(k), end: map.byteOf(end) },
+            expr: m[0].slice(1, -1)
+          });
+          value += `{${holes.length - 1}}`;
+          k = end;
+          continue;
+        }
+      }
+      if (c2 === "\r" && text[k + 1] === "\n") {
+        k++;
+        continue;
+      }
+      value += c2;
+      k++;
+    }
+    return { value, holes };
+  };
+  const emitString = (start2, end, from, to, quote, raw) => {
+    const { value, holes } = decode2(from, to, raw);
+    if (!new RegExp("\\p{L}{2,}", "u").test(value)) return;
+    if (attrDepth > 0 && !/\s/.test(value)) return;
+    const escapes = !raw && text.slice(from, to).includes("\\");
+    push(holes.length > 0 ? "template" : "string-literal", start2, end, from, to, value, quote, escapes, holes);
+  };
+  const closeOfString = (open) => {
+    let k = open + 1;
+    while (k < n) {
+      if (text[k] === "\\") {
+        k += 2;
+        continue;
+      }
+      if (text[k] === '"') return k;
+      k++;
+    }
+    return -1;
+  };
+  const endOfQuoteToken = (open) => {
+    const next = text[open + 1];
+    if (next === void 0 || next === "'") return -1;
+    if (next === "\\") {
+      let k = open + 3;
+      while (k < n && text[k] !== "'" && text[k] !== "\n") k++;
+      return text[k] === "'" ? k + 1 : -1;
+    }
+    const width = text.codePointAt(open + 1) > 65535 ? 2 : 1;
+    if (text[open + 1 + width] === "'") return open + 2 + width;
+    if (isWordStart(next.charCodeAt(0))) {
+      let k = open + 2;
+      while (k < n && isWordChar(text.charCodeAt(k))) k++;
+      return text[k] === "'" ? -1 : k;
+    }
+    return -1;
+  };
+  scan: while (i2 < n) {
+    const c2 = text[i2];
+    if (c2 === "/" && text[i2 + 1] === "/") {
+      let end = text.indexOf("\n", i2);
+      if (end === -1) end = n;
+      while (end > i2 && /\s/.test(text[end - 1])) end--;
+      pushComment(i2, end);
+      i2 = end;
+      continue;
+    }
+    if (c2 === "/" && text[i2 + 1] === "*") {
+      let depth = 1;
+      let k = i2 + 2;
+      while (k < n && depth > 0) {
+        if (text[k] === "/" && text[k + 1] === "*") {
+          depth++;
+          k += 2;
+        } else if (text[k] === "*" && text[k + 1] === "/") {
+          depth--;
+          k += 2;
+        } else {
+          k++;
+        }
+      }
+      if (depth > 0) {
+        complete = false;
+        break scan;
+      }
+      pushComment(i2, k);
+      i2 = k;
+      continue;
+    }
+    if (c2 === '"') {
+      const close = closeOfString(i2);
+      if (close === -1) {
+        complete = false;
+        break scan;
+      }
+      emitString(i2, close + 1, i2 + 1, close, '"', false);
+      i2 = close + 1;
+      continue;
+    }
+    if (c2 === "'") {
+      const end = endOfQuoteToken(i2);
+      if (end === -1) {
+        complete = false;
+        break scan;
+      }
+      i2 = end;
+      continue;
+    }
+    if (isWordChar(c2.charCodeAt(0))) {
+      let k = i2 + 1;
+      while (k < n && isWordChar(text.charCodeAt(k))) k++;
+      const word = text.slice(i2, k);
+      if (word === "r" || word === "br" || word === "cr") {
+        let q = k;
+        while (text[q] === "#") q++;
+        if (text[q] === '"') {
+          const closer = '"' + "#".repeat(q - k);
+          const close = text.indexOf(closer, q + 1);
+          if (close === -1) {
+            complete = false;
+            break scan;
+          }
+          const end = close + closer.length;
+          if (word === "r") emitString(i2, end, q + 1, close, text.slice(i2, q + 1), true);
+          i2 = end;
+          continue;
+        }
+      }
+      if ((word === "b" || word === "c") && text[k] === '"') {
+        const close = closeOfString(k);
+        if (close === -1) {
+          complete = false;
+          break scan;
+        }
+        i2 = close + 1;
+        continue;
+      }
+      if (word === "b" && text[k] === "'") {
+        const end = endOfQuoteToken(k);
+        if (end === -1) {
+          complete = false;
+          break scan;
+        }
+        i2 = end;
+        continue;
+      }
+      i2 = k;
+      continue;
+    }
+    if (c2 === "#") {
+      let k = i2 + 1;
+      if (text[k] === "!") k++;
+      while (k < n && /\s/.test(text[k])) k++;
+      if (text[k] === "[") {
+        attrDepth++;
+        i2 = k + 1;
+        continue;
+      }
+    }
+    if (attrDepth > 0) {
+      if (c2 === "[") attrDepth++;
+      else if (c2 === "]") attrDepth--;
+    }
+    i2++;
+  }
+  sites.sort((a, b) => a.span.start - b.span.start);
+  return { sites, claimedBytes: map.byteOf(complete ? n : i2), complete };
+}
+
 // src/identity.ts
 import { createHash as createHash4 } from "crypto";
 function siteId(siteKey) {
@@ -35622,6 +35883,7 @@ var IDENTIFIER_SHAPE = /^(?:[A-Z][A-Z0-9_]*|[a-z]+(?:[A-Z][a-z0-9]*)+|[A-Z][a-z0
 var NOT_PROSE = /^(?:[0-9a-f]{7,}|[A-Za-z0-9+/=]{20,}|v?\d+(\.\d+)+|\d{4}-\d{2}-\d{2}|[\d.,%+-]+)$/i;
 function humanLookingRuns(text, identifiers) {
   const out2 = [];
+  const parts2 = compoundParts(identifiers);
   let offset = 0;
   for (const chunk of text.split(SEPARATOR)) {
     const at = text.indexOf(chunk, offset);
@@ -35634,7 +35896,7 @@ function humanLookingRuns(text, identifiers) {
     if (letters / trimmed.length < 0.5) continue;
     if (NOT_PROSE.test(trimmed)) continue;
     if (IDENTIFIER_SHAPE.test(trimmed)) continue;
-    const known = (w) => identifiers.has(w) || identifiers.has(w.toLowerCase()) || [...identifiers].some((id) => id.length > w.length && id.split(/[-_.]/).includes(w));
+    const known = (w) => identifiers.has(w) || identifiers.has(w.toLowerCase()) || parts2.has(w);
     const prose = words.filter((w) => !known(w));
     if (words.length === 1) {
       if (words[0].length < 4) continue;
@@ -35648,6 +35910,18 @@ function humanLookingRuns(text, identifiers) {
     out2.push({ text: trimmed, at: start2 });
   }
   return out2;
+}
+var COMPOUND_PARTS = /* @__PURE__ */ new WeakMap();
+function compoundParts(identifiers) {
+  const cached = COMPOUND_PARTS.get(identifiers);
+  if (cached?.size === identifiers.size) return cached.parts;
+  const parts2 = /* @__PURE__ */ new Set();
+  for (const id of identifiers) {
+    const split = id.split(/[-_.]/);
+    if (split.length > 1) for (const part of split) parts2.add(part);
+  }
+  COMPOUND_PARTS.set(identifiers, { size: identifiers.size, parts: parts2 });
+  return parts2;
 }
 function merge(spans) {
   if (spans.length === 0) return [];
@@ -38875,6 +39149,9 @@ function syntaxFor(site3) {
     case "sql":
       if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "block-comment" : "line-comment";
       return "sql-string";
+    case "rust":
+      if (site3.kind === "comment") return site3.raw.startsWith("/*") ? "rust-block-comment" : "line-comment";
+      return site3.quote?.startsWith("r") ? "rust-raw" : "rust-string";
     default:
       throw new UnknownSyntaxError(`no escaper for extractor "${site3.extractor}"`);
   }
@@ -38934,9 +39211,47 @@ function escapeRaw(syntax, text, opts) {
     }
     case "sql-string":
       return text.replace(/'/g, "''").replace(/\r?\n/g, " ");
+    case "rust-string":
+      return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
+    case "rust-raw": {
+      const closer = '"' + (opts.quote ?? "").replace(/[^#]/g, "");
+      if (text.includes(closer)) {
+        throw new Error(`a raw string delimited by ${closer} cannot contain it; refusing to end the string early`);
+      }
+      return text;
+    }
+    case "rust-block-comment": {
+      let depth = 0;
+      for (const m of text.matchAll(/\/\*|\*\//g)) {
+        depth += m[0] === "/*" ? 1 : -1;
+        if (depth < 0) break;
+      }
+      if (depth !== 0) throw new Error("unbalanced block-comment markers would change where this Rust comment ends");
+      return text;
+    }
     case "plain":
       return text;
   }
+}
+var RUST_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g;
+function spliceRustHoles(escaped, holes) {
+  const implicit = holes.filter((h) => h.expr === "" || h.expr.startsWith(":")).sort((a, b) => a.index - b.index);
+  const seen = [];
+  for (const m of escaped.matchAll(RUST_ORDINAL)) {
+    if (m[1] !== void 0 && implicit.some((h) => h.index === Number(m[1]))) seen.push(Number(m[1]));
+  }
+  const inOrder = seen.length === implicit.length && seen.every((v, i2) => v === implicit[i2].index);
+  if (!inOrder && implicit.some((h) => h.expr.includes(".*"))) {
+    throw new Error("a `{:.*}` placeholder takes two arguments and cannot be reordered; keep the source order");
+  }
+  const position = new Map(implicit.map((h, i2) => [h.index, i2]));
+  return escaped.replace(RUST_ORDINAL, (whole, n) => {
+    if (n === void 0) return whole;
+    const hole = holes.find((h) => h.index === Number(n));
+    if (!hole) return whole;
+    const at = inOrder ? void 0 : position.get(hole.index);
+    return `{${at ?? ""}${hole.expr}}`;
+  });
 }
 function needsYamlQuoting(text) {
   if (text === "") return true;
@@ -38959,6 +39274,8 @@ function toAscii(text, syntax) {
         if (code < 128) return c2;
         return code > 65535 ? [...c2].map((u) => "\\u" + u.charCodeAt(0).toString(16).padStart(4, "0")).join("") : "\\u" + code.toString(16).padStart(4, "0");
       }).join("");
+    case "rust-string":
+      return [...text].map((c2) => c2.codePointAt(0) < 128 ? c2 : `\\u{${c2.codePointAt(0).toString(16)}}`).join("");
     case "html-text":
     case "html-attr":
     case "jsx-text":
@@ -39023,6 +39340,16 @@ function unescapeFor(syntax, text, opts = {}) {
     }
     case "sql-string":
       return text.replace(/''/g, "'");
+    case "rust-string":
+      return text.replace(/\\(u\{[0-9a-fA-F_]+\}|x[0-9a-fA-F]{2}|[\s\S])/g, (_, esc) => {
+        if (esc.startsWith("u{")) return String.fromCodePoint(parseInt(esc.slice(2, -1).replace(/_/g, ""), 16));
+        if (esc.length === 3 && esc[0] === "x") return String.fromCharCode(parseInt(esc.slice(1), 16));
+        const simple = { n: "\n", r: "\r", t: "	", "0": "\0" };
+        return simple[esc] ?? esc;
+      });
+    case "rust-raw":
+    case "rust-block-comment":
+      return text;
     case "plain":
       return text;
   }
@@ -39744,6 +40071,7 @@ var PO_EXT = /* @__PURE__ */ new Set([".po", ".pot"]);
 var TOML_EXT = /* @__PURE__ */ new Set([".toml"]);
 var FTL_EXT = /* @__PURE__ */ new Set([".ftl"]);
 var SQL_EXT = /* @__PURE__ */ new Set([".sql", ".ddl", ".psql"]);
+var RUST_EXT = /* @__PURE__ */ new Set([".rs"]);
 var JSONL_EXT = /* @__PURE__ */ new Set([".jsonl", ".ndjson"]);
 var VISITORS = {
   ".py": extractPython,
@@ -40202,6 +40530,21 @@ async function extractFile(file, tokens, opts) {
   if (SQL_EXT.has(ext)) {
     const { sites, claimedBytes, complete } = extractSql(file.rel, read2.text, map);
     return { ...base, sites, extractor: "sql", bytesClaimed: claimedBytes, complete };
+  }
+  if (RUST_EXT.has(ext)) {
+    const { sites, claimedBytes, complete } = extractRust(file.rel, read2.text, map);
+    const residual2 = complete ? [] : sweepFile(file.rel, read2.text, map, [{ start: 0, end: claimedBytes }, ...sites.map((s) => s.span)], {
+      identifiers: tokens.identifiers,
+      extractor: "rust",
+      reason: "the Rust lexer lost sync before this span; found by the residual sweep"
+    });
+    return {
+      ...base,
+      sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
+      extractor: "rust",
+      bytesClaimed: claimedBytes,
+      complete
+    };
   }
   if (YAML_EXT.has(ext)) {
     const { sites, keys, claimedBytes, complete, skippedSpans } = extractYaml(
@@ -40769,11 +41112,11 @@ function pluralGroup(family, targetLang, bySiteId) {
   }
   return group;
 }
-var PLACEHOLDER = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
+var PLACEHOLDER2 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
 function placeholdersIn(values) {
   const out2 = /* @__PURE__ */ new Set();
   for (const value of values) {
-    for (const m of value.matchAll(PLACEHOLDER)) out2.add(m[0]);
+    for (const m of value.matchAll(PLACEHOLDER2)) out2.add(m[0]);
   }
   return [...out2].sort();
 }
@@ -41150,8 +41493,10 @@ function buildPatch(repo, site3, text, recover) {
     asciiOnly,
     atLineStart: startsItsLine(buf, start2)
   });
+  const rustHoles = syntax === "rust-string" || syntax === "rust-raw";
+  const ordinals = escaped;
   if (site3.holes.length > 0) {
-    escaped = escaped.replace(/\{(\d+)\}/g, (whole, n) => {
+    escaped = rustHoles ? spliceRustHoles(escaped, site3.holes) : escaped.replace(/\{(\d+)\}/g, (whole, n) => {
       const hole = site3.holes.find((h) => h.index === Number(n));
       return hole ? "${" + hole.expr + "}" : whole;
     });
@@ -41165,7 +41510,7 @@ function buildPatch(repo, site3, text, recover) {
     writeStart = start2;
     writeEnd = end;
   }
-  const forCheck = site3.holes.length > 0 ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
+  const forCheck = rustHoles ? ordinals : site3.holes.length > 0 ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
     const hole = site3.holes.find((h) => "${" + h.expr + "}" === m);
     return hole ? `{${hole.index}}` : m;
   }) : escaped;
@@ -41454,7 +41799,7 @@ function validatePlural(forms, expected, sourcePlaceholders) {
   }
   const allowed = new Set(sourcePlaceholders);
   for (const [category, text] of Object.entries(forms)) {
-    for (const m of text.matchAll(PLACEHOLDER2)) {
+    for (const m of text.matchAll(PLACEHOLDER3)) {
       if (!allowed.has(m[0])) {
         out2.push({
           validator: "V9",
@@ -41474,7 +41819,7 @@ function validatePlural(forms, expected, sourcePlaceholders) {
   }
   return out2;
 }
-var PLACEHOLDER2 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
+var PLACEHOLDER3 = /\{\{\s*[\w.]+\s*\}\}|\{\d+\}|\{[\w.]+\}|%\{[\w.]+\}|%\d*\$?[sd@]|#/g;
 
 // src/provider.ts
 import { existsSync as existsSync18, readFileSync as readFileSync27 } from "fs";
@@ -44408,6 +44753,24 @@ var LOCATORS = [
     re: /^\s*(?:\/\/+|#+|--\s|\/\*)\s*(.+?)(?:\*\/)?\s*$/,
     not: /^\s*#!|shellcheck|eslint-|prettier-|@ts-|noqa|pylint|type:\s|https?:\/\//,
     why: "A comment on its own line. The file of comments nobody opened is the classic residue of a translation pass, and four French ones in a stylesheet survived two separate human passes on the reference repository."
+  },
+  {
+    // Its own row because `#` starts an attribute in Rust, and the `comment` row
+    // would read `#[allow(dead_code, unused)]` as a sentence.
+    id: "rust-comment",
+    extractors: ["rust"],
+    re: /^\s*(?:\/\/+[!/]?|\/\*+!?)\s*(.+?)(?:\*\/)?\s*$/,
+    not: /rustfmt::|clippy::|cargo:|https?:\/\//,
+    why: "A Rust comment on its own line, doc comments included: the prose a Rust codebase keeps closest to the code."
+  },
+  {
+    // Only `"`, because `'` is a lifetime here. A byte or C string is masked:
+    // the reader claims those without emitting them.
+    id: "rust-string",
+    extractors: ["rust"],
+    re: /"(?<text>(?:[^"\\\n]|\\.)*)"/g,
+    mask: [/\b(?:b|br|c|cr)#*"(?:[^"\\\n]|\\.)*"#*/g],
+    why: "A double-quoted Rust literal holding two or more words. A line the lexer read past without a site is the signature of a lost sync."
   }
 ];
 function asserts(entry2) {
