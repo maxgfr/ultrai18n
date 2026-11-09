@@ -1,3 +1,20 @@
+# [1.4.0](https://github.com/maxgfr/ultrai18n/compare/v1.3.1...v1.4.0) (2026-11-09)
+
+
+### Bug Fixes
+
+* **apply:** write f-string holes in Python syntax, refuse unsafe TOML literals, sweep the SQL tail after lost sync ([517ee15](https://github.com/maxgfr/ultrai18n/commit/517ee15a956a6ba82e96d56f2a3e79fe474f59cd))
+* **engine:** update shared engines and maintenance tool ([06d705e](https://github.com/maxgfr/ultrai18n/commit/06d705e299879080fe8854185cc6b71c3c9f3005))
+* **engine:** update shared engines and maintenance tool ([9d03f65](https://github.com/maxgfr/ultrai18n/commit/9d03f6544985af784aa980d5749599e7d22fc404))
+* **engine:** update shared engines and maintenance tool ([c7c6956](https://github.com/maxgfr/ultrai18n/commit/c7c69569c482b144064a121fbb804e97ecbe40af))
+* **engine:** update shared engines and maintenance tool ([1073f90](https://github.com/maxgfr/ultrai18n/commit/1073f90206ba4bf4452d0f437bcf60699fb87e97))
+* **engine:** update shared engines and maintenance tool ([e8dd6c1](https://github.com/maxgfr/ultrai18n/commit/e8dd6c1b286ff4c2284e3643257d5dbe663e8f5b))
+
+
+### Features
+
+* **extract:** add a Rust reader with format holes and safe write-back ([71189b1](https://github.com/maxgfr/ultrai18n/commit/71189b1d9d58cda5128bdf4d12dac1cd3708660d))
+
 ## [1.3.1](https://github.com/maxgfr/ultrai18n/compare/v1.3.0...v1.3.1) (2026-10-23)
 
 
