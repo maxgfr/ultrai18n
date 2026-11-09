@@ -26,7 +26,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { readTextEx } from './text'
 import { catalogPlaceholders } from './extract/catalog'
 import type { Inventory, Site } from './types'
-import { escapeFor, unescapeFor, syntaxFor, spliceRustHoles, UnknownSyntaxError, type HostSyntax } from './escape'
+import { escapeFor, unescapeFor, syntaxFor, spliceHoles, UnknownSyntaxError, type HostSyntax } from './escape'
 
 export interface Translation {
   /** Site id. */
@@ -459,20 +459,8 @@ function buildPatch(repo: string, site: Site, text: string, recover: boolean): P
   // which is what let the translator MOVE them; splicing happens after escaping
   // because the template escaper would otherwise escape the `${` we are about
   // to write.
-  //
-  // Rust's placeholders are `{name}`, not `${name}`, and two `{}` share one
-  // spelling, so reversing the splice cannot tell them apart: its round-trip
-  // check reads the ordinals from before the splice instead.
-  const rustHoles = syntax === 'rust-string' || syntax === 'rust-raw'
   const ordinals = escaped
-  if (site.holes.length > 0) {
-    escaped = rustHoles
-      ? spliceRustHoles(escaped, site.holes)
-      : escaped.replace(/\{(\d+)\}/g, (whole, n: string) => {
-          const hole = site.holes.find((h) => h.index === Number(n))
-          return hole ? '${' + hole.expr + '}' : whole
-        })
-  }
+  if (site.holes.length > 0) escaped = spliceHoles(site.extractor, escaped, site.holes)
 
   // A comment carries its own delimiters, which live INSIDE its span. Writing
   // the text alone over that span deletes the marker and turns the comment into
@@ -493,14 +481,18 @@ function buildPatch(repo: string, site: Site, text: string, recover: boolean): P
   // Round-trip self-check. Decoding the bytes we are about to write must give
   // back the translation we meant. An escaper that is wrong for this particular
   // input fails loudly here instead of corrupting the file silently.
-  const forCheck = rustHoles
-    ? ordinals
-    : site.holes.length > 0
+  //
+  // Only a JavaScript hole can be read back out of the bytes. In Python and Rust
+  // two holes can share one spelling (`{x}` twice, `{}` twice), so reversing
+  // the splice cannot tell them apart and the check reads the ordinals instead.
+  const forCheck = site.holes.length === 0
+    ? escaped
+    : site.extractor === 'ts-ast'
       ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
           const hole = site.holes.find((h) => '${' + h.expr + '}' === m)
           return hole ? `{${hole.index}}` : m
         })
-      : escaped
+      : ordinals
   const decoded = unescapeFor(
     syntax,
     site.prefix !== undefined

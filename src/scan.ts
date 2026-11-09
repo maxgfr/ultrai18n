@@ -822,7 +822,22 @@ async function extractFile(file: WalkedFile, tokens: TokenIndex, opts: ScanOptio
 
   if (SQL_EXT.has(ext)) {
     const { sites, claimedBytes, complete } = extractSql(file.rel, read.text, map)
-    return { ...base, sites, extractor: 'sql', bytesClaimed: claimedBytes, complete }
+    // The reader claims in order and stops where it lost sync, so everything
+    // past its claim was read by nobody.
+    const residual = complete
+      ? []
+      : sweepFile(file.rel, read.text, map, [{ start: 0, end: claimedBytes }, ...sites.map((s) => s.span)], {
+          identifiers: tokens.identifiers,
+          extractor: 'sql',
+          reason: 'the SQL lexer lost sync before this span; found by the residual sweep',
+        })
+    return {
+      ...base,
+      sites: [...sites, ...residual].sort((a, b) => a.span.start - b.span.start),
+      extractor: 'sql',
+      bytesClaimed: claimedBytes,
+      complete,
+    }
   }
 
   if (RUST_EXT.has(ext)) {

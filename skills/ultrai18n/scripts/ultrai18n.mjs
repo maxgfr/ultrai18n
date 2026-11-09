@@ -39199,6 +39199,9 @@ function escapeRaw(syntax, text, opts) {
     case "toml-basic":
       return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t");
     case "toml-literal":
+      if (/['\r\n]/.test(text)) {
+        throw new Error("a TOML literal string has no escapes, so it cannot hold an apostrophe or a line break");
+      }
       return text;
     case "ftl-pattern":
       return text.replace(/\{/g, '{"{"}');
@@ -39233,11 +39236,30 @@ function escapeRaw(syntax, text, opts) {
       return text;
   }
 }
-var RUST_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g;
+var BRACE_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g;
+function spliceHoles(extractor, escaped, holes) {
+  const holeAt = (n) => holes.find((h) => h.index === Number(n));
+  switch (extractor) {
+    case "ts-ast":
+      return escaped.replace(/\{(\d+)\}/g, (whole, n) => {
+        const hole = holeAt(n);
+        return hole ? "${" + hole.expr + "}" : whole;
+      });
+    case "python-ast":
+      return escaped.replace(BRACE_ORDINAL, (whole, n) => {
+        const hole = n === void 0 ? void 0 : holeAt(n);
+        return hole ? `{${hole.expr}}` : whole;
+      });
+    case "rust":
+      return spliceRustHoles(escaped, holes);
+    default:
+      throw new UnknownSyntaxError(`no interpolation syntax for extractor "${extractor}"`);
+  }
+}
 function spliceRustHoles(escaped, holes) {
   const implicit = holes.filter((h) => h.expr === "" || h.expr.startsWith(":")).sort((a, b) => a.index - b.index);
   const seen = [];
-  for (const m of escaped.matchAll(RUST_ORDINAL)) {
+  for (const m of escaped.matchAll(BRACE_ORDINAL)) {
     if (m[1] !== void 0 && implicit.some((h) => h.index === Number(m[1]))) seen.push(Number(m[1]));
   }
   const inOrder = seen.length === implicit.length && seen.every((v, i2) => v === implicit[i2].index);
@@ -39245,7 +39267,7 @@ function spliceRustHoles(escaped, holes) {
     throw new Error("a `{:.*}` placeholder takes two arguments and cannot be reordered; keep the source order");
   }
   const position = new Map(implicit.map((h, i2) => [h.index, i2]));
-  return escaped.replace(RUST_ORDINAL, (whole, n) => {
+  return escaped.replace(BRACE_ORDINAL, (whole, n) => {
     if (n === void 0) return whole;
     const hole = holes.find((h) => h.index === Number(n));
     if (!hole) return whole;
@@ -40529,7 +40551,18 @@ async function extractFile(file, tokens, opts) {
   }
   if (SQL_EXT.has(ext)) {
     const { sites, claimedBytes, complete } = extractSql(file.rel, read2.text, map);
-    return { ...base, sites, extractor: "sql", bytesClaimed: claimedBytes, complete };
+    const residual2 = complete ? [] : sweepFile(file.rel, read2.text, map, [{ start: 0, end: claimedBytes }, ...sites.map((s) => s.span)], {
+      identifiers: tokens.identifiers,
+      extractor: "sql",
+      reason: "the SQL lexer lost sync before this span; found by the residual sweep"
+    });
+    return {
+      ...base,
+      sites: [...sites, ...residual2].sort((a, b) => a.span.start - b.span.start),
+      extractor: "sql",
+      bytesClaimed: claimedBytes,
+      complete
+    };
   }
   if (RUST_EXT.has(ext)) {
     const { sites, claimedBytes, complete } = extractRust(file.rel, read2.text, map);
@@ -41493,14 +41526,8 @@ function buildPatch(repo, site3, text, recover) {
     asciiOnly,
     atLineStart: startsItsLine(buf, start2)
   });
-  const rustHoles = syntax === "rust-string" || syntax === "rust-raw";
   const ordinals = escaped;
-  if (site3.holes.length > 0) {
-    escaped = rustHoles ? spliceRustHoles(escaped, site3.holes) : escaped.replace(/\{(\d+)\}/g, (whole, n) => {
-      const hole = site3.holes.find((h) => h.index === Number(n));
-      return hole ? "${" + hole.expr + "}" : whole;
-    });
-  }
+  if (site3.holes.length > 0) escaped = spliceHoles(site3.extractor, escaped, site3.holes);
   let writeStart = valueStart;
   let writeEnd = valueEnd;
   if (site3.prefix !== void 0 || site3.suffix !== void 0) {
@@ -41510,10 +41537,10 @@ function buildPatch(repo, site3, text, recover) {
     writeStart = start2;
     writeEnd = end;
   }
-  const forCheck = rustHoles ? ordinals : site3.holes.length > 0 ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
+  const forCheck = site3.holes.length === 0 ? escaped : site3.extractor === "ts-ast" ? escaped.replace(/\$\{[^}]*\}/g, (m) => {
     const hole = site3.holes.find((h) => "${" + h.expr + "}" === m);
     return hole ? `{${hole.index}}` : m;
-  }) : escaped;
+  }) : ordinals;
   const decoded = unescapeFor(
     syntax,
     site3.prefix !== void 0 ? forCheck.slice((site3.prefix ?? "").length, forCheck.length - (site3.suffix ?? "").length).split("\n").map((l, i2) => i2 === 0 || !site3.linePrefix ? l : l.slice(site3.linePrefix.length)).join("\n") : forCheck,

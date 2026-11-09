@@ -218,9 +218,12 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
       return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t')
     case 'toml-literal':
       // Nothing is escapable here, so nothing is escaped. A value containing an
-      // apostrophe CANNOT be written into a literal string, and `unescapeFor`
-      // models that truncation so `apply`'s round-trip check refuses the write
-      // instead of silently cutting the sentence short.
+      // apostrophe or a line break CANNOT be written into a literal string, so
+      // the write is refused here. Not left to the round-trip check, which
+      // `apply` skips for a file written in `\u` escapes.
+      if (/['\r\n]/.test(text)) {
+        throw new Error('a TOML literal string has no escapes, so it cannot hold an apostrophe or a line break')
+      }
       return text
     case 'ftl-pattern':
       // `{` opens a placeable. Fluent's own literal-brace form is `{"{"}`.
@@ -271,7 +274,35 @@ function escapeRaw(syntax: HostSyntax, text: string, opts: EscapeOptions): strin
   }
 }
 
-const RUST_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g
+/** An ordinal, or a doubled brace, which is literal text and must be stepped over. */
+const BRACE_ORDINAL = /\{\{|\}\}|\{(\d+)\}/g
+
+/**
+ * Put a site's interpolations back over a translation's ordinals, in the
+ * spelling its host language reads.
+ *
+ * Splicing happens after escaping, because the escaper would otherwise escape
+ * the interpolation about to be written.
+ */
+export function spliceHoles(extractor: string, escaped: string, holes: Hole[]): string {
+  const holeAt = (n: string): Hole | undefined => holes.find((h) => h.index === Number(n))
+  switch (extractor) {
+    case 'ts-ast':
+      return escaped.replace(/\{(\d+)\}/g, (whole, n: string) => {
+        const hole = holeAt(n)
+        return hole ? '${' + hole.expr + '}' : whole
+      })
+    case 'python-ast':
+      return escaped.replace(BRACE_ORDINAL, (whole, n: string | undefined) => {
+        const hole = n === undefined ? undefined : holeAt(n)
+        return hole ? `{${hole.expr}}` : whole
+      })
+    case 'rust':
+      return spliceRustHoles(escaped, holes)
+    default:
+      throw new UnknownSyntaxError(`no interpolation syntax for extractor "${extractor}"`)
+  }
+}
 
 /**
  * Put a Rust format string's placeholders back over a translation's ordinals.
@@ -287,7 +318,7 @@ export function spliceRustHoles(escaped: string, holes: Hole[]): string {
     .filter((h) => h.expr === '' || h.expr.startsWith(':'))
     .sort((a, b) => a.index - b.index)
   const seen: number[] = []
-  for (const m of escaped.matchAll(RUST_ORDINAL)) {
+  for (const m of escaped.matchAll(BRACE_ORDINAL)) {
     if (m[1] !== undefined && implicit.some((h) => h.index === Number(m[1]))) seen.push(Number(m[1]))
   }
   const inOrder = seen.length === implicit.length && seen.every((v, i) => v === implicit[i]!.index)
@@ -295,7 +326,7 @@ export function spliceRustHoles(escaped: string, holes: Hole[]): string {
     throw new Error('a `{:.*}` placeholder takes two arguments and cannot be reordered; keep the source order')
   }
   const position = new Map(implicit.map((h, i) => [h.index, i]))
-  return escaped.replace(RUST_ORDINAL, (whole, n: string | undefined) => {
+  return escaped.replace(BRACE_ORDINAL, (whole, n: string | undefined) => {
     if (n === undefined) return whole
     const hole = holes.find((h) => h.index === Number(n))
     if (!hole) return whole
@@ -420,10 +451,8 @@ export function unescapeFor(syntax: HostSyntax, text: string, opts: EscapeOption
         .replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t')
         .replace(/\\(["\\])/g, '$1')
     case 'toml-literal':
-      // Nothing is escapable here, so nothing is escaped. A value containing an
-      // apostrophe CANNOT be written into a literal string, and this models
-      // that truncation so `apply`'s round-trip check refuses the write instead
-      // of silently cutting the sentence short.
+      // Nothing is escapable here, so the inverse is identity. A value this
+      // syntax cannot hold never gets this far: the escaper refuses it.
       return text
     case 'ftl-pattern':
       return text.replace(/\{"\{"\}/g, '{')

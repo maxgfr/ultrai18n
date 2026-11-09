@@ -12,9 +12,11 @@
 // and judged non-textual, and that judgement is what `claimRatio` records.
 //
 // Hand-written rather than on the AST tier because codeindex ships no SQL
-// grammar, and the job is a comment lexer. What it cannot do — a dialect's
-// nested block comments, `$$`-quoted function bodies — leaves those bytes
-// unclaimed, so the sweep still covers them.
+// grammar, and the job is a comment lexer. An unterminated comment or literal
+// stops it where it lost sync, and `scan` sends everything past that point to
+// the sweep. A dialect's nested block comments and `$$`-quoted function bodies
+// are not modelled: while the quotes still balance they are read as ordinary
+// tokens and claimed, so text inside one can go unreported.
 import type { Span } from '../types'
 import type { RawSite } from './raw'
 import { OffsetMap } from '../text'
