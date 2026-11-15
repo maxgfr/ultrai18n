@@ -42106,8 +42106,11 @@ function plan(inv, opts = {}) {
     groups.push(group);
   }
   const bySiteId = new Map(inv.sites.map((s) => [s.id, s]));
+  const sourceForms = new Set(
+    families.filter((f) => inv.sourceLanguage !== null && f.locale === inv.sourceLanguage).map((f) => formsKey(Object.fromEntries(f.forms.map((x) => [x.category, x.value]))))
+  );
   for (const family of families) {
-    const group = pluralGroup(family, inv.targetLanguage, bySiteId);
+    const group = pluralGroup(family, inv.targetLanguage, inv.sourceLanguage, sourceForms, bySiteId);
     if (group) groups.push(group);
   }
   attachMirrors(groups, inv);
@@ -42137,7 +42140,10 @@ function plan(inv, opts = {}) {
     }
   };
 }
-function pluralGroup(family, targetLang, bySiteId) {
+function formsKey(forms) {
+  return JSON.stringify(Object.entries(forms).sort(([a], [b]) => a.localeCompare(b)));
+}
+function pluralGroup(family, targetLang, sourceLang, sourceForms, bySiteId) {
   const sites = family.sites.map((id) => bySiteId.get(id)).filter((s) => s !== void 0);
   if (sites.length === 0) return null;
   const translatable = sites.some((s) => s.verdict === "translate");
@@ -42145,7 +42151,8 @@ function pluralGroup(family, targetLang, bySiteId) {
   const targetCategories = family.targetRequired ?? family.sourceCategories;
   const forms = {};
   for (const form of family.forms) forms[form.category] = form.value;
-  const op = family.locale === targetLang ? "complete" : "translate";
+  const seeded = sourceForms.has(formsKey(forms)) || sites.some((s) => sourceLang !== null && s.lang?.detected === sourceLang);
+  const op = family.locale === targetLang && !seeded ? "complete" : "translate";
   const canonical = forms.other ?? family.forms[0]?.value ?? "";
   const group = {
     id: "g_" + family.id.slice(3, 15),
@@ -42246,10 +42253,19 @@ function classOf(role) {
       return "ui-long";
   }
 }
+var EXPANSION = [
+  [10, 3],
+  [20, 2],
+  [30, 1.8],
+  [50, 1.6],
+  [70, 1.4]
+];
 function maxFor(role, source) {
   const roleClass = classOf(role);
   if (roleClass !== "ui-short") return null;
-  return Math.ceil(source.length * 1.35) + 4;
+  const length = [...source].length;
+  const factor = EXPANSION.find(([upTo]) => length <= upTo)?.[1] ?? 1.3;
+  return Math.ceil(length * factor);
 }
 function glossFor(sites) {
   const gloss = {};
