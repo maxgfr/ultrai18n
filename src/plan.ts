@@ -272,8 +272,15 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
   }
 
   const bySiteId = new Map(inv.sites.map((s) => [s.id, s]))
+  // The forms of every family in the source locale's bundles, to recognise a
+  // target bundle that was seeded from them.
+  const sourceForms = new Set(
+    families
+      .filter((f) => inv.sourceLanguage !== null && f.locale === inv.sourceLanguage)
+      .map((f) => formsKey(Object.fromEntries(f.forms.map((x) => [x.category, x.value])))),
+  )
   for (const family of families) {
-    const group = pluralGroup(family, inv.targetLanguage, bySiteId)
+    const group = pluralGroup(family, inv.targetLanguage, inv.sourceLanguage, sourceForms, bySiteId)
     if (group) groups.push(group)
   }
 
@@ -315,9 +322,16 @@ export function plan(inv: Inventory, opts: PlanOptions = {}): Plan {
  * engine has verdicted `grammar-hole`, which is a refusal to translate the
  * string, not a refusal to act on forms someone supplied by hand.
  */
+/** A family's forms as one comparable string, whatever order they were read in. */
+function formsKey(forms: Record<string, string>): string {
+  return JSON.stringify(Object.entries(forms).sort(([a], [b]) => a.localeCompare(b)))
+}
+
 function pluralGroup(
   family: PluralFamily,
   targetLang: string,
+  sourceLang: string | null,
+  sourceForms: Set<string>,
   bySiteId: Map<string, Site>,
 ): Group | null {
   const sites = family.sites.map((id) => bySiteId.get(id)).filter((s): s is Site => s !== undefined)
@@ -332,7 +346,15 @@ function pluralGroup(
 
   // A family already in the target locale is not being translated, it is being
   // COMPLETED — which is a different instruction, and one the model needs.
-  const op = family.locale === targetLang ? 'complete' : 'translate'
+  //
+  // The bundle's path is not enough to say so. A target bundle seeded from the
+  // source, which is how a locale is added, sits at the target's path with its
+  // forms still the source's, byte for byte; calling that `complete` told the
+  // translator to keep them as written. Plural forms are too short for the
+  // language detector, so the copy is recognised as a copy.
+  const seeded = sourceForms.has(formsKey(forms)) ||
+    sites.some((s) => sourceLang !== null && s.lang?.detected === sourceLang)
+  const op = family.locale === targetLang && !seeded ? 'complete' : 'translate'
 
   const canonical = forms.other ?? family.forms[0]?.value ?? ''
   const group: Group = {
@@ -456,10 +478,29 @@ export function classOf(role: Role): RoleClass {
  * roles get a budget: constraining a paragraph would trade a real problem for
  * an invented one.
  */
-function maxFor(role: Role, source: string): number | null {
+/**
+ * How long a translated label may grow, by the length of its source.
+ *
+ * Short text grows the most: one English word becomes a German compound, a
+ * two-letter abbreviation a whole French word. A single ratio was right for a
+ * sentence and wrong for a button — `Stops` (5) allowed 11 and `Haltestellen`
+ * is 12. The tiers are the expansion table the W3C cites, at their upper end:
+ * https://www.w3.org/International/articles/article-text-size
+ */
+const EXPANSION: [maxSourceLength: number, factor: number][] = [
+  [10, 3],
+  [20, 2],
+  [30, 1.8],
+  [50, 1.6],
+  [70, 1.4],
+]
+
+export function maxFor(role: Role, source: string): number | null {
   const roleClass = classOf(role)
   if (roleClass !== 'ui-short') return null
-  return Math.ceil(source.length * 1.35) + 4
+  const length = [...source].length
+  const factor = EXPANSION.find(([upTo]) => length <= upTo)?.[1] ?? 1.3
+  return Math.ceil(length * factor)
 }
 
 function glossFor(sites: Site[]): Record<string, string> {
