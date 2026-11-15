@@ -1,3 +1,10 @@
+## [1.4.2](https://github.com/maxgfr/ultrai18n/compare/v1.4.1...v1.4.2) (2026-11-15)
+
+
+### Bug Fixes
+
+* **plan:** translate a seeded target bundle, and let short labels grow ([#17](https://github.com/maxgfr/ultrai18n/issues/17)) ([2d5d582](https://github.com/maxgfr/ultrai18n/commit/2d5d582d6411f4b5b475df270b0b74d59bed2dd7)), closes [#16](https://github.com/maxgfr/ultrai18n/issues/16)
+
 ## [1.4.1](https://github.com/maxgfr/ultrai18n/compare/v1.4.0...v1.4.1) (2026-11-15)
 
 
