@@ -1,3 +1,16 @@
+## [1.4.1](https://github.com/maxgfr/ultrai18n/compare/v1.4.0...v1.4.1) (2026-11-15)
+
+
+### Bug Fixes
+
+* **classify:** decide message keys and browser tokens in app code ([#15](https://github.com/maxgfr/ultrai18n/issues/15)) ([10f6997](https://github.com/maxgfr/ultrai18n/commit/10f69976e8a0c65b466ad27013991206c892c5c7)), closes [#14](https://github.com/maxgfr/ultrai18n/issues/14)
+* **engine:** update shared engines and maintenance tool ([3f7504b](https://github.com/maxgfr/ultrai18n/commit/3f7504ba295d6f9b751ce2137607e64d04beaf11))
+* **engine:** update shared engines and maintenance tool ([2c1bce3](https://github.com/maxgfr/ultrai18n/commit/2c1bce38ea2cd43eda3340dba106734a0c868913))
+* **engine:** update shared engines and maintenance tool ([c92d28c](https://github.com/maxgfr/ultrai18n/commit/c92d28ca56bf4668c7caf55b47c9ff2ebac2a677))
+* **engine:** update shared engines and maintenance tool ([af2f7c6](https://github.com/maxgfr/ultrai18n/commit/af2f7c6977ba25ea9ce7a51960961dceab56eb76))
+* **engine:** update shared engines and maintenance tool ([cee2c19](https://github.com/maxgfr/ultrai18n/commit/cee2c19aa5402aba98dffbb8489eb4b9abc06526))
+* **engine:** update shared engines and maintenance tool ([9e324ba](https://github.com/maxgfr/ultrai18n/commit/9e324ba9117d7fc36da7db1d5edf5f57a2413ae3))
+
 # [1.4.0](https://github.com/maxgfr/ultrai18n/compare/v1.3.1...v1.4.0) (2026-11-09)
 
 
