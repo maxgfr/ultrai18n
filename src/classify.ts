@@ -36,6 +36,28 @@ export interface ClassifyOptions {
 
 const STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/
 const STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/
+/**
+ * HTML attributes whose value is a keyword or a list of them, read by the browser and never shown:
+ * `rel="noopener noreferrer"` is two link types, not a phrase in English.
+ */
+const KEYWORD_ATTRS =
+  /^(rel|target|method|enctype|autocomplete|autoComplete|inputmode|inputMode|enterkeyhint|enterKeyHint|loading|decoding|crossorigin|crossOrigin|referrerpolicy|referrerPolicy|dir|lang|hreflang|hrefLang|spellcheck|translate|draggable|wrap|sandbox|allow|as|sizes|media|charset|charSet|http-equiv|httpEquiv)$/
+/**
+ * The function that looks a message up by its key. Its first argument is a key into a catalogue,
+ * whatever its shape: `t("dir.myPosition")` is an identifier, the text lives in the catalogue.
+ */
+const MESSAGE_CALLEES =
+  /^(?:(?:i18n|i18next|intl|this\.\$?i18n|\$i18n|this|props|ctx|context)\.)?(?:t|\$t|tc|\$tc|te|tr|translate|formatMessage|getMessage)$/
+/** A catalogue key: dotted, colon-namespaced or snake-joined segments, with no space. */
+const MESSAGE_KEY = /^[A-Za-z_$][\w$-]*(?:[.:][\w$-]+)+$/
+/**
+ * Web platform calls whose string argument is read by the browser: a selector, a media query, an
+ * event name, a Unicode normalisation form, a tag or attribute name.
+ */
+const PLATFORM_CALLEES =
+  /^(matchMedia|querySelector|querySelectorAll|closest|matches|getElementById|getElementsByClassName|getElementsByTagName|createElement|createElementNS|addEventListener|removeEventListener|normalize|getAttribute|setAttribute|removeAttribute|hasAttribute|toggleAttribute|getContext|requestPermission|query)$/
+/** An IANA time zone, as given to `Intl` and to date libraries. */
+const TIME_ZONE = /^(UTC|GMT|Etc\/[\w+-]+|(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+(\/[A-Za-z_]+)?)$/
 /** Template tags whose body is a stylesheet: translating it breaks the layout. */
 const STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/
 /** Template tags whose body is a wire-format document: field names, not copy. */
@@ -360,9 +382,26 @@ function decide(raw: RawSite, opts: ClassifyOptions, rules: Rule[], fileLocale: 
     }
   }
 
+  // 6b — a message key handed to the lookup function. Its shape alone does not say so:
+  // `dir.myPosition` is camel-cased, so it is not a slug, and it used to fall through to the
+  // language detector and come back as a short-string refusal — one for every call site of
+  // every app that already did its i18n. The callee says what it is.
+  if (c.callee && c.argIndex === 0 && MESSAGE_CALLEES.test(c.callee) && MESSAGE_KEY.test(value)) {
+    return { surface: 'i18n.key', verdict: 'do-not-translate', reason: 'identifier', confidence: 'high', skipDetection: true }
+  }
+  if (c.callee && PLATFORM_CALLEES.test(c.callee.split('.').pop() ?? '')) {
+    return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'api-contract', confidence: 'medium', skipDetection: true }
+  }
+  if (TIME_ZONE.test(value)) {
+    return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'code-token', confidence: 'high', skipDetection: true }
+  }
+
   // 7 — style, URL and ARIA vocabulary, by shape.
   if (c.attrName && STYLE_ATTRS.test(c.attrName)) {
     return { surface: 'token.style', verdict: 'do-not-translate', reason: 'style-token', confidence: 'high', skipDetection: true }
+  }
+  if (c.attrName && KEYWORD_ATTRS.test(c.attrName)) {
+    return { surface: 'token.api-contract', verdict: 'do-not-translate', reason: 'code-token', confidence: 'high', skipDetection: true }
   }
   if (c.callee && STYLE_CALLEES.test(c.callee)) {
     return { surface: 'token.style', verdict: 'do-not-translate', reason: 'style-token', confidence: 'medium', skipDetection: true }

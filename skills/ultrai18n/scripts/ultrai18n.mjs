@@ -38687,6 +38687,11 @@ var RULES_BY_ID = new Map(RULES17.map((r) => [r.id, r]));
 // src/classify.ts
 var STYLE_ATTRS = /^(className|class|style|part|slot|data-[\w-]+|key|ref|id|htmlFor|for|name|type|role)$/;
 var STYLE_CALLEES = /^(clsx|cn|classNames|cva|tw|twMerge|styled)$/;
+var KEYWORD_ATTRS = /^(rel|target|method|enctype|autocomplete|autoComplete|inputmode|inputMode|enterkeyhint|enterKeyHint|loading|decoding|crossorigin|crossOrigin|referrerpolicy|referrerPolicy|dir|lang|hreflang|hrefLang|spellcheck|translate|draggable|wrap|sandbox|allow|as|sizes|media|charset|charSet|http-equiv|httpEquiv)$/;
+var MESSAGE_CALLEES = /^(?:(?:i18n|i18next|intl|this\.\$?i18n|\$i18n|this|props|ctx|context)\.)?(?:t|\$t|tc|\$tc|te|tr|translate|formatMessage|getMessage)$/;
+var MESSAGE_KEY = /^[A-Za-z_$][\w$-]*(?:[.:][\w$-]+)+$/;
+var PLATFORM_CALLEES = /^(matchMedia|querySelector|querySelectorAll|closest|matches|getElementById|getElementsByClassName|getElementsByTagName|createElement|createElementNS|addEventListener|removeEventListener|normalize|getAttribute|setAttribute|removeAttribute|hasAttribute|toggleAttribute|getContext|requestPermission|query)$/;
+var TIME_ZONE = /^(UTC|GMT|Etc\/[\w+-]+|(Africa|America|Antarctica|Arctic|Asia|Atlantic|Australia|Europe|Indian|Pacific)\/[A-Za-z_]+(\/[A-Za-z_]+)?)$/;
 var STYLE_TAGS = /^(css|keyframes|createGlobalStyle|injectGlobal|styled\b[\w.()'"`-]*|tw)$/;
 var CONTRACT_TAGS = /^(gql|graphql|sql|Prisma\.sql|bigquery|cypher)$/;
 var URL_SHAPE = /^(https?:\/\/|\/\/|\.{0,2}\/|#\/|mailto:|tel:|data:|[a-z][a-z0-9+.-]*:\/\/)/i;
@@ -38881,8 +38886,20 @@ function decide(raw, opts, rules, fileLocale2) {
       skipDetection: ruled.emit.verdict !== "translate"
     };
   }
+  if (c2.callee && c2.argIndex === 0 && MESSAGE_CALLEES.test(c2.callee) && MESSAGE_KEY.test(value)) {
+    return { surface: "i18n.key", verdict: "do-not-translate", reason: "identifier", confidence: "high", skipDetection: true };
+  }
+  if (c2.callee && PLATFORM_CALLEES.test(c2.callee.split(".").pop() ?? "")) {
+    return { surface: "token.api-contract", verdict: "do-not-translate", reason: "api-contract", confidence: "medium", skipDetection: true };
+  }
+  if (TIME_ZONE.test(value)) {
+    return { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token", confidence: "high", skipDetection: true };
+  }
   if (c2.attrName && STYLE_ATTRS.test(c2.attrName)) {
     return { surface: "token.style", verdict: "do-not-translate", reason: "style-token", confidence: "high", skipDetection: true };
+  }
+  if (c2.attrName && KEYWORD_ATTRS.test(c2.attrName)) {
+    return { surface: "token.api-contract", verdict: "do-not-translate", reason: "code-token", confidence: "high", skipDetection: true };
   }
   if (c2.callee && STYLE_CALLEES.test(c2.callee)) {
     return { surface: "token.style", verdict: "do-not-translate", reason: "style-token", confidence: "medium", skipDetection: true };
