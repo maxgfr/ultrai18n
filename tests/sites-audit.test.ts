@@ -119,6 +119,84 @@ describe('the oracle does not accuse code of being text', () => {
   })
 })
 
+describe('a regex literal is code, not a quoted literal', () => {
+  // Found on a real repository: an e2e assertion whose PATTERN quoted an HTML
+  // attribute was reported as uncovered copy in a file the TypeScript reader
+  // had rightly claimed in full. A regex literal is not translatable text, so
+  // the quotes inside one delimit nothing a translator would be handed.
+  let n = 0
+  const findings = (body: string, ext = 'ts', extractor = 'ts-ast') => {
+    const name = `regex-${n++}.${ext}`
+    writeFileSync(join(repo, 'src', name), body)
+    return auditCoverage(inventory({ file: `src/${name}`, extractors: [extractor] }, []), repo)
+      .findings
+  }
+
+  it.each([
+    ['an assertion pattern', 'expect(html).toMatch(/<meta name="robots" content="noindex, nofollow"/);\n'],
+    ['an assigned pattern with flags', 'const re = /"alpha beta gamma"/g;\n'],
+    ['the first argument of a call', 'const out = x.replace(/"some text"/, y)\n'],
+    ['a pattern after a keyword', 'function f(s) {\n  return /"first second"/.test(s)\n}\n'],
+    ['the body of an arrow function', 'const f = (s) => /"two words"/.test(s)\n'],
+    ['a pattern opening a line', 'expect(html).toMatch(\n  /"two words here"/,\n)\n'],
+    ['a pattern after a logical operator', 'const ok = a && /"two words"/i.test(b)\n'],
+    ['a quote inside a character class', 'const re = /["]two words["]/\n'],
+    ['an escaped slash inside the pattern', 'const re = /a\\/"two words"\\/b/\n'],
+    ['a slash inside a character class', 'const re = /[/]"two words"[/]/u\n'],
+  ])('ignores quoted prose inside %s', (_, body) => {
+    expect(findings(body)).toEqual([])
+  })
+
+  it('ignores it in every script dialect the TypeScript reader reads', () => {
+    for (const ext of ['js', 'mjs', 'jsx', 'tsx']) {
+      expect(findings('export const re = /"two words"/\n', ext)).toEqual([])
+    }
+  })
+
+  it('still reads the real string after a pattern holding a lone quote', () => {
+    // The pattern's quote used to pair with the string's opening quote, so the
+    // row reported code between them as the text and never saw the string.
+    const found = findings('const re = /"/; const label = "Save all changes"\n')
+    expect(found).toHaveLength(1)
+    expect(found[0]!.text).toBe('Save all changes')
+  })
+
+  it.each([
+    ['an identifier', 'const r = total / "per hour".length / count\n'],
+    ['a closing parenthesis', 'const r = (a + b) / "per hour".length / 2\n'],
+    ['a closing bracket', 'const r = arr[0] / "per hour".length / 2\n'],
+    ['a number', 'const r = 10 / "per hour".length / 2\n'],
+    ['a string', 'const r = "1" / "per hour".length / 2\n'],
+    ['a member access', 'const r = this.total / "per hour".length / 2\n'],
+  ])('reads a slash after %s as division, not a pattern', (_, body) => {
+    const found = findings(body)
+    expect(found.map((f) => f.text)).toEqual(['per hour'])
+  })
+
+  it('still flags a string after a division on the same line', () => {
+    const found = findings('const half = total / 2; const label = "Two words here"\n')
+    expect(found.map((f) => f.text)).toEqual(['Two words here'])
+  })
+
+  it('does not read the slashes of a path in a string as a pattern', () => {
+    const found = findings('const url = "/api/" + id; const label = "Open the door"\n')
+    expect(found.map((f) => f.text)).toEqual(['Open the door'])
+  })
+
+  it('does not read a closing JSX tag as a pattern', () => {
+    // `</` would start a pattern after `<` if `<` admitted one; it does not.
+    const found = findings('export const A = () => <b>x</b>\nconst label = "Save all changes"\n', 'tsx')
+    expect(found.map((f) => f.text)).toEqual(['Save all changes'])
+  })
+
+  it('leaves formats without regex literals alone', () => {
+    // Python has no regex literal, so the same bytes are a division between two
+    // strings there, and the second one is copy.
+    const found = findings('x = (a, /"two words"/)\n', 'py', 'python-ast')
+    expect(found.map((f) => f.text)).toEqual(['two words'])
+  })
+})
+
 describe('every locator says what it points at', () => {
   // The same discipline the catalog and the dialect rows are under: a row that
   // can accuse an extractor of missing something has to cite what it saw.
