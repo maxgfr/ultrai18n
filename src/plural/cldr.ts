@@ -14,17 +14,9 @@
 // advisory channel rather than quietly producing English plural rules for
 // Russian.
 import { SUPPORTED } from '../lang/detect'
+import { CATEGORIES, isCategory, type Category } from './categories'
 
-/** CLDR cardinal plural categories, in CLDR's own canonical order. */
-export type Category = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other'
-
-export const CATEGORIES: Category[] = ['zero', 'one', 'two', 'few', 'many', 'other']
-
-const CATEGORY_SET = new Set<string>(CATEGORIES)
-
-export function isCategory(s: string): s is Category {
-  return CATEGORY_SET.has(s)
-}
+export { CATEGORIES, isCategory, type Category }
 
 /** Sort into CLDR order, so two equal form sets always serialize identically. */
 export function sortCategories(cats: Iterable<Category>): Category[] {

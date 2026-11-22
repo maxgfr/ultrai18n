@@ -13,7 +13,7 @@
 // the case that matters most: en→ru needs FOUR branches where the source has
 // two, and a model rewriting a skeleton it does not understand is not how that
 // should happen.
-import { isCategory, type Category } from './cldr'
+import { isCategory, type Category } from './categories'
 
 export type IcuArgType = 'plural' | 'selectordinal' | 'select'
 
@@ -218,6 +218,193 @@ function findAtTopLevel(text: string, from: number, to: number, char: string): n
     i++
   }
   return -1
+}
+
+// ---------------------------------------------------------------------------
+// What a reader sees
+// ---------------------------------------------------------------------------
+
+/**
+ * The literal text of a message: what some rendering of it can show a person.
+ *
+ * Argument names, types, selectors and `#` are syntax, and syntax is not
+ * evidence of a language. `{gender, select, female {Kardiologin} other
+ * {Kardiologe}}` holds two German words; read raw it holds `other`, which is an
+ * English stopword, and a language vote over it calls a correct German catalog
+ * English. So every argument contributes its branch BODIES, recursively, and
+ * nothing else; a simple `{name}` contributes nothing at all, because what it
+ * renders is a value supplied at runtime. Quoted ICU literals are unquoted.
+ *
+ * Null when the braces or quotes do not balance: nothing about such a string is
+ * an ICU reading, and the caller keeps whatever it did before.
+ */
+export function icuLiteralText(text: string): string | null {
+  if (!scanIcu(text).ok) return null
+  const out: string[] = []
+
+  const visit = (from: number, to: number, inPlural: boolean): void => {
+    let i = from
+    while (i < to) {
+      const ch = text[i]!
+      if (ch === "'") {
+        const end = Math.min(skipQuote(text, i), to)
+        out.push(unquote(text.slice(i, end)))
+        i = end
+        continue
+      }
+      if (ch === '#' && inPlural) {
+        out.push(' ')
+        i++
+        continue
+      }
+      if (ch !== '{') {
+        out.push(ch)
+        i++
+        continue
+      }
+      const close = matchBrace(text, i)
+      if (close === -1 || close >= to) break
+      const parsed = parseArgument(text, i, close, 0)
+      out.push(' ')
+      if (parsed) {
+        for (const branch of parsed.branches) {
+          visit(branch.start, branch.end, parsed.type !== 'select')
+          out.push(' ')
+        }
+      }
+      i = close + 1
+    }
+  }
+
+  visit(0, text.length, false)
+  return out.join('')
+}
+
+/** `''` is one apostrophe, and a quoted run is its content. */
+function unquote(quoted: string): string {
+  if (quoted === "''") return "'"
+  if (quoted.length > 1 && quoted.startsWith("'")) {
+    const body = quoted.endsWith("'") ? quoted.slice(1, -1) : quoted.slice(1)
+    return body.replace(/''/g, "'")
+  }
+  return quoted
+}
+
+/**
+ * The values a message RENDERS, by argument name.
+ *
+ * This is the placeholder contract between a source message and its
+ * translation, read from the ICU arguments rather than from the text: a
+ * `\{\w+\}` pattern reads a branch body like `{Arzt}` as a placeholder, and a
+ * German noun becomes a variable the English source never had.
+ *
+ *  - `{name}` and `{name, number, …}` render their value: `{name}`.
+ *  - A plural or selectordinal renders its number where a branch holds `#`, so
+ *    `{count, plural, one {# item} …}` and `{count} Elemente` both render
+ *    `{count}`.
+ *  - A `select` renders nothing. It CHOOSES between literals, and which choices
+ *    a language makes is the language's business: German inflects a job title
+ *    for gender and English does not, and a target that selects on `gender`
+ *    where the source has no variable is correct, not broken.
+ *
+ * Null when the braces or quotes do not balance.
+ */
+export function renderedArguments(text: string): Set<string> | null {
+  const scan = scanIcu(text)
+  if (!scan.ok) return null
+  const out = new Set(scan.placeholders.map((p) => `{${p}}`))
+  for (const argument of scan.arguments) {
+    if (argument.type === 'select') continue
+    if (argument.branches.some((b) => hasHash(b.body))) out.add(`{${argument.name}}`)
+  }
+  return out
+}
+
+/**
+ * Does this branch render its plural's number?
+ *
+ * A `#` outside quotes does, and so does one inside a nested `select`, which
+ * has no number of its own. A nested plural's `#` is that plural's.
+ */
+function hasHash(body: string): boolean {
+  let i = 0
+  while (i < body.length) {
+    const ch = body[i]!
+    if (ch === "'") {
+      i = skipQuote(body, i)
+      continue
+    }
+    if (ch === '{') {
+      const close = matchBrace(body, i)
+      if (close === -1) return false
+      const nested = parseArgument(body, i, close, 0)
+      if (nested?.type === 'select' && nested.branches.some((b) => hasHash(b.body))) return true
+      i = close + 1
+      continue
+    }
+    if (ch === '#') return true
+    i++
+  }
+  return false
+}
+
+/**
+ * The words around a plural argument, when they can move into its branches.
+ *
+ * `The directory lists {count, plural, one {# specialist} other {# specialists}}
+ * near {place}.` is one sentence, and planned as its branches alone the
+ * translator was handed `# specialist` and the engine kept the rest as written:
+ * a German catalog with English around every count. Moving the surrounding text
+ * into each branch makes every form a whole sentence — the arrangement the ICU
+ * user guide recommends, because word order and agreement cross the argument's
+ * braces in most languages — and it renders identically.
+ *
+ * Only when the move is exact. The argument must be the message's one top-level
+ * plural or select, and the text around it must hold no `#`, which is literal
+ * outside a plural and the number inside one. Anything else returns null and
+ * keeps the branch-only reading.
+ */
+export function sentenceAround(
+  text: string,
+  argument: IcuArgument,
+  scan: IcuScan = scanIcu(text),
+): { prefix: string; suffix: string } | null {
+  if (!scan.ok || argument.depth !== 0) return null
+  if (scan.arguments.some((a) => a.depth === 0 && a.start !== argument.start)) return null
+  const prefix = text.slice(0, argument.start)
+  const suffix = text.slice(argument.end)
+  if (!(prefix + suffix).trim()) return null
+  if ((prefix + suffix).includes('#')) return null
+  return { prefix, suffix }
+}
+
+/**
+ * The argument a family was read from, by the family's base.
+ *
+ * A nested argument carries its offset as `@N` on the base; a top-level one is
+ * the message's first plural or selectordinal.
+ */
+export function argumentFor(scan: IcuScan, base: string): IcuArgument | undefined {
+  const at = /@(\d+)$/.exec(base)
+  return at
+    ? scan.arguments.find((a) => a.start === Number(at[1]))
+    : scan.arguments.find((a) => a.type !== 'select')
+}
+
+/**
+ * The family's argument and the words around it, when those move into its
+ * branches — what the plan hands a translator and the writer must agree on.
+ */
+export function icuSentence(
+  text: string,
+  base: string,
+): { argument: IcuArgument; prefix: string; suffix: string } | null {
+  const scan = scanIcu(text)
+  if (!scan.ok) return null
+  const argument = argumentFor(scan, base)
+  if (!argument) return null
+  const around = sentenceAround(text, argument, scan)
+  return around ? { argument, ...around } : null
 }
 
 // ---------------------------------------------------------------------------

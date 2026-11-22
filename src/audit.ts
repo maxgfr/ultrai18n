@@ -234,7 +234,7 @@ export const LOCATORS: TextLocator[] = [
   },
   {
     id: 'comment',
-    extractors: ['ts-ast', 'python-ast', 'shell-ast', 'css', 'sql', 'dockerfile', 'json', 'yaml'],
+    extractors: ['ts-ast', 'python-ast', 'css', 'sql', 'dockerfile', 'json', 'yaml'],
     // Anchored at the start of the line, and `--` must be followed by a space.
     // Unanchored, a regex literal holding `\/\/` read as a comment marker and a
     // CSS custom property `--color-ink-950` read as a SQL comment. A TRAILING
@@ -244,6 +244,16 @@ export const LOCATORS: TextLocator[] = [
     re: /^\s*(?:\/\/+|#+|--\s|\/\*)\s*(.+?)(?:\*\/)?\s*$/,
     not: /^\s*#!|shellcheck|eslint-|prettier-|@ts-|noqa|pylint|type:\s|https?:\/\//,
     why: 'A comment on its own line. The file of comments nobody opened is the classic residue of a translation pass, and four French ones in a stylesheet survived two separate human passes on the reference repository.',
+  },
+  {
+    // Its own row because `--` is not a comment in sh: on a line of its own it
+    // is the body of a heredoc (SQL fed to `psql`) or an argument, and the shell
+    // reader emits neither. Heredoc bodies are skipped before any row runs.
+    id: 'shell-comment',
+    extractors: ['shell-ast'],
+    re: /^\s*#+\s*(.+?)\s*$/,
+    not: /^\s*#!|shellcheck|shfmt|https?:\/\//,
+    why: 'A shell comment on its own line. In an install or init script these are the instructions written for a person, and the only text the shell reader emits.',
   },
   {
     // Its own row because `#` starts an attribute in Rust, and the `comment` row
@@ -363,9 +373,13 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
     const covered = coveredLines(sitesByFile.get(entry.file) ?? [])
     const lines = text.split('\n')
     let inFence = false
+    const heredoc = extractor === 'shell-ast' ? heredocLines(lines) : null
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i]!
+      // A heredoc body is a string: input to another program, which the shell
+      // reader never emits, and whose `#` or `--` lines are that program's.
+      if (heredoc?.has(i)) continue
       // A fenced block is code the document itself declares as code. Tracked
       // here rather than in the markdown row, because the row is a regex and a
       // fence is state.
@@ -398,6 +412,42 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
 
   findings.sort((a, b) => (a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line))
   return { audited, excused, linesChecked, findings, ok: findings.length === 0 }
+}
+
+/**
+ * The 0-based indices of every heredoc BODY line in a shell script, the
+ * delimiter line included.
+ *
+ * Line state, like a markdown fence, and the same size of claim: `<<WORD`,
+ * `<<-WORD`, `<<'WORD'` and `<<"WORD"` open one, and the first line that is the
+ * word alone — after tabs, for `<<-` — closes it. Several on one line are read
+ * in order. `<<<` is a here-string, and a `<<` after a `#` is in a comment. A
+ * misread only ever removes lines from the audit, so it can cost a finding and
+ * never invent one.
+ */
+export function heredocLines(lines: string[]): Set<number> {
+  const out = new Set<number>()
+  const opener = /(?<!<)<<(-?)\s*(?:'([^'\n]+)'|"([^"\n]+)"|\\?([A-Za-z_][\w-]*))/g
+  let i = 0
+  while (i < lines.length) {
+    const line = lines[i]!
+    const code = line.replace(/(^|\s)#.*$/, '$1')
+    const pending: { word: string; tabs: boolean }[] = []
+    for (const m of code.matchAll(opener)) {
+      if (code[m.index! + 2] === '<') continue
+      pending.push({ word: (m[2] ?? m[3] ?? m[4])!, tabs: m[1] === '-' })
+    }
+    i++
+    for (const { word, tabs } of pending) {
+      while (i < lines.length) {
+        const body = lines[i]!
+        out.add(i)
+        i++
+        if ((tabs ? body.replace(/^\t+/, '') : body) === word) break
+      }
+    }
+  }
+  return out
 }
 
 /**

@@ -262,3 +262,53 @@ describe('what the audit found on its first run', () => {
     expect(auditCoverage(inv, host).findings).toEqual([])
   })
 })
+
+describe('a shell heredoc is a string, not a comment', () => {
+  // A database init script feeding SQL to `psql` through a quoted heredoc. The
+  // body is an argument to another program — the shell reader never emits a
+  // shell string, by design — and `--` is a comment marker in SQL, not in sh.
+  // The oracle read the SQL comment as an uncovered shell comment and accused
+  // a file the shell reader had rightly claimed in full.
+  let host: string
+  const script =
+    '#!/bin/sh\n' +
+    '# Create the reporting role on first start.\n' +
+    'set -eu\n' +
+    "psql -v ON_ERROR_STOP=1 <<'SQL'\n" +
+    '-- Without a password the reporting role stays unable to log in.\n' +
+    '# not a shell comment either, only a line of the heredoc\n' +
+    'SELECT 1;\n' +
+    'SQL\n' +
+    'cat <<-EOF > /tmp/out.conf\n' +
+    '\t# written to the config file, not to the reader\n' +
+    '\tEOF\n' +
+    '# Done, and this one is a comment again.\n' +
+    'echo -- done here\n'
+
+  beforeAll(() => {
+    host = mkdtempSync(join(tmpdir(), 'ultrai18n-heredoc-'))
+    mkdirSync(join(host, 'docker'), { recursive: true })
+    writeFileSync(join(host, 'docker', 'init.sh'), script)
+  })
+
+  afterAll(() => rmSync(host, { recursive: true, force: true }))
+
+  const shellInventory = (sites: Partial<Site>[]): Inventory =>
+    ({
+      census: [{ file: 'docker/init.sh', bucket: 'scanned', extractors: ['shell-ast'], claimRatio: 1 }],
+      sites,
+    }) as unknown as Inventory
+
+  it('does not read heredoc lines or a `--` line as shell comments', () => {
+    const view = auditCoverage(shellInventory([]), host)
+    // Only the two real comments, each uncovered here on purpose.
+    expect(view.findings.map((f) => f.line)).toEqual([2, 12])
+  })
+
+  it('and the reader agrees: a real scan of the script audits clean', async () => {
+    const inv = await scan({ repo: host, from: 'en', to: 'fr' })
+    const comments = inv.sites.filter((s) => s.file === 'docker/init.sh').map((s) => s.line)
+    expect(comments).toEqual([2, 12])
+    expect(auditCoverage(inv, host).findings).toEqual([])
+  })
+})

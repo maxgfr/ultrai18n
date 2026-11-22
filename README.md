@@ -151,6 +151,13 @@ and one string out, and the unit of work is the **family**: every form goes to t
 once, along with exactly the categories the target locale selects, and the engine writes back the
 keys that did not exist before.
 
+An ICU plural inside a sentence is handed over as the sentence. The words around the argument move
+into every branch, `=0`-style exact matches included, so each form a translator sees is whole and
+comes back translated; the target is written with the full sentence in each branch, which renders
+the same and is the arrangement the ICU guide recommends. A language vote over an ICU message reads
+only its literal text — never `plural`, `other`, `=0`, `#` or an argument name — and `sync` takes
+placeholders from the parsed arguments, so the branches of a gendered `select` are not variables.
+
 Arrangements are **data, not code**. Three mechanical primitives live in the engine — one form per
 site with the category on its anchor path, every form in one value split by a delimiter, every form
 in one value read by a real parser — and each library is a row in a catalog that cites its own
@@ -243,7 +250,11 @@ engine working, not failing.
 - text computed at runtime with no literal in the source cannot be detected;
 - dependencies and text outside the repository are out of scope;
 - a shell script's *strings* are never emitted, only its comments — deliberately, because emitting
-  shell arguments hands a translator a wall of paths, flags and package names;
+  shell arguments hands a translator a wall of paths, flags and package names. A heredoc body is
+  one of those strings, so the SQL comments in a `psql <<'SQL'` block are not read either;
+- an ICU message with a second argument at its top level, or a literal `#` beside its plural, is
+  translated branch by branch: moving the words around it into the branches would change the
+  message, so they stay as written;
 - `.ini` and `.conf` have no reader yet.
 
 **Keyed catalogs:** `.strings` and `.properties` now use the normal scan → plan → translate →
