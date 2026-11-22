@@ -149,11 +149,11 @@ export function formatProfile(p: LangProfile): string {
   lines.push(`  source language elected by scan: ${p.elected ?? '(none)'}`)
   lines.push(`  margin over the runner-up: ${p.margin}`)
   lines.push('')
-  lines.push('  weighted by LETTERS, not by sites — forty one-word buttons must not outvote a page of prose')
+  lines.push('  weighted by LETTERS, not by strings — forty one-word buttons must not outvote a page of prose')
   for (const l of p.languages) {
-    lines.push(`    ${l.lang.padEnd(4)} ${String(l.sites).padStart(6)} site(s)  ${String(l.letters).padStart(8)} letters  ${(l.share * 100).toFixed(1)}%`)
+    lines.push(`    ${l.lang.padEnd(4)} ${String(l.sites).padStart(6)} string(s)  ${String(l.letters).padStart(8)} letters  ${(l.share * 100).toFixed(1)}%`)
   }
-  lines.push(`    ${'—'.padEnd(4)} ${String(p.undecided).padStart(6)} site(s) the detector declined to answer for`)
+  lines.push(`    ${'—'.padEnd(4)} ${String(p.undecided).padStart(6)} string(s) the detector declined to answer for`)
 
   if (p.loudestFiles.length) {
     lines.push('', 'LOUDEST FILES')
