@@ -1,3 +1,10 @@
+## [1.4.5](https://github.com/maxgfr/ultrai18n/compare/v1.4.4...v1.4.5) (2026-11-22)
+
+
+### Bug Fixes
+
+* replace jargon 'site(s)' with 'string(s)' in CLI output ([#20](https://github.com/maxgfr/ultrai18n/issues/20)) ([ce8a6e9](https://github.com/maxgfr/ultrai18n/commit/ce8a6e959be135976a7009d9f26849d6d2b97498))
+
 ## [1.4.4](https://github.com/maxgfr/ultrai18n/compare/v1.4.3...v1.4.4) (2026-11-22)
 
 
