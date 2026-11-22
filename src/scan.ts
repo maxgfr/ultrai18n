@@ -249,7 +249,7 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
               id: 'branch-sibling',
               file: null,
               message:
-                `${harmonised.lifted} site(s) across ${harmonised.groups} branching construct(s) were refused by ` +
+                `${harmonised.lifted} string(s) across ${harmonised.groups} branching construct(s) were refused by ` +
                 `the language detector while a sibling arm of the same \`switch\` or ternary was accepted. They ` +
                 `carry the sibling's verdict and the \`branch-sibling\` flag, at medium confidence — inherited, ` +
                 `not measured. Filter on that flag to review the pass itself.`,
@@ -263,7 +263,7 @@ export async function scan(opts: ScanOptions): Promise<Inventory> {
               id: 'anchor-collision',
               file: null,
               message:
-                `${collisions} site(s) shared an anchor with another site and were suffixed \`~n\` to keep their ` +
+                `${collisions} string(s) shared an anchor with another string and were suffixed \`~n\` to keep their ` +
                 `ids distinct. The suffix is stable for a given file but shifts if a sibling is inserted above, ` +
                 `so an exception pinned to one of these is worth re-checking. Anonymous nodes are already ` +
                 `anchored by position, so reaching this means a construct the anchor grammar cannot name at all.`,

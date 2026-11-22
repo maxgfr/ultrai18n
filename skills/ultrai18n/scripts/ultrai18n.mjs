@@ -41325,7 +41325,7 @@ async function scan2(opts) {
         {
           id: "branch-sibling",
           file: null,
-          message: `${harmonised.lifted} site(s) across ${harmonised.groups} branching construct(s) were refused by the language detector while a sibling arm of the same \`switch\` or ternary was accepted. They carry the sibling's verdict and the \`branch-sibling\` flag, at medium confidence \u2014 inherited, not measured. Filter on that flag to review the pass itself.`,
+          message: `${harmonised.lifted} string(s) across ${harmonised.groups} branching construct(s) were refused by the language detector while a sibling arm of the same \`switch\` or ternary was accepted. They carry the sibling's verdict and the \`branch-sibling\` flag, at medium confidence \u2014 inherited, not measured. Filter on that flag to review the pass itself.`,
           sites: []
         }
       ] : [],
@@ -41333,7 +41333,7 @@ async function scan2(opts) {
         {
           id: "anchor-collision",
           file: null,
-          message: `${collisions} site(s) shared an anchor with another site and were suffixed \`~n\` to keep their ids distinct. The suffix is stable for a given file but shifts if a sibling is inserted above, so an exception pinned to one of these is worth re-checking. Anonymous nodes are already anchored by position, so reaching this means a construct the anchor grammar cannot name at all.`,
+          message: `${collisions} string(s) shared an anchor with another string and were suffixed \`~n\` to keep their ids distinct. The suffix is stable for a given file but shifts if a sibling is inserted above, so an exception pinned to one of these is worth re-checking. Anonymous nodes are already anchored by position, so reaching this means a construct the anchor grammar cannot name at all.`,
           sites: []
         }
       ] : []
@@ -41985,7 +41985,7 @@ function formatScan(inv, opts = {}) {
     `ultrai18n scan  ${inv.repo}  ${inv.sourceLanguage ?? "unknown"} \u2192 ${inv.targetLanguage}`
   );
   lines.push("");
-  lines.push(`  ${inv.sites.length} sites across ${new Set(inv.sites.map((s) => s.file)).size} files`);
+  lines.push(`  ${inv.sites.length} string(s) across ${new Set(inv.sites.map((s) => s.file)).size} file(s)`);
   for (const verdict of ORDER) {
     const n = counts.get(verdict) ?? 0;
     if (n === 0) continue;
@@ -42048,7 +42048,7 @@ function verdictLine(inv, counts) {
   const unclassified = counts.get("unclassified") ?? 0;
   const judgment = counts.get("needs-judgment") ?? 0;
   const translate = counts.get("translate") ?? 0;
-  return `VERDICT  ${inv.sites.length} site(s) \u2014 ${translate} to translate, ${judgment} for judgment, ${unclassified} unclassified` + (unclassified || judgment ? "  (check will refuse)" : "");
+  return `VERDICT  ${inv.sites.length} string(s) \u2014 ${translate} to translate, ${judgment} for judgment, ${unclassified} unclassified` + (unclassified || judgment ? "  (check will refuse)" : "");
 }
 function formatPlurals(inv) {
   const families = inv.plurals ?? [];
@@ -46305,11 +46305,11 @@ function formatProfile(p) {
   lines.push(`  source language elected by scan: ${p.elected ?? "(none)"}`);
   lines.push(`  margin over the runner-up: ${p.margin}`);
   lines.push("");
-  lines.push("  weighted by LETTERS, not by sites \u2014 forty one-word buttons must not outvote a page of prose");
+  lines.push("  weighted by LETTERS, not by strings \u2014 forty one-word buttons must not outvote a page of prose");
   for (const l of p.languages) {
-    lines.push(`    ${l.lang.padEnd(4)} ${String(l.sites).padStart(6)} site(s)  ${String(l.letters).padStart(8)} letters  ${(l.share * 100).toFixed(1)}%`);
+    lines.push(`    ${l.lang.padEnd(4)} ${String(l.sites).padStart(6)} string(s)  ${String(l.letters).padStart(8)} letters  ${(l.share * 100).toFixed(1)}%`);
   }
-  lines.push(`    ${"\u2014".padEnd(4)} ${String(p.undecided).padStart(6)} site(s) the detector declined to answer for`);
+  lines.push(`    ${"\u2014".padEnd(4)} ${String(p.undecided).padStart(6)} string(s) the detector declined to answer for`);
   if (p.loudestFiles.length) {
     lines.push("", "LOUDEST FILES");
     for (const f of p.loudestFiles) lines.push(`  ${f.lang}  ${String(f.letters).padStart(7)}  ${f.file}`);

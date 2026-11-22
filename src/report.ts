@@ -39,7 +39,7 @@ export function formatScan(inv: Inventory, opts: { limit?: number } = {}): strin
     `ultrai18n scan  ${inv.repo}  ${inv.sourceLanguage ?? 'unknown'} → ${inv.targetLanguage}`,
   )
   lines.push('')
-  lines.push(`  ${inv.sites.length} sites across ${new Set(inv.sites.map((s) => s.file)).size} files`)
+  lines.push(`  ${inv.sites.length} string(s) across ${new Set(inv.sites.map((s) => s.file)).size} file(s)`)
   for (const verdict of ORDER) {
     const n = counts.get(verdict) ?? 0
     if (n === 0) continue
@@ -118,7 +118,7 @@ function verdictLine(inv: Inventory, counts: Map<string, number>): string {
   const judgment = counts.get('needs-judgment') ?? 0
   const translate = counts.get('translate') ?? 0
   return (
-    `VERDICT  ${inv.sites.length} site(s) — ${translate} to translate, ${judgment} for judgment, ` +
+    `VERDICT  ${inv.sites.length} string(s) — ${translate} to translate, ${judgment} for judgment, ` +
     `${unclassified} unclassified` +
     (unclassified || judgment ? '  (check will refuse)' : '')
   )
