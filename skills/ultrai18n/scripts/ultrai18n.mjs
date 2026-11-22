@@ -5,7 +5,7 @@ import { mkdirSync as mkdirSync10, writeFileSync as writeFileSync12 } from "fs";
 import { join as join46, resolve as resolve14 } from "path";
 
 // src/version.ts
-var VERSION = "1.4.2";
+var VERSION = "1.4.3";
 
 // src/census.ts
 import { spawnSync as spawnSync3 } from "child_process";

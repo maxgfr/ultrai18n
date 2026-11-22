@@ -1,3 +1,13 @@
+## [1.4.3](https://github.com/maxgfr/ultrai18n/compare/v1.4.2...v1.4.3) (2026-11-22)
+
+
+### Bug Fixes
+
+* **audit:** ignore quotes inside regex literals in the quoted-prose locator ([#18](https://github.com/maxgfr/ultrai18n/issues/18)) ([4bbba89](https://github.com/maxgfr/ultrai18n/commit/4bbba890bbdf2d2941f1611953f36703661e5d17))
+* **engine:** update shared engines and maintenance tool ([b687481](https://github.com/maxgfr/ultrai18n/commit/b68748132b81f7ee2f26e0d394c7a103c369ce96))
+* **engine:** update shared engines and maintenance tool ([bfb3ef3](https://github.com/maxgfr/ultrai18n/commit/bfb3ef34d929925531c3656370390cef5df2c033))
+* **engine:** update shared engines and maintenance tool ([a97584b](https://github.com/maxgfr/ultrai18n/commit/a97584bfc63c22dfc792dfe0e99c943bff2733d9))
+
 ## [1.4.2](https://github.com/maxgfr/ultrai18n/compare/v1.4.1...v1.4.2) (2026-11-15)
 
 
