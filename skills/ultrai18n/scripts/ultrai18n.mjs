@@ -45772,11 +45772,93 @@ var TWO_WORDS = new RegExp("\\p{L}{2,}[^\\p{L}\\n]{0,2}\\s\\p{L}{2,}", "u");
 var MD_CODE = /`[^`\n]*`/g;
 var MD_LINK_TARGET = /\]\([^)]*\)/g;
 var MD_AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g;
+var REGEX_AFTER_WORD2 = /* @__PURE__ */ new Set([
+  "return",
+  "typeof",
+  "instanceof",
+  "in",
+  "of",
+  "new",
+  "delete",
+  "void",
+  "throw",
+  "case",
+  "do",
+  "else",
+  "yield",
+  "await"
+]);
+function blankRegexLiterals(line2) {
+  let out2 = "";
+  let regexAllowed = true;
+  let i2 = 0;
+  const n = line2.length;
+  while (i2 < n) {
+    const c2 = line2[i2];
+    if (c2 === '"' || c2 === "'" || c2 === "`") {
+      let j = i2 + 1;
+      while (j < n && line2[j] !== c2) j += line2[j] === "\\" ? 2 : 1;
+      j = Math.min(j + 1, n);
+      out2 += line2.slice(i2, j);
+      i2 = j;
+      regexAllowed = false;
+      continue;
+    }
+    if (c2 === "/" && line2[i2 + 1] === "/") {
+      out2 += line2.slice(i2);
+      break;
+    }
+    if (c2 === "/" && line2[i2 + 1] === "*") {
+      const end = line2.indexOf("*/", i2 + 2);
+      const j = end === -1 ? n : end + 2;
+      out2 += line2.slice(i2, j);
+      i2 = j;
+      continue;
+    }
+    if (c2 === "/" && regexAllowed) {
+      const end = regexEnd(line2, i2);
+      if (end !== -1) {
+        out2 += "/" + " ".repeat(end - i2 - 1) + "/";
+        i2 = end + 1;
+        while (i2 < n && /[a-z]/i.test(line2[i2])) out2 += line2[i2++];
+        regexAllowed = false;
+        continue;
+      }
+    }
+    if (/[\p{L}\p{N}_$]/u.test(c2)) {
+      let j = i2 + 1;
+      while (j < n && /[\p{L}\p{N}_$]/u.test(line2[j])) j++;
+      const word = line2.slice(i2, j);
+      out2 += word;
+      regexAllowed = REGEX_AFTER_WORD2.has(word) && line2[i2 - 1] !== ".";
+      i2 = j;
+      continue;
+    }
+    out2 += c2;
+    if (!/\s/.test(c2)) {
+      regexAllowed = !(c2 === ")" || c2 === "]" || c2 === "<" || c2 === ">" && line2[i2 - 1] !== "=");
+    }
+    i2++;
+  }
+  return out2;
+}
+function regexEnd(line2, start2) {
+  let inClass = false;
+  for (let i2 = start2 + 1; i2 < line2.length; i2++) {
+    const c2 = line2[i2];
+    if (c2 === "\\") i2++;
+    else if (c2 === "[") inClass = true;
+    else if (c2 === "]") inClass = false;
+    else if (c2 === "/" && !inClass) return i2;
+  }
+  return -1;
+}
 var LOCATORS = [
   {
     id: "quoted-prose",
     extractors: ["ts-ast", "python-ast"],
     re: /(['"`])(?<text>(?:[^'"`\\\n]|\\.)*)\1/g,
+    blank: { extractors: ["ts-ast"], fn: blankRegexLiterals },
     why: "A quoted literal holding two or more words. This is where a code file keeps its copy, and an extractor claiming every byte has no excuse for one."
   },
   {
@@ -45902,7 +45984,7 @@ function auditCoverage(inv, repo) {
       linesChecked++;
       for (const row of rows) {
         if (row.not?.test(line2)) continue;
-        const hit = firstProse(row.re, maskFor(row, line2));
+        const hit = firstProse(row.re, maskFor(row, line2, extractor));
         if (hit === null) continue;
         findings.push({
           file: entry2.file,
@@ -45919,10 +46001,9 @@ function auditCoverage(inv, repo) {
   findings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
   return { audited, excused, linesChecked, findings, ok: findings.length === 0 };
 }
-function maskFor(row, line2) {
-  if (!row.mask) return line2;
-  let out2 = line2;
-  for (const re of row.mask) {
+function maskFor(row, line2, extractor) {
+  let out2 = row.blank?.extractors.includes(extractor) ? row.blank.fn(line2) : line2;
+  for (const re of row.mask ?? []) {
     out2 = out2.replace(new RegExp(re.source, re.flags), (m) => " ".repeat(m.length));
   }
   return out2;

@@ -63,6 +63,14 @@ export interface TextLocator {
    * one of them a line like `` - `npm test` ``.
    */
   mask?: RegExp[]
+  /**
+   * Blanked like `mask`, but by a function, and only for the extractors named.
+   *
+   * For a construct a pattern cannot delimit and only some of a row's formats
+   * have: a JavaScript regex literal is told from a division by the token
+   * before its slash, which is state, and Python has no regex literal at all.
+   */
+  blank?: { extractors: string[]; fn: (line: string) => string }
   /** Why a hit here is text. Required, and printed with every finding. */
   why: string
 }
@@ -71,6 +79,107 @@ export interface TextLocator {
 const MD_CODE = /`[^`\n]*`/g
 const MD_LINK_TARGET = /\]\([^)]*\)/g
 const MD_AUTOLINK = /<https?:\/\/[^>]+>|https?:\/\/\S+/g
+
+/** Words after which a JavaScript `/` begins an expression, so a regex literal. */
+const REGEX_AFTER_WORD = new Set([
+  'return', 'typeof', 'instanceof', 'in', 'of', 'new', 'delete', 'void', 'throw',
+  'case', 'do', 'else', 'yield', 'await',
+])
+
+/**
+ * Blank the BODY of every JavaScript regex literal on a line, preserving length.
+ *
+ * A regex literal is not copy — nothing a translator is handed lives in one —
+ * and the quotes inside it delimit nothing: `/content="noindex, nofollow"/` is a
+ * pattern matching an HTML attribute, and the `quoted-prose` row read it as a
+ * string. Worse, a lone quote in a pattern (`/"/`) paired with the next real
+ * string's opening quote, so the row reported the code between them as text.
+ *
+ * Whether a `/` opens a pattern or divides is the classic lexer question, and
+ * it is answered the classic way: by the last significant token before it. An
+ * operand — an identifier, a number, a string, `)` or `]` — means division;
+ * anything else, a keyword like `return`, or the start of the line means a
+ * pattern. This is a few lines of state on one line of text, not the
+ * extractor's grammar, so the oracle stays independent of what it audits.
+ *
+ * Every mistake it can make is in one direction. It only ever REMOVES bytes a
+ * row may read, and only between two slashes it closed on the same line, so a
+ * misread costs at worst a missed finding — never an accusation.
+ */
+export function blankRegexLiterals(line: string): string {
+  let out = ''
+  // What the last significant token allows a `/` to be.
+  let regexAllowed = true
+  let i = 0
+  const n = line.length
+  while (i < n) {
+    const c = line[i]!
+    if (c === '"' || c === "'" || c === '`') {
+      // A string is copied through untouched: a slash inside one is a path.
+      let j = i + 1
+      while (j < n && line[j] !== c) j += line[j] === '\\' ? 2 : 1
+      j = Math.min(j + 1, n)
+      out += line.slice(i, j)
+      i = j
+      regexAllowed = false
+      continue
+    }
+    if (c === '/' && line[i + 1] === '/') {
+      // A line comment: nothing after it is code.
+      out += line.slice(i)
+      break
+    }
+    if (c === '/' && line[i + 1] === '*') {
+      const end = line.indexOf('*/', i + 2)
+      const j = end === -1 ? n : end + 2
+      out += line.slice(i, j)
+      i = j
+      continue
+    }
+    if (c === '/' && regexAllowed) {
+      const end = regexEnd(line, i)
+      if (end !== -1) {
+        out += '/' + ' '.repeat(end - i - 1) + '/'
+        i = end + 1
+        while (i < n && /[a-z]/i.test(line[i]!)) out += line[i++]
+        regexAllowed = false
+        continue
+      }
+    }
+    if (/[\p{L}\p{N}_$]/u.test(c)) {
+      let j = i + 1
+      while (j < n && /[\p{L}\p{N}_$]/u.test(line[j]!)) j++
+      const word = line.slice(i, j)
+      out += word
+      // A property named like a keyword (`x.return`) is still an operand.
+      regexAllowed = REGEX_AFTER_WORD.has(word) && line[i - 1] !== '.'
+      i = j
+      continue
+    }
+    out += c
+    if (!/\s/.test(c)) {
+      // `)` and `]` close an operand. `<` and a `>` that is not `=>` are JSX
+      // here far more often than a comparison against a pattern, and `</p>`
+      // must not open one.
+      regexAllowed = !(c === ')' || c === ']' || c === '<' || (c === '>' && line[i - 1] !== '='))
+    }
+    i++
+  }
+  return out
+}
+
+/** The index of the slash closing the regex literal opened at `start`, or -1. */
+function regexEnd(line: string, start: number): number {
+  let inClass = false
+  for (let i = start + 1; i < line.length; i++) {
+    const c = line[i]!
+    if (c === '\\') i++
+    else if (c === '[') inClass = true
+    else if (c === ']') inClass = false
+    else if (c === '/' && !inClass) return i
+  }
+  return -1
+}
 
 /**
  * What a person reading each format would point at and call text.
@@ -84,6 +193,7 @@ export const LOCATORS: TextLocator[] = [
     id: 'quoted-prose',
     extractors: ['ts-ast', 'python-ast'],
     re: /(['"`])(?<text>(?:[^'"`\\\n]|\\.)*)\1/g,
+    blank: { extractors: ['ts-ast'], fn: blankRegexLiterals },
     why: 'A quoted literal holding two or more words. This is where a code file keeps its copy, and an extractor claiming every byte has no excuse for one.',
   },
   {
@@ -271,7 +381,7 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
 
       for (const row of rows) {
         if (row.not?.test(line)) continue
-        const hit = firstProse(row.re, maskFor(row, line))
+        const hit = firstProse(row.re, maskFor(row, line, extractor))
         if (hit === null) continue
         findings.push({
           file: entry.file,
@@ -296,10 +406,9 @@ export function auditCoverage(inv: Inventory, repo: string): AuditView {
  * Length-preserving so the reported text still lines up with the source, and so
  * a row's own regex sees the line at the offsets it actually has.
  */
-function maskFor(row: TextLocator, line: string): string {
-  if (!row.mask) return line
-  let out = line
-  for (const re of row.mask) {
+function maskFor(row: TextLocator, line: string, extractor: string): string {
+  let out = row.blank?.extractors.includes(extractor) ? row.blank.fn(line) : line
+  for (const re of row.mask ?? []) {
     out = out.replace(new RegExp(re.source, re.flags), (m) => ' '.repeat(m.length))
   }
   return out
