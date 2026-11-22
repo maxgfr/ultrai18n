@@ -13,6 +13,7 @@
 // (see inherit.ts) is what makes that refusal cheap instead of a wall of
 // unanswered sites.
 import type { LanguageGuess } from '../types'
+import { icuLiteralText } from '../plural/icu'
 
 export const SUPPORTED = [
   'en', 'fr', 'es', 'de', 'it', 'pt', 'nl', 'sv', 'da', 'pl', 'ro', 'tr', 'ru', 'ja',
@@ -155,9 +156,17 @@ export interface DetectOptions {
  * Detection runs on what a human reads, so identifiers, URLs, placeholders and
  * markup come out first. Leaving `task.title` in the input makes an English
  * signal out of a variable name.
+ *
+ * A message with braces is read as ICU MessageFormat first, keeping only its
+ * literal text. Its syntax is in English whatever the message's language:
+ * `other` is an English stopword and so is `where`, and read raw,
+ * `{gender, select, female {Kardiologin} other {Kardiologe}}` and
+ * `Sie suchten in „{where}“` both voted English, failing G4 on a correctly
+ * translated German catalog a hundred times over.
  */
 export function normalizeForDetection(value: string): string {
-  return value
+  const literal = value.includes('{') ? icuLiteralText(value) : null
+  return (literal ?? value)
     .normalize('NFC')
     .replace(/\{\d+\}/g, ' ')
     .replace(/\{\{[^}]*\}\}/g, ' ')

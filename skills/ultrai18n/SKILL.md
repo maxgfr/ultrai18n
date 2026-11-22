@@ -307,7 +307,9 @@ sequential path is cheaper.
   exception and earns it: a select expression is rewritten in place, because en→ru turns two variants
   into four inside a single value and no delimiter join can do that. gettext and Qt keep the source's
   arity (they are `cldr: false`), so every form already exists and is replaced at its own byte
-  offset.
+  offset. An ICU plural inside a sentence is offered as whole sentences — the surrounding words
+  move into each branch, `=N` exact matches included and translated — unless a second top-level
+  argument or a literal `#` would make that move change the message.
 - **A dialect cannot invent a reader, so the readers were written.** gettext `.po`/`.pot`, Fluent
   `.ftl`, Apple `.stringsdict` and Qt's `.ts` are read, and each is claimed by a cited row. The
   principle stands and is why they had to be built: a row cannot claim what was never parsed, so a

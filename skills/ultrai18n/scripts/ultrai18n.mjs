@@ -36972,6 +36972,265 @@ function charIndexOfByte(text, byte) {
 import { readFileSync as readFileSync23 } from "fs";
 import { join as join33 } from "path";
 
+// src/plural/categories.ts
+var CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
+var CATEGORY_SET = new Set(CATEGORIES);
+function isCategory(s) {
+  return CATEGORY_SET.has(s);
+}
+
+// src/plural/icu.ts
+var ARG_TYPES = /* @__PURE__ */ new Set(["plural", "selectordinal", "select"]);
+function looksLikeIcu(text) {
+  return /\{\s*[\w.]+\s*,\s*(?:plural|selectordinal|select)\s*,/.test(text);
+}
+function scanIcu(text) {
+  const args2 = [];
+  const placeholders = [];
+  let ok = true;
+  const visit = (from, to, depth) => {
+    let i2 = from;
+    while (i2 < to) {
+      const ch = text[i2];
+      if (ch === "'") {
+        i2 = skipQuote(text, i2);
+        continue;
+      }
+      if (ch !== "{") {
+        i2++;
+        continue;
+      }
+      const close = matchBrace2(text, i2);
+      if (close === -1 || close > to) {
+        ok = false;
+        return;
+      }
+      const parsed2 = parseArgument(text, i2, close, depth);
+      if (parsed2) {
+        args2.push(parsed2);
+        for (const branch of parsed2.branches) visit(branch.start, branch.end, depth + 1);
+      } else {
+        const inner = text.slice(i2 + 1, close).trim();
+        if (inner) placeholders.push(inner.split(",")[0].trim());
+      }
+      i2 = close + 1;
+    }
+  };
+  visit(0, text.length, 0);
+  return { arguments: args2, placeholders, ok };
+}
+function parseArgument(text, open, close, depth) {
+  const firstComma = findAtTopLevel(text, open + 1, close, ",");
+  if (firstComma === -1) return null;
+  const secondComma = findAtTopLevel(text, firstComma + 1, close, ",");
+  if (secondComma === -1) return null;
+  const name2 = text.slice(open + 1, firstComma).trim();
+  const type = text.slice(firstComma + 1, secondComma).trim();
+  if (!ARG_TYPES.has(type)) return null;
+  if (!/^[\w.$-]+$/.test(name2)) return null;
+  const { offset, branches: branches2 } = parseBranches(text, secondComma + 1, close);
+  if (branches2.length === 0) return null;
+  return { start: open, end: close + 1, name: name2, type, offset, branches: branches2, depth };
+}
+function parseBranches(text, from, to) {
+  const branches2 = [];
+  let offset = null;
+  let i2 = from;
+  while (i2 < to) {
+    while (i2 < to && /\s/.test(text[i2])) i2++;
+    if (i2 >= to) break;
+    const off = /^offset:\s*(-?\d+)/.exec(text.slice(i2, to));
+    if (off && branches2.length === 0) {
+      offset = Number(off[1]);
+      i2 += off[0].length;
+      continue;
+    }
+    const selectorStart = i2;
+    while (i2 < to && !/[\s{]/.test(text[i2])) i2++;
+    const selector = text.slice(selectorStart, i2).trim();
+    if (!selector) break;
+    while (i2 < to && /\s/.test(text[i2])) i2++;
+    if (text[i2] !== "{") break;
+    const close = matchBrace2(text, i2);
+    if (close === -1 || close >= to) break;
+    branches2.push({
+      selector,
+      category: isCategory(selector) ? selector : null,
+      start: i2 + 1,
+      end: close,
+      body: text.slice(i2 + 1, close)
+    });
+    i2 = close + 1;
+  }
+  return { offset, branches: branches2 };
+}
+function matchBrace2(text, open) {
+  let depth = 0;
+  let i2 = open;
+  while (i2 < text.length) {
+    const ch = text[i2];
+    if (ch === "'") {
+      i2 = skipQuote(text, i2);
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth === 0) return i2;
+    }
+    i2++;
+  }
+  return -1;
+}
+function skipQuote(text, at) {
+  if (text[at + 1] === "'") return at + 2;
+  const next = text[at + 1];
+  if (next !== "{" && next !== "}" && next !== "#" && next !== "|") return at + 1;
+  let i2 = at + 2;
+  while (i2 < text.length) {
+    if (text[i2] === "'") {
+      if (text[i2 + 1] === "'") {
+        i2 += 2;
+        continue;
+      }
+      return i2 + 1;
+    }
+    i2++;
+  }
+  return text.length;
+}
+function findAtTopLevel(text, from, to, char) {
+  let depth = 0;
+  let i2 = from;
+  while (i2 < to) {
+    const ch = text[i2];
+    if (ch === "'") {
+      i2 = skipQuote(text, i2);
+      continue;
+    }
+    if (ch === "{") depth++;
+    else if (ch === "}") depth--;
+    else if (ch === char && depth === 0) return i2;
+    i2++;
+  }
+  return -1;
+}
+function icuLiteralText(text) {
+  if (!scanIcu(text).ok) return null;
+  const out2 = [];
+  const visit = (from, to, inPlural) => {
+    let i2 = from;
+    while (i2 < to) {
+      const ch = text[i2];
+      if (ch === "'") {
+        const end = Math.min(skipQuote(text, i2), to);
+        out2.push(unquote5(text.slice(i2, end)));
+        i2 = end;
+        continue;
+      }
+      if (ch === "#" && inPlural) {
+        out2.push(" ");
+        i2++;
+        continue;
+      }
+      if (ch !== "{") {
+        out2.push(ch);
+        i2++;
+        continue;
+      }
+      const close = matchBrace2(text, i2);
+      if (close === -1 || close >= to) break;
+      const parsed2 = parseArgument(text, i2, close, 0);
+      out2.push(" ");
+      if (parsed2) {
+        for (const branch of parsed2.branches) {
+          visit(branch.start, branch.end, parsed2.type !== "select");
+          out2.push(" ");
+        }
+      }
+      i2 = close + 1;
+    }
+  };
+  visit(0, text.length, false);
+  return out2.join("");
+}
+function unquote5(quoted) {
+  if (quoted === "''") return "'";
+  if (quoted.length > 1 && quoted.startsWith("'")) {
+    const body2 = quoted.endsWith("'") ? quoted.slice(1, -1) : quoted.slice(1);
+    return body2.replace(/''/g, "'");
+  }
+  return quoted;
+}
+function renderedArguments(text) {
+  const scan3 = scanIcu(text);
+  if (!scan3.ok) return null;
+  const out2 = new Set(scan3.placeholders.map((p) => `{${p}}`));
+  for (const argument of scan3.arguments) {
+    if (argument.type === "select") continue;
+    if (argument.branches.some((b) => hasHash(b.body))) out2.add(`{${argument.name}}`);
+  }
+  return out2;
+}
+function hasHash(body2) {
+  let i2 = 0;
+  while (i2 < body2.length) {
+    const ch = body2[i2];
+    if (ch === "'") {
+      i2 = skipQuote(body2, i2);
+      continue;
+    }
+    if (ch === "{") {
+      const close = matchBrace2(body2, i2);
+      if (close === -1) return false;
+      const nested = parseArgument(body2, i2, close, 0);
+      if (nested?.type === "select" && nested.branches.some((b) => hasHash(b.body))) return true;
+      i2 = close + 1;
+      continue;
+    }
+    if (ch === "#") return true;
+    i2++;
+  }
+  return false;
+}
+function sentenceAround(text, argument, scan3 = scanIcu(text)) {
+  if (!scan3.ok || argument.depth !== 0) return null;
+  if (scan3.arguments.some((a) => a.depth === 0 && a.start !== argument.start)) return null;
+  const prefix = text.slice(0, argument.start);
+  const suffix = text.slice(argument.end);
+  if (!(prefix + suffix).trim()) return null;
+  if ((prefix + suffix).includes("#")) return null;
+  return { prefix, suffix };
+}
+function argumentFor(scan3, base) {
+  const at = /@(\d+)$/.exec(base);
+  return at ? scan3.arguments.find((a) => a.start === Number(at[1])) : scan3.arguments.find((a) => a.type !== "select");
+}
+function icuSentence(text, base) {
+  const scan3 = scanIcu(text);
+  if (!scan3.ok) return null;
+  const argument = argumentFor(scan3, base);
+  if (!argument) return null;
+  const around = sentenceAround(text, argument, scan3);
+  return around ? { argument, ...around } : null;
+}
+function serializeArgument(arg, bodies, order) {
+  const exact = Object.keys(bodies).filter((s) => s.startsWith("="));
+  exact.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  const rest = order ? order.filter((s) => !s.startsWith("=") && bodies[s] !== void 0) : Object.keys(bodies).filter((s) => !s.startsWith("="));
+  const selectors = [...exact, ...rest];
+  const head = `{${arg.name}, ${arg.type}, ${arg.offset !== null ? `offset:${arg.offset} ` : ""}`;
+  return head + selectors.map((s) => `${s} {${bodies[s] ?? ""}}`).join(" ") + "}";
+}
+function splice(text, edits) {
+  const ordered2 = [...edits].sort((a, b) => b.start - a.start);
+  let out2 = text;
+  for (const edit of ordered2) {
+    out2 = out2.slice(0, edit.start) + edit.text + out2.slice(edit.end);
+  }
+  return out2;
+}
+
 // src/lang/detect.ts
 var SUPPORTED = [
   "en",
@@ -37608,7 +37867,8 @@ var SCRIPTS = [
   { lang: "ja", re: /[\p{Script=Hiragana}\p{Script=Katakana}]/u }
 ];
 function normalizeForDetection(value) {
-  return value.normalize("NFC").replace(/\{\d+\}/g, " ").replace(/\{\{[^}]*\}\}/g, " ").replace(/%[sd@]|%\d+\$[sd@]/g, " ").replace(/https?:\/\/\S+|\b[\w.-]+\/[\w./-]+/g, " ").replace(/`[^`]*`/g, " ").replace(/<[^>]+>/g, " ").replace(/\b[a-z]+[A-Z]\w*/g, " ").replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, " ").replace(/\b\w+[_-]\w+\b/g, " ").replace(/\b\w+(?:\.\w+)+\b/g, " ").replace(/\d+/g, " ").replace(/\s+/g, " ").trim();
+  const literal2 = value.includes("{") ? icuLiteralText(value) : null;
+  return (literal2 ?? value).normalize("NFC").replace(/\{\d+\}/g, " ").replace(/\{\{[^}]*\}\}/g, " ").replace(/%[sd@]|%\d+\$[sd@]/g, " ").replace(/https?:\/\/\S+|\b[\w.-]+\/[\w./-]+/g, " ").replace(/`[^`]*`/g, " ").replace(/<[^>]+>/g, " ").replace(/\b[a-z]+[A-Z]\w*/g, " ").replace(/\b[A-Z][A-Z0-9_]{2,}\b/g, " ").replace(/\b\w+[_-]\w+\b/g, " ").replace(/\b\w+(?:\.\w+)+\b/g, " ").replace(/\d+/g, " ").replace(/\s+/g, " ").trim();
 }
 function letterCount(normalized) {
   return (normalized.match(new RegExp("\\p{L}", "gu")) ?? []).length;
@@ -39065,11 +39325,6 @@ function harmoniseBranches(pairs) {
 }
 
 // src/plural/cldr.ts
-var CATEGORIES = ["zero", "one", "two", "few", "many", "other"];
-var CATEGORY_SET = new Set(CATEGORIES);
-function isCategory(s) {
-  return CATEGORY_SET.has(s);
-}
 function sortCategories(cats) {
   const seen = new Set(cats);
   return CATEGORIES.filter((c2) => seen.has(c2));
@@ -39601,159 +39856,6 @@ function detectFluent(sites, dialect, ctx) {
         fluent: { siteId: site3.id, select: select2 }
       });
     }
-  }
-  return out2;
-}
-
-// src/plural/icu.ts
-var ARG_TYPES = /* @__PURE__ */ new Set(["plural", "selectordinal", "select"]);
-function looksLikeIcu(text) {
-  return /\{\s*[\w.]+\s*,\s*(?:plural|selectordinal|select)\s*,/.test(text);
-}
-function scanIcu(text) {
-  const args2 = [];
-  const placeholders = [];
-  let ok = true;
-  const visit = (from, to, depth) => {
-    let i2 = from;
-    while (i2 < to) {
-      const ch = text[i2];
-      if (ch === "'") {
-        i2 = skipQuote(text, i2);
-        continue;
-      }
-      if (ch !== "{") {
-        i2++;
-        continue;
-      }
-      const close = matchBrace2(text, i2);
-      if (close === -1 || close > to) {
-        ok = false;
-        return;
-      }
-      const parsed2 = parseArgument(text, i2, close, depth);
-      if (parsed2) {
-        args2.push(parsed2);
-        for (const branch of parsed2.branches) visit(branch.start, branch.end, depth + 1);
-      } else {
-        const inner = text.slice(i2 + 1, close).trim();
-        if (inner) placeholders.push(inner.split(",")[0].trim());
-      }
-      i2 = close + 1;
-    }
-  };
-  visit(0, text.length, 0);
-  return { arguments: args2, placeholders, ok };
-}
-function parseArgument(text, open, close, depth) {
-  const firstComma = findAtTopLevel(text, open + 1, close, ",");
-  if (firstComma === -1) return null;
-  const secondComma = findAtTopLevel(text, firstComma + 1, close, ",");
-  if (secondComma === -1) return null;
-  const name2 = text.slice(open + 1, firstComma).trim();
-  const type = text.slice(firstComma + 1, secondComma).trim();
-  if (!ARG_TYPES.has(type)) return null;
-  if (!/^[\w.$-]+$/.test(name2)) return null;
-  const { offset, branches: branches2 } = parseBranches(text, secondComma + 1, close);
-  if (branches2.length === 0) return null;
-  return { start: open, end: close + 1, name: name2, type, offset, branches: branches2, depth };
-}
-function parseBranches(text, from, to) {
-  const branches2 = [];
-  let offset = null;
-  let i2 = from;
-  while (i2 < to) {
-    while (i2 < to && /\s/.test(text[i2])) i2++;
-    if (i2 >= to) break;
-    const off = /^offset:\s*(-?\d+)/.exec(text.slice(i2, to));
-    if (off && branches2.length === 0) {
-      offset = Number(off[1]);
-      i2 += off[0].length;
-      continue;
-    }
-    const selectorStart = i2;
-    while (i2 < to && !/[\s{]/.test(text[i2])) i2++;
-    const selector = text.slice(selectorStart, i2).trim();
-    if (!selector) break;
-    while (i2 < to && /\s/.test(text[i2])) i2++;
-    if (text[i2] !== "{") break;
-    const close = matchBrace2(text, i2);
-    if (close === -1 || close >= to) break;
-    branches2.push({
-      selector,
-      category: isCategory(selector) ? selector : null,
-      start: i2 + 1,
-      end: close,
-      body: text.slice(i2 + 1, close)
-    });
-    i2 = close + 1;
-  }
-  return { offset, branches: branches2 };
-}
-function matchBrace2(text, open) {
-  let depth = 0;
-  let i2 = open;
-  while (i2 < text.length) {
-    const ch = text[i2];
-    if (ch === "'") {
-      i2 = skipQuote(text, i2);
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") {
-      depth--;
-      if (depth === 0) return i2;
-    }
-    i2++;
-  }
-  return -1;
-}
-function skipQuote(text, at) {
-  if (text[at + 1] === "'") return at + 2;
-  const next = text[at + 1];
-  if (next !== "{" && next !== "}" && next !== "#" && next !== "|") return at + 1;
-  let i2 = at + 2;
-  while (i2 < text.length) {
-    if (text[i2] === "'") {
-      if (text[i2 + 1] === "'") {
-        i2 += 2;
-        continue;
-      }
-      return i2 + 1;
-    }
-    i2++;
-  }
-  return text.length;
-}
-function findAtTopLevel(text, from, to, char) {
-  let depth = 0;
-  let i2 = from;
-  while (i2 < to) {
-    const ch = text[i2];
-    if (ch === "'") {
-      i2 = skipQuote(text, i2);
-      continue;
-    }
-    if (ch === "{") depth++;
-    else if (ch === "}") depth--;
-    else if (ch === char && depth === 0) return i2;
-    i2++;
-  }
-  return -1;
-}
-function serializeArgument(arg, bodies, order) {
-  const exact = Object.keys(bodies).filter((s) => s.startsWith("="));
-  exact.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-  const rest = order ? order.filter((s) => !s.startsWith("=") && bodies[s] !== void 0) : Object.keys(bodies).filter((s) => !s.startsWith("="));
-  const selectors = [...exact, ...rest];
-  const head = `{${arg.name}, ${arg.type}, ${arg.offset !== null ? `offset:${arg.offset} ` : ""}`;
-  return head + selectors.map((s) => `${s} {${bodies[s] ?? ""}}`).join(" ") + "}";
-}
-function splice(text, edits) {
-  const ordered2 = [...edits].sort((a, b) => b.start - a.start);
-  let out2 = text;
-  for (const edit of ordered2) {
-    out2 = out2.slice(0, edit.start) + edit.text + out2.slice(edit.end);
   }
   return out2;
 }
@@ -42149,9 +42251,14 @@ function pluralGroup(family, targetLang, sourceLang, sourceForms, bySiteId) {
   const translatable = sites.some((s) => s.verdict === "translate");
   if (!translatable && family.declaredBy !== "annotation") return null;
   const targetCategories = family.targetRequired ?? family.sourceCategories;
+  const read2 = {};
+  for (const form of family.forms) read2[form.category] = form.value;
+  const frame = family.primitive === "icu" && family.writeMode === "replace" && sites[0] ? icuSentence(sites[0].value, family.base) : null;
+  const whole = (body2) => frame ? frame.prefix + body2 + frame.suffix : body2;
   const forms = {};
-  for (const form of family.forms) forms[form.category] = form.value;
-  const seeded = sourceForms.has(formsKey(forms)) || sites.some((s) => sourceLang !== null && s.lang?.detected === sourceLang);
+  for (const [category, body2] of Object.entries(read2)) forms[category] = whole(body2);
+  const exact = family.exact.map((e) => ({ selector: e.selector, value: whole(e.value) }));
+  const seeded = sourceForms.has(formsKey(read2)) || sites.some((s) => sourceLang !== null && s.lang?.detected === sourceLang);
   const op = family.locale === targetLang && !seeded ? "complete" : "translate";
   const canonical = forms.other ?? family.forms[0]?.value ?? "";
   const group = {
@@ -42174,8 +42281,8 @@ function pluralGroup(family, targetLang, sourceLang, sourceForms, bySiteId) {
       forms,
       sourceCategories: family.sourceCategories,
       targetCategories,
-      exact: family.exact,
-      placeholders: placeholdersIn(Object.values(forms))
+      exact,
+      placeholders: placeholdersIn([...Object.values(forms), ...exact.map((e) => e.value)])
     }
   };
   if (family.writeMode === "code-edit") {
@@ -43060,7 +43167,8 @@ function buildBatches(groups, opts) {
           op: g.plural.op,
           forms: g.plural.forms,
           targetCategories: g.plural.targetCategories,
-          placeholders: g.plural.placeholders
+          placeholders: g.plural.placeholders,
+          ...g.plural.exact.length ? { exact: Object.fromEntries(g.plural.exact.map((e) => [e.selector, e.value])) } : {}
         }
       } : {}
     }));
@@ -43141,7 +43249,7 @@ function foldResults(results, opts) {
         }
         const violations2 = validatePlural(
           forms,
-          group.plural.targetCategories,
+          [...group.plural.targetCategories, ...(group.plural.exact ?? []).map((e) => e.selector)],
           group.plural.placeholders
         );
         const entry2 = { groupId: item.id, text: forms.other ?? Object.values(forms)[0] ?? "", forms, violations: violations2 };
@@ -43273,12 +43381,19 @@ ids, nothing else.
 These are plural FAMILIES. Answer with \`{id, forms: {...}}\` \u2014 never \`text\`.
 
 - \`plural.forms\` is what the source has, keyed by CLDR category.
-- \`plural.targetCategories\` is exactly the set of keys your answer must have.
+- \`plural.targetCategories\` is exactly the set of keys your answer must have,
+  plus every key of \`plural.exact\` when there is one.
   Not a subset, not a superset. It is often a different SIZE from the source:
   English has two forms and Russian needs four, Japanese needs one. Write each
   form so it is correct for the numbers that category actually covers \u2014 Russian
   \`few\` covers 2\u20134, \`many\` covers 0 and 5\u201320. Do not copy one form into the
   others to fill the shape.
+- \`plural.exact\`, when present, holds the source's exact-number branches by
+  selector: \`=0\` is the text for exactly zero, \`=1\` for exactly one. Translate
+  each and return it in \`forms\` under the same selector, \`"=0"\` included.
+- A form may be a whole sentence with the count inside it. Translate the whole
+  sentence; word order is yours to choose, the placeholders' positions are not
+  fixed.
 - \`plural.op\` is \`translate\` when you are moving the family into another
   language, and \`complete\` when the family is already in the target language and
   is missing forms that language needs. For \`complete\`, keep the existing forms
@@ -43828,19 +43943,18 @@ function rebuildParts(family, forms, target) {
 function rebuildIcu(value, family, forms, target) {
   const scan3 = scanIcu(value);
   if (!scan3.ok) return null;
-  const at = /@(\d+)$/.exec(family.base);
-  const argument = at ? scan3.arguments.find((a) => a.start === Number(at[1])) : scan3.arguments.find((a) => a.type !== "select");
+  const argument = argumentFor(scan3, family.base);
   if (!argument) return null;
   const bodies = {};
   for (const branch of argument.branches) {
-    if (branch.selector.startsWith("=")) bodies[branch.selector] = branch.body;
+    if (branch.selector.startsWith("=")) bodies[branch.selector] = forms[branch.selector] ?? branch.body;
   }
   for (const category of target) {
     if (forms[category] !== void 0) bodies[category] = forms[category];
   }
-  return splice(value, [
-    { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) }
-  ]);
+  const rebuilt = serializeArgument(argument, bodies, [...target]);
+  if (sentenceAround(value, argument, scan3)) return rebuilt;
+  return splice(value, [{ start: argument.start, end: argument.end, text: rebuilt }]);
 }
 function rebuildFluent(value, family, forms, target) {
   const scan3 = scanFluentPattern(value);
@@ -45305,6 +45419,7 @@ function countOf(value) {
 import { existsSync as existsSync25, readFileSync as readFileSync34 } from "fs";
 import "path";
 var HOLE2 = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g;
+var PRINTF = /%[sd@]/g;
 function sync(opts) {
   const sourceLocale = opts.sourceLocale ?? opts.inventory.targetLanguage;
   const state = readState(opts.statePath);
@@ -45473,9 +45588,14 @@ function sortFindings(findings) {
   );
 }
 function holeSet(text) {
-  const out2 = /* @__PURE__ */ new Set();
-  for (const m of text.matchAll(HOLE2)) out2.add(m[0]);
-  return out2;
+  const icu = text.includes("{") ? renderedArguments(text) : /* @__PURE__ */ new Set();
+  if (icu === null) {
+    const out2 = /* @__PURE__ */ new Set();
+    for (const m of text.matchAll(HOLE2)) out2.add(m[0]);
+    return out2;
+  }
+  for (const m of text.matchAll(PRINTF)) icu.add(m[0]);
+  return icu;
 }
 function sameSet(a, b) {
   if (a.size !== b.size) return false;
@@ -45899,7 +46019,7 @@ var LOCATORS = [
   },
   {
     id: "comment",
-    extractors: ["ts-ast", "python-ast", "shell-ast", "css", "sql", "dockerfile", "json", "yaml"],
+    extractors: ["ts-ast", "python-ast", "css", "sql", "dockerfile", "json", "yaml"],
     // Anchored at the start of the line, and `--` must be followed by a space.
     // Unanchored, a regex literal holding `\/\/` read as a comment marker and a
     // CSS custom property `--color-ink-950` read as a SQL comment. A TRAILING
@@ -45909,6 +46029,16 @@ var LOCATORS = [
     re: /^\s*(?:\/\/+|#+|--\s|\/\*)\s*(.+?)(?:\*\/)?\s*$/,
     not: /^\s*#!|shellcheck|eslint-|prettier-|@ts-|noqa|pylint|type:\s|https?:\/\//,
     why: "A comment on its own line. The file of comments nobody opened is the classic residue of a translation pass, and four French ones in a stylesheet survived two separate human passes on the reference repository."
+  },
+  {
+    // Its own row because `--` is not a comment in sh: on a line of its own it
+    // is the body of a heredoc (SQL fed to `psql`) or an argument, and the shell
+    // reader emits neither. Heredoc bodies are skipped before any row runs.
+    id: "shell-comment",
+    extractors: ["shell-ast"],
+    re: /^\s*#+\s*(.+?)\s*$/,
+    not: /^\s*#!|shellcheck|shfmt|https?:\/\//,
+    why: "A shell comment on its own line. In an install or init script these are the instructions written for a person, and the only text the shell reader emits."
   },
   {
     // Its own row because `#` starts an attribute in Rust, and the `comment` row
@@ -45972,8 +46102,10 @@ function auditCoverage(inv, repo) {
     const covered = coveredLines(sitesByFile.get(entry2.file) ?? []);
     const lines = text.split("\n");
     let inFence = false;
+    const heredoc = extractor === "shell-ast" ? heredocLines(lines) : null;
     for (let i2 = 0; i2 < lines.length; i2++) {
       const line2 = lines[i2];
+      if (heredoc?.has(i2)) continue;
       if (/^\s*(```|~~~)/.test(line2)) {
         inFence = !inFence;
         continue;
@@ -46000,6 +46132,30 @@ function auditCoverage(inv, repo) {
   }
   findings.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
   return { audited, excused, linesChecked, findings, ok: findings.length === 0 };
+}
+function heredocLines(lines) {
+  const out2 = /* @__PURE__ */ new Set();
+  const opener = /(?<!<)<<(-?)\s*(?:'([^'\n]+)'|"([^"\n]+)"|\\?([A-Za-z_][\w-]*))/g;
+  let i2 = 0;
+  while (i2 < lines.length) {
+    const line2 = lines[i2];
+    const code = line2.replace(/(^|\s)#.*$/, "$1");
+    const pending = [];
+    for (const m of code.matchAll(opener)) {
+      if (code[m.index + 2] === "<") continue;
+      pending.push({ word: m[2] ?? m[3] ?? m[4], tabs: m[1] === "-" });
+    }
+    i2++;
+    for (const { word, tabs } of pending) {
+      while (i2 < lines.length) {
+        const body2 = lines[i2];
+        out2.add(i2);
+        i2++;
+        if ((tabs ? body2.replace(/^\t+/, "") : body2) === word) break;
+      }
+    }
+  }
+  return out2;
 }
 function maskFor(row, line2, extractor) {
   let out2 = row.blank?.extractors.includes(extractor) ? row.blank.fn(line2) : line2;

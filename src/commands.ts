@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { Inventory, Site } from './types'
 import { plan as buildPlan, type Group, type Plan } from './plan'
 import {
-  keyForCategory, scanIcu, serializeArgument, splice, type PluralFamily,
+  keyForCategory, scanIcu, serializeArgument, splice, argumentFor, sentenceAround, type PluralFamily,
 } from './plural'
 import { scanFluentPattern, serializeSelect } from './plural/fluent'
 import {
@@ -535,7 +535,14 @@ function rebuildParts(
   return parts.length ? parts.join(family.join ?? '|') : null
 }
 
-/** Rebuild an ICU message with the target's branches in place of the source's. */
+/**
+ * Rebuild an ICU message with the target's branches in place of the source's.
+ *
+ * Every `=N` exact match is kept, translated when the answer carries its
+ * selector. When the plan offered whole sentences — the words around the
+ * argument moved into each branch, see `sentenceAround` — the rebuilt argument
+ * IS the message; otherwise it replaces the argument's span.
+ */
 function rebuildIcu(
   value: string,
   family: PluralFamily,
@@ -544,25 +551,20 @@ function rebuildIcu(
 ): string | null {
   const scan = scanIcu(value)
   if (!scan.ok) return null
-  const at = /@(\d+)$/.exec(family.base)
-  const argument = at
-    ? scan.arguments.find((a) => a.start === Number(at[1]))
-    : scan.arguments.find((a) => a.type !== 'select')
+  const argument = argumentFor(scan, family.base)
   if (!argument) return null
 
   const bodies: Record<string, string> = {}
   for (const branch of argument.branches) {
-    // `=0` and friends are exact matches the engine never asked anyone to
-    // rewrite; they ride through unchanged.
-    if (branch.selector.startsWith('=')) bodies[branch.selector] = branch.body
+    if (branch.selector.startsWith('=')) bodies[branch.selector] = forms[branch.selector] ?? branch.body
   }
   for (const category of target) {
     if (forms[category] !== undefined) bodies[category] = forms[category]!
   }
 
-  return splice(value, [
-    { start: argument.start, end: argument.end, text: serializeArgument(argument, bodies, [...target]) },
-  ])
+  const rebuilt = serializeArgument(argument, bodies, [...target])
+  if (sentenceAround(value, argument, scan)) return rebuilt
+  return splice(value, [{ start: argument.start, end: argument.end, text: rebuilt }])
 }
 
 /**

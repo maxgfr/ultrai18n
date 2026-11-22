@@ -6,6 +6,9 @@ import {
   splice,
   branchPlaceholders,
   matchBrace,
+  icuLiteralText,
+  renderedArguments,
+  sentenceAround,
 } from '../src/plural/icu'
 
 const SIMPLE = '{count, plural, one {# élément} other {# éléments}}'
@@ -160,5 +163,57 @@ describe('branch placeholders', () => {
 
   it('does not count a quoted #', () => {
     expect(branchPlaceholders("a '#' sign")).toEqual([])
+  })
+})
+
+describe('what a reader sees', () => {
+  it('keeps branch bodies and drops names, keywords, selectors and #', () => {
+    const text = icuLiteralText('{gender, select, female {Ärztin} other {Arzt}} für {count, plural, =0 {niemand} other {# Fälle}}')!
+    expect(text.split(/\s+/).filter(Boolean)).toEqual(['Ärztin', 'Arzt', 'für', 'niemand', 'Fälle'])
+  })
+
+  it('unquotes ICU literals and leaves a lone apostrophe alone', () => {
+    expect(icuLiteralText("l'élément '{x}' n''a rien")).toBe("l'élément {x} n'a rien")
+  })
+
+  it('answers null on unbalanced braces', () => {
+    expect(icuLiteralText('{count, plural, one {# x}')).toBeNull()
+  })
+})
+
+describe('the values a message renders', () => {
+  const holes = (t: string) => [...renderedArguments(t)!].sort()
+
+  it('never reads a branch body as a placeholder', () => {
+    expect(holes('{gender, select, female {Ärztin} male {Arzt} other {Arzt}}')).toEqual([])
+  })
+
+  it('counts a plural by its #, through a nested select', () => {
+    expect(holes('{n, plural, one {# item} other {# items}}')).toEqual(['{n}'])
+    expect(holes('{n, plural, other {{g, select, female {# Ärztinnen} other {# Ärzte}}}}')).toEqual(['{n}'])
+    expect(holes('{n, plural, one {one item} other {some items}}')).toEqual([])
+  })
+
+  it('reads simple and formatted arguments, in branches too', () => {
+    expect(holes('{n, plural, other {# in {place}}} on {day, date, short}')).toEqual(['{day}', '{n}', '{place}'])
+  })
+})
+
+describe('moving the words around a plural into its branches', () => {
+  const around = (t: string) => sentenceAround(t, scanIcu(t).arguments[0]!)
+
+  it('returns the words on either side', () => {
+    expect(around('Found {n, plural, one {# file} other {# files}} here.')).toEqual({ prefix: 'Found ', suffix: ' here.' })
+  })
+
+  it('declines when there is nothing to move', () => {
+    expect(around('{n, plural, one {# file} other {# files}}')).toBeNull()
+  })
+
+  it('declines when the move would change the message', () => {
+    // `#` is literal outside a plural and the number inside one.
+    expect(around('Ticket #{id}: {n, plural, one {# reply} other {# replies}}')).toBeNull()
+    // A second argument at the top level would land inside every branch.
+    expect(around('{n, plural, one {# file} other {# files}} by {g, select, female {her} other {him}}')).toBeNull()
   })
 })

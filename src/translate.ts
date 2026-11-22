@@ -38,6 +38,8 @@ export interface BatchItem {
     forms: Record<string, string>
     targetCategories: string[]
     placeholders: string[]
+    /** `=N` exact matches by selector; each comes back in `forms` under its own selector. */
+    exact?: Record<string, string>
   }
 }
 
@@ -90,6 +92,9 @@ export function buildBatches(groups: Group[], opts: BuildBatchesOptions): Batch[
               forms: g.plural.forms,
               targetCategories: g.plural.targetCategories,
               placeholders: g.plural.placeholders,
+              ...(g.plural.exact.length
+                ? { exact: Object.fromEntries(g.plural.exact.map((e) => [e.selector, e.value])) }
+                : {}),
             },
           }
         : {}),
@@ -218,9 +223,11 @@ export function foldResults(results: BatchResult[], opts: FoldOptions): FoldRepo
           })
           continue
         }
+        // Every exact match the source has comes back translated, under its own
+        // selector, or the written message keeps it in the source language.
         const violations = validatePlural(
           forms,
-          group.plural.targetCategories,
+          [...group.plural.targetCategories, ...(group.plural.exact ?? []).map((e) => e.selector)],
           group.plural.placeholders,
         )
         const entry = { groupId: item.id, text: forms.other ?? Object.values(forms)[0] ?? '', forms, violations }
@@ -404,12 +411,19 @@ ids, nothing else.
 These are plural FAMILIES. Answer with \`{id, forms: {...}}\` — never \`text\`.
 
 - \`plural.forms\` is what the source has, keyed by CLDR category.
-- \`plural.targetCategories\` is exactly the set of keys your answer must have.
+- \`plural.targetCategories\` is exactly the set of keys your answer must have,
+  plus every key of \`plural.exact\` when there is one.
   Not a subset, not a superset. It is often a different SIZE from the source:
   English has two forms and Russian needs four, Japanese needs one. Write each
   form so it is correct for the numbers that category actually covers — Russian
   \`few\` covers 2–4, \`many\` covers 0 and 5–20. Do not copy one form into the
   others to fill the shape.
+- \`plural.exact\`, when present, holds the source's exact-number branches by
+  selector: \`=0\` is the text for exactly zero, \`=1\` for exactly one. Translate
+  each and return it in \`forms\` under the same selector, \`"=0"\` included.
+- A form may be a whole sentence with the count inside it. Translate the whole
+  sentence; word order is yours to choose, the placeholders' positions are not
+  fixed.
 - \`plural.op\` is \`translate\` when you are moving the family into another
   language, and \`complete\` when the family is already in the target language and
   is missing forms that language needs. For \`complete\`, keep the existing forms

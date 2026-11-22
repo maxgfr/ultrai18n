@@ -13,7 +13,7 @@ import { join } from 'node:path'
 import { sha256 } from './identity'
 import type { Inventory, Site } from './types'
 import { fileLocale } from './scan'
-import { categoriesFor, splitPluralKey } from './plural'
+import { categoriesFor, renderedArguments, splitPluralKey } from './plural'
 
 export type DiffClass =
   | 'missing'
@@ -58,6 +58,7 @@ export interface SyncReport {
 }
 
 const HOLE = /\{(\d+)\}|\{\{(\w+)\}\}|%[sd@]|\{(\w+)\}/g
+const PRINTF = /%[sd@]/g
 
 export interface SyncOptions {
   repo: string
@@ -263,10 +264,25 @@ function sortFindings(findings: SyncFinding[]): SyncFinding[] {
   )
 }
 
+/**
+ * The values a message renders, which a translation must keep.
+ *
+ * Read from the ICU arguments whenever the braces balance, because a pattern
+ * cannot tell an argument from a branch body: `\{\w+\}` read the `{Arzt}` of
+ * `{gender, select, female {Ärztin} other {Arzt}}` as a placeholder, and every
+ * gendered German noun with an ASCII branch became an arity mismatch against an
+ * English source with no variable at all. `{0}` and `{{name}}` come out of the
+ * same reading; printf tokens are not braces and are matched as before.
+ */
 function holeSet(text: string): Set<string> {
-  const out = new Set<string>()
-  for (const m of text.matchAll(HOLE)) out.add(m[0])
-  return out
+  const icu = text.includes('{') ? renderedArguments(text) : new Set<string>()
+  if (icu === null) {
+    const out = new Set<string>()
+    for (const m of text.matchAll(HOLE)) out.add(m[0])
+    return out
+  }
+  for (const m of text.matchAll(PRINTF)) icu.add(m[0])
+  return icu
 }
 
 function sameSet(a: Set<string>, b: Set<string>): boolean {

@@ -12,7 +12,7 @@
 // incompatible verdicts becomes a HAZARD the engine refuses to plan at all.
 import type { Inventory, Site, Surface } from './types'
 import { sha256, normalizeForGrouping } from './identity'
-import type { Category, PluralFamily, WriteMode } from './plural'
+import { icuSentence, type Category, type PluralFamily, type WriteMode } from './plural'
 import type { Adjudication } from './adjudicate'
 
 /** Register vocabulary handed to a translator. One token replaces a paragraph of instructions. */
@@ -53,7 +53,11 @@ export interface PluralPlan {
   sourceCategories: Category[]
   /** Exactly the keys the answer must come back with. */
   targetCategories: Category[]
-  /** `=0`-style ICU branches, carried through untouched. */
+  /**
+   * `=0`-style ICU branches. Translated like the forms and answered by their
+   * selector: an exact match is copy a reader sees, and carried through as
+   * written it stayed in the source language.
+   */
   exact: { selector: string; value: string }[]
   /** Placeholders that appear somewhere in the source forms. */
   placeholders: string[]
@@ -341,8 +345,23 @@ function pluralGroup(
   if (!translatable && family.declaredBy !== 'annotation') return null
 
   const targetCategories = family.targetRequired ?? family.sourceCategories
+  const read: Record<string, string> = {}
+  for (const form of family.forms) read[form.category] = form.value
+
+  // A plural inside a sentence is translated as the sentence. Handed its
+  // branches alone, the translator never saw the words around the argument and
+  // the writer kept them as written — English around every count of a German
+  // catalog. Where the words can move into the branches exactly, every form and
+  // every exact match is offered whole, and the writer makes the argument the
+  // message. `writeFamily` reads the same frame from the same site.
+  const frame =
+    family.primitive === 'icu' && family.writeMode === 'replace' && sites[0]
+      ? icuSentence(sites[0].value, family.base)
+      : null
+  const whole = (body: string): string => (frame ? frame.prefix + body + frame.suffix : body)
   const forms: Record<string, string> = {}
-  for (const form of family.forms) forms[form.category] = form.value
+  for (const [category, body] of Object.entries(read)) forms[category] = whole(body)
+  const exact = family.exact.map((e) => ({ selector: e.selector, value: whole(e.value) }))
 
   // A family already in the target locale is not being translated, it is being
   // COMPLETED — which is a different instruction, and one the model needs.
@@ -352,7 +371,7 @@ function pluralGroup(
   // forms still the source's, byte for byte; calling that `complete` told the
   // translator to keep them as written. Plural forms are too short for the
   // language detector, so the copy is recognised as a copy.
-  const seeded = sourceForms.has(formsKey(forms)) ||
+  const seeded = sourceForms.has(formsKey(read)) ||
     sites.some((s) => sourceLang !== null && s.lang?.detected === sourceLang)
   const op = family.locale === targetLang && !seeded ? 'complete' : 'translate'
 
@@ -377,8 +396,8 @@ function pluralGroup(
       forms,
       sourceCategories: family.sourceCategories,
       targetCategories,
-      exact: family.exact,
-      placeholders: placeholdersIn(Object.values(forms)),
+      exact,
+      placeholders: placeholdersIn([...Object.values(forms), ...exact.map((e) => e.value)]),
     },
   }
 

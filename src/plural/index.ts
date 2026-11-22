@@ -37,7 +37,10 @@ export { splitPluralKey, mergeDialects, detectFamilies } from './shapes'
 export { DIALECTS, DIALECTS_BY_ID } from './dialect/dialects'
 export { PRIMITIVES, ordered } from './primitives'
 export { categoriesFor, ordinalCategoriesFor, pluralTier, resetPluralTier, isSingleForm } from './cldr'
-export { scanIcu, serializeArgument, splice, branchPlaceholders, looksLikeIcu } from './icu'
+export {
+  scanIcu, serializeArgument, splice, branchPlaceholders, looksLikeIcu, renderedArguments, sentenceAround,
+  argumentFor, icuSentence,
+} from './icu'
 export { readPragmas, readSidecar, danglingSidecarKeys, parseFields, PRAGMA } from './annotate'
 
 /**
