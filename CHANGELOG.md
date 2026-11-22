@@ -1,3 +1,10 @@
+## [1.4.4](https://github.com/maxgfr/ultrai18n/compare/v1.4.3...v1.4.4) (2026-11-22)
+
+
+### Bug Fixes
+
+* **icu:** read ICU catalogs by their arguments, translate plurals as whole sentences ([#19](https://github.com/maxgfr/ultrai18n/issues/19)) ([8c565f6](https://github.com/maxgfr/ultrai18n/commit/8c565f6b641e9b650e72250e319be3c9e7bb4cff))
+
 ## [1.4.3](https://github.com/maxgfr/ultrai18n/compare/v1.4.2...v1.4.3) (2026-11-22)
 
 
